@@ -1138,9 +1138,14 @@ export class StorageService {
               }
             }
             if (Array.isArray(catalog.courses)) {
-              const mapped = catalog.courses.map(fromRow.course);
-              this.memoryCache.set(STORAGE_KEYS.COURSES, mapped);
-              localStorage.setItem(STORAGE_KEYS.COURSES, safeStringify(mapped));
+              if (catalog.courses.length > 0) {
+                const mapped = catalog.courses.map(fromRow.course);
+                this.memoryCache.set(STORAGE_KEYS.COURSES, mapped);
+                localStorage.setItem(STORAGE_KEYS.COURSES, safeStringify(mapped));
+              } else {
+                const local = this.getCourses();
+                if (local.length > 0) syncCoursesToSupabase(local).catch(() => {});
+              }
             }
             if (Array.isArray(catalog.departments) && catalog.departments.length > 0) {
               const mapped = catalog.departments.map(fromRow.department);
@@ -1153,9 +1158,14 @@ export class StorageService {
               localStorage.setItem(STORAGE_KEYS.FACULTIES, safeStringify(mapped));
             }
             if (Array.isArray(catalog.questions)) {
-              const mapped = catalog.questions.map(fromRow.question);
-              this.memoryCache.set(STORAGE_KEYS.QUESTIONS, mapped);
-              localStorage.setItem(STORAGE_KEYS.QUESTIONS, safeStringify(mapped));
+              if (catalog.questions.length > 0) {
+                const mapped = catalog.questions.map(fromRow.question);
+                this.memoryCache.set(STORAGE_KEYS.QUESTIONS, mapped);
+                localStorage.setItem(STORAGE_KEYS.QUESTIONS, safeStringify(mapped));
+              } else {
+                const local = this.getQuestions();
+                if (local.length > 0) syncQuestionsToSupabase(local).catch(() => {});
+              }
             }
             if (Array.isArray(catalog.materials)) {
               if (catalog.materials.length > 0) {
@@ -1172,7 +1182,7 @@ export class StorageService {
               this.memoryCache.set(STORAGE_KEYS.PLANS, mapped);
               localStorage.setItem(STORAGE_KEYS.PLANS, safeStringify(mapped));
             }
-            if (Array.isArray(catalog.users)) {
+            if (Array.isArray(catalog.users) && catalog.users.length > 0) {
               const remoteMapped = catalog.users.map(fromRow.user);
               this.mergeAndPersistUsers(remoteMapped);
             }

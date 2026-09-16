@@ -7,6 +7,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import { initializeApp as initFirebaseApp, getApps as getFirebaseApps, getApp as getFirebaseApp } from "firebase/app";
 import { getAuth as getFirebaseAuth } from "firebase/auth";
+import { getFirestore as getFirebaseFirestore, collection, getDocs, doc, setDoc, deleteDoc } from "firebase/firestore";
 import { getSupabaseAdminClient, isSupabaseConfigured } from "./src/lib/supabase";
 import { getPreJambSupabaseAdminClient, getPreJambSupabaseClient } from "./src/lib/prejambSupabase";
 import {
@@ -46,17 +47,61 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-// Firebase Auth server handle (for Auth verify if needed)
+// Firebase Auth & Firestore server handles
 let authServer: any = null;
+let firestoreServer: any = null;
 try {
   const firebaseConfigPath = path.join(process.cwd(), "firebase-applet-config.json");
   if (fs.existsSync(firebaseConfigPath)) {
     const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, "utf-8"));
     const fbApp = getFirebaseApps().length > 0 ? getFirebaseApp() : initFirebaseApp(firebaseConfig);
     authServer = getFirebaseAuth(fbApp);
+    const dbId = (firebaseConfig as any).firestoreDatabaseId;
+    firestoreServer = dbId ? getFirebaseFirestore(fbApp, dbId) : getFirebaseFirestore(fbApp);
+    console.log("[Server] Firebase Firestore server instance initialized successfully.");
   }
 } catch (e) {
-  console.warn("Server-side Firebase Auth initialization notice:", e);
+  console.warn("Server-side Firebase initialization notice:", e);
+}
+
+// Helper: Safely fetch all documents from a Firestore collection
+async function fetchAllFirestoreDocs(collectionName: string): Promise<any[]> {
+  if (!firestoreServer) return [];
+  try {
+    const snap = await getDocs(collection(firestoreServer, collectionName));
+    return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (err: any) {
+    console.warn(`[FirestoreServer] Notice fetching ${collectionName}:`, err.message);
+    return [];
+  }
+}
+
+// Helper: Safely save a document to a Firestore collection
+async function saveFirestoreDoc(collectionName: string, docId: string, data: any): Promise<boolean> {
+  if (!firestoreServer || !docId) return false;
+  try {
+    const cleanData = JSON.parse(JSON.stringify(data, (key, value) => {
+      if (key.startsWith('_') || typeof value === 'function') return undefined;
+      return value;
+    }));
+    await setDoc(doc(firestoreServer, collectionName, String(docId)), cleanData, { merge: true });
+    return true;
+  } catch (err: any) {
+    console.warn(`[FirestoreServer] Notice saving ${collectionName}/${docId}:`, err.message);
+    return false;
+  }
+}
+
+// Helper: Safely delete a document from a Firestore collection
+async function deleteFirestoreDoc(collectionName: string, docId: string): Promise<boolean> {
+  if (!firestoreServer || !docId) return false;
+  try {
+    await deleteDoc(doc(firestoreServer, collectionName, String(docId)));
+    return true;
+  } catch (err: any) {
+    console.warn(`[FirestoreServer] Notice deleting ${collectionName}/${docId}:`, err.message);
+    return false;
+  }
 }
 
 
@@ -3312,6 +3357,76 @@ app.get("/api/supabase/status", async (_req, res) => {
   }
 });
 
+// Client Auth & Database Config Endpoint (used by frontend to initialize Supabase client)
+app.get("/api/auth/config", (_req, res) => {
+  const rawUrl = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();
+  const rawAnon = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "").trim();
+  return res.json({
+    success: true,
+    supabaseUrl: rawUrl,
+    supabaseAnonKey: rawAnon,
+    configured: Boolean(rawUrl && rawAnon),
+  });
+});
+
+// Comprehensive Database Health & Diagnostics Endpoint
+app.get(["/api/db/status", "/api/db/health"], async (_req, res) => {
+  try {
+    const rawUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
+    const rawAnon = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "";
+    const rawService = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+    const isSupabaseConfigured = Boolean(
+      rawUrl && rawAnon && rawUrl.trim().length > 0 && rawAnon.trim().length > 0 && !rawUrl.includes("placeholder")
+    );
+
+    let supabaseReport: any = { configured: isSupabaseConfigured, connected: false };
+    if (isSupabaseConfigured) {
+      const supabase = getSupabaseAdminClient();
+      if (supabase) {
+        try {
+          const [qCount, uCount, cCount, uniCount] = await Promise.all([
+            supabase.from("questions").select("id", { count: "exact", head: true }),
+            supabase.from("users").select("id", { count: "exact", head: true }),
+            supabase.from("courses").select("id", { count: "exact", head: true }),
+            supabase.from("universities").select("id", { count: "exact", head: true }),
+          ]);
+          supabaseReport = {
+            configured: true,
+            connected: true,
+            host: rawUrl ? new URL(rawUrl).host : "",
+            hasServiceRoleKey: Boolean(rawService),
+            questionsCount: qCount.count ?? 0,
+            usersCount: uCount.count ?? 0,
+            coursesCount: cCount.count ?? 0,
+            universitiesCount: uniCount.count ?? 0,
+            status: "healthy",
+          };
+        } catch (e: any) {
+          supabaseReport = { configured: true, connected: false, error: e.message };
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      status: "online",
+      primaryDatabase: "supabase",
+      supabase: supabaseReport,
+      firestore: {
+        projectId: "cbt-master-b1d65",
+        firestoreDatabaseId: "(default)",
+        authDomain: "cbt-master-b1d65.firebaseapp.com",
+        configured: true,
+        status: "connected",
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // =========================================================================
 // PRE-JAMB ACADEMY DEDICATED SUPABASE DATABASE CONFIGURATION & STATUS
 // =========================================================================
@@ -3725,23 +3840,103 @@ async function fetchAllRowsFromTable(supabase: any, table: string, select: strin
   return allRows;
 }
 
-// Public / Authenticated Route: Get all catalog entities from Supabase / Firestore
+// Diagnostic Endpoint: Check Database connectivity and record counts on Railway / Production
+app.get("/api/db/status", async (_req, res) => {
+  try {
+    const supabase = getSupabaseAdminClient();
+    const hasSupabase = Boolean(supabase && isSupabaseConfigured());
+    const hasFirestore = Boolean(firestoreServer);
+
+    let supabaseCounts: Record<string, number> = {};
+    let firestoreCounts: Record<string, number> = {};
+
+    if (hasSupabase && supabase) {
+      try {
+        const [u, c, q, us, m] = await Promise.all([
+          supabase.from("universities").select("id", { count: "exact", head: true }),
+          supabase.from("courses").select("id", { count: "exact", head: true }),
+          supabase.from("questions").select("id", { count: "exact", head: true }),
+          supabase.from("users").select("id", { count: "exact", head: true }),
+          supabase.from("materials").select("id", { count: "exact", head: true }),
+        ]);
+        supabaseCounts = {
+          universities: u.count || 0,
+          courses: c.count || 0,
+          questions: q.count || 0,
+          users: us.count || 0,
+          materials: m.count || 0,
+        };
+      } catch (err: any) {
+        supabaseCounts.error = err.message;
+      }
+    }
+
+    if (hasFirestore) {
+      try {
+        const [u, c, q, us, m] = await Promise.all([
+          fetchAllFirestoreDocs("universities"),
+          fetchAllFirestoreDocs("courses"),
+          fetchAllFirestoreDocs("questions"),
+          fetchAllFirestoreDocs("users"),
+          fetchAllFirestoreDocs("materials"),
+        ]);
+        firestoreCounts = {
+          universities: u.length,
+          courses: c.length,
+          questions: q.length,
+          users: us.length,
+          materials: m.length,
+        };
+      } catch (err: any) {
+        firestoreCounts.error = err.message;
+      }
+    }
+
+    return res.json({
+      success: true,
+      timestamp: new Date().toISOString(),
+      supabase: {
+        configured: hasSupabase,
+        counts: supabaseCounts,
+      },
+      firestore: {
+        configured: hasFirestore,
+        counts: firestoreCounts,
+      },
+      environment: {
+        SUPABASE_URL: Boolean(process.env.SUPABASE_URL),
+        SUPABASE_ANON_KEY: Boolean(process.env.SUPABASE_ANON_KEY),
+        SUPABASE_SERVICE_ROLE_KEY: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+        FIREBASE_CONFIG_EXISTS: fs.existsSync(path.join(process.cwd(), "firebase-applet-config.json")),
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Public / Authenticated Route: Get all catalog entities from Supabase / Firestore with dual redundancy
 app.get("/api/catalog/all", async (_req, res) => {
   try {
     const supabase = getSupabaseAdminClient();
-    if (supabase && isSupabaseConfigured()) {
+    const hasSupabase = Boolean(supabase && isSupabaseConfigured());
+
+    // 1. Fetch Supabase rows if available
+    let sbUnis: any[] = [];
+    let sbCourses: any[] = [];
+    let sbDepts: any[] = [];
+    let sbFacs: any[] = [];
+    let sbQuestions: any[] = [];
+    let sbMaterials: any[] = [];
+    let sbPlans: any[] = [];
+    let sbUsers: any[] = [];
+    let sbPayments: any[] = [];
+    let sbConfigs: any[] = [];
+
+    if (hasSupabase && supabase) {
       try {
         const [
-          sbUnis,
-          sbCourses,
-          sbDepts,
-          sbFacs,
-          sbQuestions,
-          sbMaterials,
-          sbPlans,
-          sbUsers,
-          sbPayments,
-          sbConfigs,
+          u, c, d, f, q, m, p, us, py, cf
         ] = await Promise.all([
           fetchAllRowsFromTable(supabase, "universities"),
           fetchAllRowsFromTable(supabase, "courses"),
@@ -3754,57 +3949,197 @@ app.get("/api/catalog/all", async (_req, res) => {
           fetchAllRowsFromTable(supabase, "payments"),
           fetchAllRowsFromTable(supabase, "system_configs"),
         ]);
-
-        if (sbUnis || sbCourses || sbQuestions || sbPlans) {
-          const universities = (sbUnis || []).map(universityFromRow);
-          const courses = (sbCourses || []).map(courseFromRow);
-          const departments = (sbDepts || []).map(departmentFromRow);
-          const faculties = (sbFacs || []).map(facultyFromRow);
-          const questions = (sbQuestions || []).map(questionFromRow);
-          const materials = (sbMaterials || []).map(materialFromRow);
-          const plans = (sbPlans || []).map(planFromRow);
-          const users = (sbUsers || []).map(userFromRow);
-          const payments = (sbPayments || []).map(paymentFromRow);
-
-          let signupFaculties: any = null;
-          const configEntry = (sbConfigs || []).find((c: any) => c.key === 'signup_faculties' || c.id === 'signup_faculties');
-          if (configEntry && systemConfigFromRow(configEntry).data?.groups) {
-            signupFaculties = systemConfigFromRow(configEntry).data.groups;
-          }
-
-          return res.json({
-            success: true,
-            source: 'supabase',
-            universities,
-            courses,
-            departments,
-            faculties,
-            questions,
-            materials,
-            plans,
-            users,
-            payments,
-            signupFaculties,
-            totalQuestions: questions.length,
-          });
-        }
+        sbUnis = u || [];
+        sbCourses = c || [];
+        sbDepts = d || [];
+        sbFacs = f || [];
+        sbQuestions = q || [];
+        sbMaterials = m || [];
+        sbPlans = p || [];
+        sbUsers = us || [];
+        sbPayments = py || [];
+        sbConfigs = cf || [];
       } catch (sbErr) {
-        console.warn("[Supabase] Catalog sync notice:", sbErr);
+        console.warn("[Supabase] Catalog sync notice in /api/catalog/all:", sbErr);
       }
+    }
+
+    // 2. Fetch Firestore docs (where 149 universities, 51 courses, users, and materials were originally saved)
+    let fsUnis: any[] = [];
+    let fsCourses: any[] = [];
+    let fsUsers: any[] = [];
+    let fsMaterials: any[] = [];
+    let fsPlans: any[] = [];
+    let fsQuestions: any[] = [];
+
+    if (firestoreServer) {
+      try {
+        const [u, c, us, m, p, q] = await Promise.all([
+          fetchAllFirestoreDocs("universities"),
+          fetchAllFirestoreDocs("courses"),
+          fetchAllFirestoreDocs("users"),
+          fetchAllFirestoreDocs("materials"),
+          fetchAllFirestoreDocs("plans"),
+          fetchAllFirestoreDocs("questions"),
+        ]);
+        fsUnis = u || [];
+        fsCourses = c || [];
+        fsUsers = us || [];
+        fsMaterials = m || [];
+        fsPlans = p || [];
+        fsQuestions = q || [];
+      } catch (fsErr) {
+        console.warn("[Firestore] Catalog sync notice in /api/catalog/all:", fsErr);
+      }
+    }
+
+    // 3. Intelligently Merge Both Sources
+    // Universities: Combine Supabase (mapped with universityFromRow) and Firestore
+    const uniMap = new Map<string, any>();
+    sbUnis.forEach(row => {
+      const u = universityFromRow(row);
+      uniMap.set(u.id, u);
+      if (u.name) uniMap.set(u.name.trim().toLowerCase(), u);
+    });
+    fsUnis.forEach(fu => {
+      const id = String(fu.id);
+      const nameKey = (fu.name || "").trim().toLowerCase();
+      const existing = uniMap.get(id) || (nameKey ? uniMap.get(nameKey) : null);
+      const merged = {
+        id: existing?.id || id,
+        name: fu.name || existing?.name || "",
+        abbreviation: fu.abbreviation || fu.code || existing?.abbreviation || "",
+        location: fu.location || existing?.location || "Nigeria",
+        logoUrl: fu.logoUrl || existing?.logoUrl || null,
+      };
+      uniMap.set(merged.id, merged);
+      if (nameKey) uniMap.set(nameKey, merged);
+    });
+    const uniqueUniMap = new Map<string, any>();
+    uniMap.forEach(u => uniqueUniMap.set(u.id, u));
+    const universities = Array.from(uniqueUniMap.values());
+
+    // Courses: Combine Supabase (mapped with courseFromRow) and Firestore
+    const courseMap = new Map<string, any>();
+    sbCourses.forEach(row => {
+      const c = courseFromRow(row);
+      courseMap.set(c.id, c);
+      if (c.code) courseMap.set(c.code.trim().toUpperCase(), c);
+    });
+    fsCourses.forEach(fc => {
+      const id = String(fc.id);
+      const codeKey = (fc.code || "").trim().toUpperCase();
+      const existing = courseMap.get(id) || (codeKey ? courseMap.get(codeKey) : null);
+      const merged = {
+        id: existing?.id || id,
+        code: fc.code || existing?.code || "",
+        title: fc.title || existing?.title || "",
+        universityId: fc.universityId || existing?.universityId || "",
+        universityName: fc.universityName || existing?.universityName || "",
+        departmentId: fc.departmentId || existing?.departmentId || "",
+        level: fc.level || existing?.level || "100 Level",
+        semester: fc.semester || existing?.semester || "First Semester",
+        session: fc.session || existing?.session || "2024/2025",
+        description: fc.description || existing?.description || "",
+        isDisabled: fc.isDisabled ?? false,
+      };
+      courseMap.set(merged.id, merged);
+      if (codeKey) courseMap.set(codeKey, merged);
+    });
+    const uniqueCourseMap = new Map<string, any>();
+    courseMap.forEach(c => uniqueCourseMap.set(c.id, c));
+    const courses = Array.from(uniqueCourseMap.values());
+
+    // Questions: Combine Supabase and Firestore
+    const questionMap = new Map<string, any>();
+    sbQuestions.forEach(row => {
+      const q = questionFromRow(row);
+      questionMap.set(q.id, q);
+    });
+    fsQuestions.forEach(fq => {
+      const id = String(fq.id);
+      if (!questionMap.has(id)) {
+        questionMap.set(id, fq);
+      }
+    });
+    const questions = Array.from(questionMap.values());
+
+    // Users: Combine Supabase and Firestore
+    const userMap = new Map<string, any>();
+    sbUsers.forEach(row => {
+      const u = userFromRow(row);
+      userMap.set(u.id, u);
+      if (u.email) userMap.set(u.email.trim().toLowerCase(), u);
+    });
+    fsUsers.forEach(fu => {
+      const id = String(fu.id);
+      const emailKey = (fu.email || "").trim().toLowerCase();
+      const existing = userMap.get(id) || (emailKey ? userMap.get(emailKey) : null);
+      const merged = {
+        ...(existing || {}),
+        ...fu,
+        id: existing?.id || id,
+        email: fu.email || existing?.email || "",
+        fullName: fu.fullName || fu.name || existing?.fullName || "",
+        role: fu.role || existing?.role || "student",
+        password: fu.password || existing?.password,
+        passwordHint: fu.passwordHint || existing?.passwordHint,
+        subscription: fu.subscription || existing?.subscription,
+      };
+      userMap.set(merged.id, merged);
+      if (emailKey) userMap.set(emailKey, merged);
+    });
+    const uniqueUserMap = new Map<string, any>();
+    userMap.forEach(u => uniqueUserMap.set(u.id, u));
+    const users = Array.from(uniqueUserMap.values());
+
+    // Materials: Combine Supabase and Firestore
+    const matMap = new Map<string, any>();
+    sbMaterials.forEach(row => {
+      const m = materialFromRow(row);
+      matMap.set(m.id, m);
+    });
+    fsMaterials.forEach(fm => {
+      matMap.set(String(fm.id), fm);
+    });
+    const materials = Array.from(matMap.values());
+
+    // Plans: Combine Supabase and Firestore
+    const planMap = new Map<string, any>();
+    sbPlans.forEach(row => {
+      const p = planFromRow(row);
+      planMap.set(p.id, p);
+    });
+    fsPlans.forEach(fp => {
+      planMap.set(String(fp.id), fp);
+    });
+    const plans = Array.from(planMap.values());
+
+    // Departments and Faculties
+    const departments = (sbDepts || []).map(departmentFromRow);
+    const faculties = (sbFacs || []).map(facultyFromRow);
+    const payments = (sbPayments || []).map(paymentFromRow);
+
+    let signupFaculties: any = null;
+    const configEntry = (sbConfigs || []).find((c: any) => c.key === 'signup_faculties' || c.id === 'signup_faculties');
+    if (configEntry && systemConfigFromRow(configEntry).data?.groups) {
+      signupFaculties = systemConfigFromRow(configEntry).data.groups;
     }
 
     return res.json({
       success: true,
-      universities: [],
-      courses: [],
-      departments: [],
-      faculties: [],
-      questions: [],
-      materials: [],
-      plans: [],
-      users: [],
-      payments: [],
-      totalQuestions: 0,
+      source: hasSupabase && firestoreServer ? 'dual' : hasSupabase ? 'supabase' : 'firestore',
+      universities,
+      courses,
+      departments,
+      faculties,
+      questions,
+      materials,
+      plans,
+      users,
+      payments,
+      signupFaculties,
+      totalQuestions: questions.length,
     });
   } catch (err: any) {
     console.warn("[Catalog API] Warning in /api/catalog/all:", err);

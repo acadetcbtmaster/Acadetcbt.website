@@ -25,7 +25,8 @@ let _dbInstance: Firestore | null = null;
 export function getFirebaseDb(): Firestore | null {
   if (!_dbInstance && app) {
     try {
-      _dbInstance = getFirestore(app);
+      const dbId = (firebaseConfigData as any).firestoreDatabaseId;
+      _dbInstance = dbId ? getFirestore(app, dbId) : getFirestore(app);
     } catch (err) {
       console.warn('[Firebase Firestore Initializer Notice]:', (err as any)?.message || String(err));
     }
