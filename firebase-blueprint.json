@@ -1,0 +1,224 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account and subscription profile",
+      "type": "object",
+      "properties": {
+        "fullName": { "type": "string", "maxLength": 100 },
+        "email": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["student", "admin"] },
+        "subscriptionPlan": { "type": "string" },
+        "subscriptionStatus": { "type": "string", "enum": ["active", "inactive", "pending"] },
+        "referralCode": { "type": "string", "maxLength": 30 },
+        "totalReferrals": { "type": "number", "minimum": 0 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["email", "role"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Payment records for Squad Gateway transactions",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "amount": { "type": "number" },
+        "transactionRef": { "type": "string" },
+        "gatewayRef": { "type": "string" },
+        "provider": { "type": "string", "enum": ["squad"] },
+        "status": { "type": "string", "enum": ["pending", "success", "failed"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["userId", "amount", "transactionRef", "status", "createdAt"]
+    },
+    "Subscription": {
+      "title": "Subscription",
+      "description": "User active subscription record",
+      "type": "object",
+      "properties": {
+        "plan": { "type": "string" },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "expired"] },
+        "startDate": { "type": "string" },
+        "expiryDate": { "type": "string" }
+      },
+      "required": ["plan", "status", "startDate", "expiryDate"]
+    },
+    "Referral": {
+      "title": "Referral",
+      "description": "Student referral relationship record",
+      "type": "object",
+      "properties": {
+        "referrerId": { "type": "string" },
+        "referredUserId": { "type": "string" },
+        "status": { "type": "string", "enum": ["completed", "pending"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["referrerId", "referredUserId", "status", "createdAt"]
+    },
+    "Leaderboard": {
+      "title": "Leaderboard",
+      "description": "Referral leaderboard entry",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "referralCount": { "type": "number" },
+        "rank": { "type": "number" }
+      },
+      "required": ["name", "referralCount", "rank"]
+    },
+    "SubscriptionPlan": {
+      "title": "SubscriptionPlan",
+      "description": "Single source of truth for subscription plans",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "durationDays": { "type": "number" },
+        "description": { "type": "string" },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "price", "durationDays", "active"]
+    },
+    "QuickLink": {
+      "title": "QuickLink",
+      "description": "Dynamic quick link items managed from Interface Editor",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "icon": { "type": "string" },
+        "url": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "order": { "type": "number" },
+        "badge": { "type": "string" },
+        "target": { "type": "string", "enum": ["_blank", "_self"] }
+      },
+      "required": ["id", "title", "url", "status", "order"]
+    },
+    "HomepageSection": {
+      "title": "HomepageSection",
+      "description": "Dynamic homepage/interface sections managed from Interface Editor",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["announcement", "quick_links", "featured_content", "latest_updates", "ad_banner", "custom_section"] },
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "description": { "type": "string" },
+        "buttonText": { "type": "string" },
+        "buttonLink": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "bgImage": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "inactive"] },
+        "order": { "type": "number" },
+        "badge": { "type": "string" }
+      },
+      "required": ["id", "type", "title", "status", "order"]
+    },
+    "PreJambCandidate": {
+      "title": "PreJambCandidate",
+      "description": "Pre-JAMB registered candidate profile with UTME combo and metrics",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "regNumber": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "targetUniversity": { "type": "string" },
+        "targetCourse": { "type": "string" },
+        "subscriptionStatus": { "type": "string", "enum": ["active", "free", "expired"] },
+        "totalTestsTaken": { "type": "number" },
+        "bestScore": { "type": "number" },
+        "averageScore": { "type": "number" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "regNumber", "name", "email"]
+    },
+    "PreJambQuestion": {
+      "title": "PreJambQuestion",
+      "description": "Pre-JAMB isolated question bank record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "subjectId": { "type": "string" },
+        "question": { "type": "string" },
+        "options": { "type": "array" },
+        "correctAnswer": { "type": "string" },
+        "explanation": { "type": "string" },
+        "topic": { "type": "string" }
+      },
+      "required": ["id", "subjectId", "question", "correctAnswer"]
+    },
+    "PreJambExamResult": {
+      "title": "PreJambExamResult",
+      "description": "Pre-JAMB completed mock test result",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "candidateId": { "type": "string" },
+        "examTitle": { "type": "string" },
+        "isFullMock": { "type": "boolean" },
+        "totalQuestions": { "type": "number" },
+        "totalScore": { "type": "number" },
+        "percentage": { "type": "number" },
+        "utmeAggregate": { "type": "number" },
+        "timeUsedSeconds": { "type": "number" },
+        "completedAt": { "type": "string" }
+      },
+      "required": ["id", "candidateId", "percentage", "completedAt"]
+    }
+  },
+  "firestore": {
+    "/prejamb_candidates/{candidateId}": {
+      "schema": "PreJambCandidate",
+      "description": "Pre-JAMB candidate profiles database"
+    },
+    "/prejamb_questions/{questionId}": {
+      "schema": "PreJambQuestion",
+      "description": "Pre-JAMB question bank collection"
+    },
+    "/prejamb_results/{resultId}": {
+      "schema": "PreJambExamResult",
+      "description": "Pre-JAMB test results database"
+    },
+    "/quick_links/{linkId}": {
+      "schema": "QuickLink",
+      "description": "Dynamic quick links collection"
+    },
+    "/homepage_sections/{sectionId}": {
+      "schema": "HomepageSection",
+      "description": "Dynamic homepage sections collection"
+    },
+    "/subscription_plans/{planId}": {
+      "schema": "SubscriptionPlan",
+      "description": "Subscription plan definitions"
+    },
+    "/users/{uid}": {
+      "schema": "UserProfile",
+      "description": "User profile records containing subscription status and referral metrics"
+    },
+    "/payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Squad payment transaction records"
+    },
+    "/subscriptions/{uid}": {
+      "schema": "Subscription",
+      "description": "Active user subscription records"
+    },
+    "/referrals/{referralId}": {
+      "schema": "Referral",
+      "description": "Referral tracking records"
+    },
+    "/leaderboard/{uid}": {
+      "schema": "Leaderboard",
+      "description": "Referral leaderboard rankings"
+    }
+  }
+}

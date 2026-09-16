@@ -1,0 +1,938 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Responsive Root, Body & Main Container Viewport-Fit Architecture */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow-x: hidden !important;
+  box-sizing: border-box !important;
+  position: relative;
+}
+
+/* ==========================================================================
+   STANDARD FORM TYPOGRAPHY ARCHITECTURE (CLEAN, ORGANIZED, BALANCED CHARACTERS)
+   ========================================================================== */
+html {
+  font-size: 17.5px; /* Proportionally larger base scale so all text is a little bit bigger and effortless to read */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@media (max-width: 640px) {
+  html {
+    font-size: 17px; /* Clean, standard mobile baseline */
+  }
+}
+
+body {
+  font-size: 1rem;
+  font-weight: 550; /* Little bold base weight across the whole app */
+  line-height: 1.55; /* Standard balanced line spacing */
+  letter-spacing: normal; /* Standard character spacing - never squeezed or scattered */
+  font-style: normal;
+  text-transform: none; /* Standard capitalization form */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Ensure all text characters are standardly and cleanly arranged - never disorganized or scattered */
+*, *::before, *::after {
+  letter-spacing: normal;
+}
+
+/* Standardized, comfortable font weights across all headings */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 750;
+  line-height: 1.3;
+  letter-spacing: normal;
+  font-style: normal;
+}
+
+/* Ensure text is a little bold without breaking component line-heights or alignment */
+.font-normal,
+.font-light,
+.font-thin {
+  font-weight: 550 !important;
+}
+
+.font-medium {
+  font-weight: 600 !important;
+}
+
+.font-semibold {
+  font-weight: 700 !important;
+}
+
+.font-bold {
+  font-weight: 800 !important;
+}
+
+.font-extrabold,
+.font-black {
+  font-weight: 850 !important;
+}
+
+/* Maintain standard paragraph and character flow */
+p, span, a, button, label, input, select, textarea {
+  letter-spacing: normal;
+  font-style: normal;
+}
+
+p {
+  margin: 0;
+}
+
+#root,
+#cbt-app-root,
+.cbt-app-container,
+.main-wrapper {
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  min-height: 100%;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 100% !important;
+  align-items: stretch !important;
+  overflow-x: hidden !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
+}
+
+main,
+#main-content {
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  flex: 1 1 auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  box-sizing: border-box !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+}
+
+main > *,
+#main-content > * {
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+/* Mobile responsive full-width container scaling (prevents gap on right on mobile) */
+@media (max-width: 768px) {
+  html,
+  body,
+  #root,
+  #cbt-app-root,
+  main,
+  #main-content,
+  section,
+  .w-full,
+  [id*="container"],
+  [class*="max-w-"] {
+    width: 100% !important;
+    min-width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+  }
+}
+
+/* ==========================================================================
+   CENTRALIZED DESIGN TOKEN ARCHITECTURE (LIGHT & DARK THEMES)
+   ========================================================================== */
+
+:root,
+html.light-theme,
+html.light {
+  color-scheme: light;
+  background-color: #f4f5f7;
+  color: #111827;
+  --bg-main: #f4f5f7;
+  --bg-secondary: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fafafa;
+  --bg-input: #ffffff;
+  --bg-modal: #ffffff;
+  --bg-backdrop: rgba(15, 23, 42, 0.45);
+
+  --cbt-navy-blue: #1e3a8a;
+  --cbt-navy-blue-dark: #172554;
+  --cbt-navy-blue-light: #1d4ed8;
+  --cbt-navy-blue-soft: #eff6ff;
+  --cbt-forest-green: #1e3a8a;
+  --cbt-forest-green-dark: #172554;
+  --cbt-forest-green-light: #1d4ed8;
+  --cbt-forest-green-soft: #eff6ff;
+  --cbt-accent-orange: #ea580c;
+
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #6b7280;
+  --text-inverse: #ffffff;
+
+  --border-primary: #e5e7eb;
+  --border-secondary: #d1d5db;
+  --border-subtle: #f3f4f6;
+
+  --shadow-soft: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+html.dark-theme,
+html.dark {
+  color-scheme: dark;
+  background-color: #0f1115 !important;
+  color: #f3f4f6 !important;
+  --bg-main: #0f1115;
+  --bg-secondary: #161920;
+  --bg-card: #161920;
+  --bg-card-hover: #1c202a;
+  --bg-input: #12151c;
+  --bg-modal: #161920;
+  --bg-backdrop: rgba(15, 17, 21, 0.85);
+
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --text-inverse: #0f1115;
+
+  --border-primary: rgba(255, 255, 255, 0.08);
+  --border-secondary: rgba(255, 255, 255, 0.12);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* ==========================================================================
+   REFINED SAAS DARK MODE BASE & UTILITY OVERRIDES (#0f1115 / #161920)
+   ========================================================================== */
+
+html.dark,
+html.dark body,
+html.dark #root,
+html.dark #cbt-app-root,
+html.dark-theme,
+html.dark-theme body,
+html.dark-theme #root,
+html.dark-theme #cbt-app-root {
+  background-color: #0f1115 !important;
+  color: #f3f4f6 !important;
+}
+
+/* Main background containers in Dark Mode */
+html.dark .bg-slate-950,
+html.dark .bg-slate-950\/95,
+html.dark .bg-slate-950\/90,
+html.dark .bg-slate-950\/85,
+html.dark .bg-slate-950\/80,
+html.dark .bg-slate-950\/60,
+html.dark .bg-slate-950\/50,
+html.dark .bg-slate-950\/40,
+html.dark-theme .bg-slate-950,
+html.dark-theme .bg-slate-950\/95,
+html.dark-theme .bg-slate-950\/90,
+html.dark-theme .bg-slate-950\/85,
+html.dark-theme .bg-slate-950\/80,
+html.dark-theme .bg-slate-950\/60,
+html.dark-theme .bg-slate-950\/50,
+html.dark-theme .bg-slate-950\/40 {
+  background-color: #0f1115 !important;
+}
+
+/* Card surfaces in Dark Mode */
+html.dark .bg-slate-900,
+html.dark .bg-slate-900\/95,
+html.dark .bg-slate-900\/90,
+html.dark .bg-slate-900\/80,
+html.dark .bg-slate-900\/60,
+html.dark .bg-slate-900\/50,
+html.dark .bg-slate-900\/40,
+html.dark-theme .bg-slate-900,
+html.dark-theme .bg-slate-900\/95,
+html.dark-theme .bg-slate-900\/90,
+html.dark-theme .bg-slate-900\/80,
+html.dark-theme .bg-slate-900\/60,
+html.dark-theme .bg-slate-900\/50,
+html.dark-theme .bg-slate-900\/40 {
+  background-color: #161920 !important;
+}
+
+/* Secondary / elevated blocks in Dark Mode */
+html.dark .bg-slate-800,
+html.dark .bg-slate-800\/95,
+html.dark .bg-slate-800\/90,
+html.dark .bg-slate-800\/80,
+html.dark .bg-slate-800\/60,
+html.dark-theme .bg-slate-800,
+html.dark-theme .bg-slate-800\/95,
+html.dark-theme .bg-slate-800\/90,
+html.dark-theme .bg-slate-800\/80,
+html.dark-theme .bg-slate-800\/60 {
+  background-color: #1c202a !important;
+}
+
+/* Crisp subtle borders in Dark Mode */
+html.dark .border-slate-800,
+html.dark .border-slate-800\/80,
+html.dark .border-slate-800\/60,
+html.dark .border-slate-800\/50,
+html.dark .border-slate-800\/40,
+html.dark .border-slate-800\/30,
+html.dark .border-slate-700,
+html.dark .border-slate-700\/80,
+html.dark .border-slate-700\/60,
+html.dark .border-slate-700\/50,
+html.dark .border-slate-700\/40,
+html.dark .border-slate-600,
+html.dark-theme .border-slate-800,
+html.dark-theme .border-slate-800\/80,
+html.dark-theme .border-slate-800\/60,
+html.dark-theme .border-slate-800\/50,
+html.dark-theme .border-slate-800\/40,
+html.dark-theme .border-slate-800\/30,
+html.dark-theme .border-slate-700,
+html.dark-theme .border-slate-700\/80,
+html.dark-theme .border-slate-700\/60,
+html.dark-theme .border-slate-700\/50,
+html.dark-theme .border-slate-700\/40,
+html.dark-theme .border-slate-600 {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .divide-slate-800 > :not([hidden]) ~ :not([hidden]),
+html.dark .divide-slate-700 > :not([hidden]) ~ :not([hidden]),
+html.dark-theme .divide-slate-800 > :not([hidden]) ~ :not([hidden]),
+html.dark-theme .divide-slate-700 > :not([hidden]) ~ :not([hidden]) {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Neutralize glowing gradient cards in Dark Mode */
+html.dark .from-indigo-950,
+html.dark .from-amber-950\/60,
+html.dark .from-slate-950,
+html.dark-theme .from-indigo-950,
+html.dark-theme .from-amber-950\/60,
+html.dark-theme .from-slate-950 {
+  --tw-gradient-from: #161920 !important;
+  --tw-gradient-to: #161920 !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+html.dark .via-slate-900,
+html.dark-theme .via-slate-900 {
+  --tw-gradient-via: #161920 !important;
+}
+html.dark .to-slate-950,
+html.dark .to-indigo-950,
+html.dark-theme .to-slate-950,
+html.dark-theme .to-indigo-950 {
+  --tw-gradient-to: #161920 !important;
+}
+
+/* Replace glowing drop shadows with crisp, minimal depth */
+html.dark .shadow-2xl,
+html.dark .shadow-xl,
+html.dark-theme .shadow-2xl,
+html.dark-theme .shadow-xl {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* ==========================================================================
+   LIGHT MODE UTILITY & COMPONENT STYLING OVERRIDES
+   ========================================================================== */
+
+html.light-theme,
+html.light-theme body,
+html.light-theme #root,
+html.light-theme #cbt-app-root {
+  background-color: #f4f5f7 !important;
+  color: #111827 !important;
+}
+
+/* Base background containers in Light Mode */
+html.light-theme .bg-slate-950,
+html.light-theme .bg-slate-950\/95,
+html.light-theme .bg-slate-950\/90,
+html.light-theme .bg-slate-950\/85,
+html.light-theme .bg-slate-950\/80,
+html.light-theme .bg-slate-950\/60,
+html.light-theme .bg-slate-950\/50,
+html.light-theme .bg-slate-950\/40 {
+  background-color: #f4f5f7 !important;
+}
+
+/* Card surfaces in Light Mode - Crisp Pure White (#ffffff) on (#f4f5f7) canvas */
+html.light-theme .bg-slate-900,
+html.light-theme .bg-slate-900\/95,
+html.light-theme .bg-slate-900\/90,
+html.light-theme .bg-slate-900\/80 {
+  background-color: #ffffff !important;
+  border-color: #e5e7eb !important;
+}
+
+html.light-theme .bg-slate-900\/60,
+html.light-theme .bg-slate-900\/50,
+html.light-theme .bg-slate-900\/40,
+html.light-theme .bg-slate-900\/30,
+html.light-theme .bg-slate-900\/20,
+html.light-theme .bg-slate-900\/10 {
+  background-color: #f8fafc !important;
+}
+
+html.light-theme .bg-slate-800,
+html.light-theme .bg-slate-800\/95,
+html.light-theme .bg-slate-800\/90,
+html.light-theme .bg-slate-800\/80 {
+  background-color: #f8fafc !important;
+}
+
+html.light-theme .bg-slate-800\/60,
+html.light-theme .bg-slate-800\/50,
+html.light-theme .bg-slate-800\/40,
+html.light-theme .bg-slate-800\/30,
+html.light-theme .bg-slate-800\/20 {
+  background-color: #f1f5f9 !important;
+}
+
+html.light-theme .bg-slate-700,
+html.light-theme .bg-slate-700\/80,
+html.light-theme .bg-slate-700\/50 {
+  background-color: #e2e8f0 !important;
+}
+
+html.light-theme .bg-indigo-950,
+html.light-theme .bg-indigo-950\/60,
+html.light-theme .bg-indigo-950\/50,
+html.light-theme .bg-indigo-950\/40,
+html.light-theme .bg-indigo-950\/30,
+html.light-theme .bg-indigo-950\/20 {
+  background-color: #eef2ff !important;
+}
+
+/* Remove dark gradients on cards & containers in Light Mode */
+html.light-theme .from-slate-950,
+html.light-theme .from-slate-900,
+html.light-theme .from-slate-900\/90,
+html.light-theme .from-slate-800,
+html.light-theme .from-indigo-950 {
+  --tw-gradient-from: #ffffff !important;
+  --tw-gradient-to: #ffffff !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+html.light-theme .to-slate-950,
+html.light-theme .to-slate-900,
+html.light-theme .to-slate-900\/90,
+html.light-theme .to-slate-800,
+html.light-theme .to-indigo-950 {
+  --tw-gradient-to: #f8fafc !important;
+}
+
+html.light-theme .via-slate-950,
+html.light-theme .via-slate-900,
+html.light-theme .via-slate-800,
+html.light-theme .via-indigo-950 {
+  --tw-gradient-via: #ffffff !important;
+}
+
+/* Borders in Light Mode */
+html.light-theme .border-slate-800,
+html.light-theme .border-slate-800\/80,
+html.light-theme .border-slate-800\/60,
+html.light-theme .border-slate-800\/50,
+html.light-theme .border-slate-800\/40,
+html.light-theme .border-slate-800\/30,
+html.light-theme .border-slate-700,
+html.light-theme .border-slate-700\/80,
+html.light-theme .border-slate-700\/60,
+html.light-theme .border-slate-700\/50,
+html.light-theme .border-slate-700\/40,
+html.light-theme .border-slate-600 {
+  border-color: #e5e7eb !important;
+}
+
+html.light-theme .divide-slate-800 > :not([hidden]) ~ :not([hidden]),
+html.light-theme .divide-slate-700 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #e5e7eb !important;
+}
+
+/* Typography in Light Mode */
+html.light-theme .text-slate-100 {
+  color: #0f172a !important;
+}
+
+html.light-theme .text-slate-200 {
+  color: #1e293b !important;
+}
+
+html.light-theme .text-slate-300 {
+  color: #334155 !important;
+}
+
+html.light-theme .text-slate-400 {
+  color: #475569 !important;
+}
+
+html.light-theme .text-slate-500 {
+  color: #64748b !important;
+}
+
+/* Primary text headers in light mode */
+html.light-theme h1,
+html.light-theme h2,
+html.light-theme h3,
+html.light-theme h4,
+html.light-theme h5,
+html.light-theme h6 {
+  color: #0f172a !important;
+}
+
+/* Gradient Text / Transparent Text Overrides in Light Mode */
+html.light-theme .text-transparent,
+html.light-theme .bg-clip-text {
+  background-image: none !important;
+  -webkit-background-clip: unset !important;
+  background-clip: unset !important;
+  color: #0f172a !important;
+  -webkit-text-fill-color: #0f172a !important;
+}
+
+html.light-theme .text-transparent.from-indigo-400,
+html.light-theme .text-transparent.from-indigo-500,
+html.light-theme .text-transparent.from-indigo-600,
+html.light-theme .text-indigo-300,
+html.light-theme .text-indigo-400 {
+  color: #3730a3 !important;
+  -webkit-text-fill-color: #3730a3 !important;
+}
+
+html.light-theme .text-transparent.from-blue-400,
+html.light-theme .text-transparent.from-blue-500,
+html.light-theme .text-blue-300,
+html.light-theme .text-blue-400 {
+  color: #1e40af !important;
+  -webkit-text-fill-color: #1e40af !important;
+}
+
+html.light-theme .text-transparent.from-amber-400,
+html.light-theme .text-transparent.from-amber-500,
+html.light-theme .text-amber-300,
+html.light-theme .text-amber-400 {
+  color: #92400e !important;
+  -webkit-text-fill-color: #92400e !important;
+}
+
+html.light-theme .text-purple-300,
+html.light-theme .text-purple-400 {
+  color: #5b21b6 !important;
+  -webkit-text-fill-color: #5b21b6 !important;
+}
+
+/* ==========================================================================
+   NAVBAR & BRANDING THEME STYLING GUARANTEE
+   ========================================================================== */
+
+/* Dark Mode Header & Logo */
+html.dark #cbt-navbar,
+html.dark-theme #cbt-navbar {
+  background-color: rgba(22, 25, 32, 0.95) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: #f3f4f6 !important;
+}
+
+html.dark #navbar-logo span,
+html.dark-theme #navbar-logo span {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+html.dark #navbar-logo p,
+html.dark-theme #navbar-logo p {
+  color: #94a3b8 !important;
+}
+
+/* Navy Blue Top Navigation Header for Nigerian CBT Portal */
+html.light-theme #cbt-navbar {
+  background-color: #1e3a8a !important;
+  border-color: #172554 !important;
+  color: #ffffff !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08) !important;
+}
+
+html.light-theme #cbt-navbar a:not(#navbar-user-dropdown *):not(#mobile-drawer *),
+html.light-theme #cbt-navbar button:not(#navbar-user-dropdown *):not(#mobile-drawer *):not(#navbar-theme-toggle-group *):not(#brand-middle-theme-toggle *),
+html.light-theme #cbt-navbar h1:not(#navbar-user-dropdown *):not(#mobile-drawer *),
+html.light-theme #cbt-navbar h2:not(#navbar-user-dropdown *):not(#mobile-drawer *),
+html.light-theme #cbt-navbar h3:not(#navbar-user-dropdown *):not(#mobile-drawer *),
+html.light-theme #cbt-navbar span:not(#navbar-user-dropdown *):not(#mobile-drawer *):not(#navbar-theme-toggle-group *):not(#brand-middle-theme-toggle *) {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+html.light-theme #cbt-navbar p:not(#navbar-user-dropdown *):not(#mobile-drawer *),
+html.light-theme #cbt-navbar .text-slate-400:not(#navbar-user-dropdown *):not(#mobile-drawer *),
+html.light-theme #cbt-navbar .text-slate-500:not(#navbar-user-dropdown *):not(#mobile-drawer *),
+html.light-theme #cbt-navbar .text-slate-600:not(#navbar-user-dropdown *):not(#mobile-drawer *) {
+  color: #dbeafe !important;
+  -webkit-text-fill-color: #dbeafe !important;
+}
+
+html.light-theme #navbar-logo span:first-child {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+html.light-theme #navbar-logo p {
+  color: #dbeafe !important;
+  -webkit-text-fill-color: #dbeafe !important;
+}
+
+/* ==========================================================================
+   USER PROFILE DROPDOWN MENU & MOBILE DRAWER THEME GUARANTEE
+   ========================================================================== */
+
+/* User Dropdown in Daylight / Light Mode */
+html.light-theme #navbar-user-dropdown {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  color: #0f172a !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+}
+
+html.light-theme #navbar-user-dropdown div {
+  border-color: #e2e8f0 !important;
+}
+
+html.light-theme #navbar-user-dropdown p.font-bold,
+html.light-theme #navbar-user-dropdown p.text-slate-900 {
+  color: #0f172a !important;
+  -webkit-text-fill-color: #0f172a !important;
+}
+
+html.light-theme #navbar-user-dropdown p.text-slate-500,
+html.light-theme #navbar-user-dropdown p.text-slate-400 {
+  color: #64748b !important;
+  -webkit-text-fill-color: #64748b !important;
+}
+
+html.light-theme #navbar-user-dropdown button {
+  color: #1e293b !important;
+  -webkit-text-fill-color: #1e293b !important;
+}
+
+html.light-theme #navbar-user-dropdown button span {
+  color: #1e293b !important;
+  -webkit-text-fill-color: #1e293b !important;
+}
+
+html.light-theme #navbar-user-dropdown button:hover {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  -webkit-text-fill-color: #0f172a !important;
+}
+
+html.light-theme #navbar-user-dropdown button:hover span {
+  color: #0f172a !important;
+  -webkit-text-fill-color: #0f172a !important;
+}
+
+html.light-theme #navbar-user-dropdown #dropdown-item-logout,
+html.light-theme #navbar-user-dropdown #dropdown-item-logout span {
+  color: #e11d48 !important;
+  -webkit-text-fill-color: #e11d48 !important;
+}
+
+html.light-theme #navbar-user-dropdown #dropdown-item-logout:hover {
+  background-color: #fff1f2 !important;
+  color: #be123c !important;
+  -webkit-text-fill-color: #be123c !important;
+}
+
+html.light-theme #navbar-user-dropdown #dropdown-item-logout:hover span {
+  color: #be123c !important;
+  -webkit-text-fill-color: #be123c !important;
+}
+
+/* User Dropdown in Night / Dark Mode */
+html.dark #navbar-user-dropdown,
+html.dark-theme #navbar-user-dropdown {
+  background-color: #161920 !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: #f3f4f6 !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5) !important;
+}
+
+html.dark #navbar-user-dropdown div,
+html.dark-theme #navbar-user-dropdown div {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark #navbar-user-dropdown button,
+html.dark-theme #navbar-user-dropdown button {
+  color: #cbd5e1 !important;
+  -webkit-text-fill-color: #cbd5e1 !important;
+}
+
+html.dark #navbar-user-dropdown button span,
+html.dark-theme #navbar-user-dropdown button span {
+  color: #cbd5e1 !important;
+  -webkit-text-fill-color: #cbd5e1 !important;
+}
+
+html.dark #navbar-user-dropdown button:hover,
+html.dark-theme #navbar-user-dropdown button:hover {
+  background-color: #1c202a !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+html.dark #navbar-user-dropdown button:hover span,
+html.dark-theme #navbar-user-dropdown button:hover span {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* Mobile Drawer Styling in Daylight Mode */
+html.light-theme #mobile-drawer {
+  background-color: #172554 !important;
+  border-color: #0f172a !important;
+  color: #ffffff !important;
+}
+
+html.light-theme #mobile-drawer button,
+html.light-theme #mobile-drawer span {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+html.light-theme #mobile-drawer button:hover {
+  background-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Brand Middle Theme Toggle Styling */
+html.light-theme #brand-middle-theme-toggle #theme-btn-day {
+  background-color: #ffffff !important;
+  color: #172554 !important;
+  -webkit-text-fill-color: #172554 !important;
+}
+html.light-theme #brand-middle-theme-toggle #theme-btn-day span {
+  color: #172554 !important;
+  -webkit-text-fill-color: #172554 !important;
+}
+html.light-theme #brand-middle-theme-toggle #theme-btn-night {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+html.light-theme #brand-middle-theme-toggle #theme-btn-night span {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+html.dark #brand-middle-theme-toggle #theme-btn-night,
+html.dark-theme #brand-middle-theme-toggle #theme-btn-night {
+  background-color: #0f172a !important;
+  color: #fcd34d !important;
+  -webkit-text-fill-color: #fcd34d !important;
+}
+html.dark #brand-middle-theme-toggle #theme-btn-night span,
+html.dark-theme #brand-middle-theme-toggle #theme-btn-night span {
+  color: #fcd34d !important;
+  -webkit-text-fill-color: #fcd34d !important;
+}
+html.dark #brand-middle-theme-toggle #theme-btn-day,
+html.dark-theme #brand-middle-theme-toggle #theme-btn-day {
+  color: #94a3b8 !important;
+  -webkit-text-fill-color: #94a3b8 !important;
+}
+html.dark #brand-middle-theme-toggle #theme-btn-day span,
+html.dark-theme #brand-middle-theme-toggle #theme-btn-day span {
+  color: #94a3b8 !important;
+  -webkit-text-fill-color: #94a3b8 !important;
+}
+
+/* Primary Navy Blue buttons across light mode */
+html.light-theme .btn-primary-cbt {
+  background-color: #1e3a8a !important;
+  color: #ffffff !important;
+}
+
+html.light-theme .btn-primary-cbt:hover {
+  background-color: #172554 !important;
+}
+
+/* Heading and Paragraph contrast overrides in Light Mode for text-white elements */
+html.light-theme p.text-white:not(#navbar-logo *):not(#cbt-navbar *):not([class*="bg-"]):not(button *),
+html.light-theme h1.text-white:not(#navbar-logo *):not(#cbt-navbar *):not([class*="bg-"]):not(button *),
+html.light-theme h2.text-white:not(#navbar-logo *):not(#cbt-navbar *):not([class*="bg-"]):not(button *),
+html.light-theme h3.text-white:not(#navbar-logo *):not(#cbt-navbar *):not([class*="bg-"]):not(button *),
+html.light-theme h4.text-white:not(#navbar-logo *):not(#cbt-navbar *):not([class*="bg-"]):not(button *),
+html.light-theme h5.text-white:not(#navbar-logo *):not(#cbt-navbar *):not([class*="bg-"]):not(button *),
+html.light-theme h6.text-white:not(#navbar-logo *):not(#cbt-navbar *):not([class*="bg-"]):not(button *) {
+  color: #0f172a !important;
+}
+
+/* Ensure colored pills, tags, badges, and buttons ALWAYS retain crisp white text */
+html.light-theme [class*="bg-blue-600"],
+html.light-theme [class*="bg-blue-700"],
+html.light-theme [class*="bg-blue-800"],
+html.light-theme [class*="bg-blue-900"],
+html.light-theme [class*="bg-blue-950"],
+html.light-theme [class*="bg-indigo-600"],
+html.light-theme [class*="bg-indigo-700"],
+html.light-theme [class*="bg-amber-600"],
+html.light-theme [class*="bg-amber-700"],
+html.light-theme [class*="bg-rose-600"],
+html.light-theme [class*="bg-rose-700"],
+html.light-theme [class*="bg-purple-600"],
+html.light-theme .cbt-badge-white {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+html.light-theme [class*="bg-blue-600"] *,
+html.light-theme [class*="bg-blue-700"] *,
+html.light-theme [class*="bg-blue-800"] *,
+html.light-theme [class*="bg-blue-900"] *,
+html.light-theme [class*="bg-blue-950"] *,
+html.light-theme [class*="bg-indigo-600"] *,
+html.light-theme [class*="bg-indigo-700"] *,
+html.light-theme [class*="bg-amber-600"] *,
+html.light-theme [class*="bg-amber-700"] *,
+html.light-theme [class*="bg-rose-600"] *,
+html.light-theme [class*="bg-rose-700"] *,
+html.light-theme [class*="bg-purple-600"] *,
+html.light-theme .cbt-badge-white * {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* Prevent text-white span from turning dark if it is inside any colored pill or button */
+html.light-theme span.text-white:not([class*="bg-"]):not(button *):not([class*="rounded"] *):not(#navbar-logo *):not(#cbt-navbar *),
+html.light-theme div.text-white:not([class*="bg-"]):not(button *):not([class*="rounded"] *):not(#navbar-logo *):not(#cbt-navbar *) {
+  color: #0f172a !important;
+}
+
+/* Force filled buttons & badge icons to keep crisp white text in Light Mode */
+html.light-theme button.bg-indigo-600,
+html.light-theme button.bg-indigo-500,
+html.light-theme button.bg-blue-600,
+html.light-theme button.bg-blue-500,
+html.light-theme button.bg-rose-600,
+html.light-theme button.bg-purple-600,
+html.light-theme button.bg-amber-600,
+html.light-theme button.bg-blue-600,
+html.light-theme .bg-indigo-600,
+html.light-theme .bg-indigo-500,
+html.light-theme .bg-blue-600,
+html.light-theme .bg-blue-500,
+html.light-theme .bg-rose-600,
+html.light-theme .bg-purple-600 {
+  color: #ffffff !important;
+}
+
+html.light-theme button.bg-indigo-600 *,
+html.light-theme button.bg-indigo-500 *,
+html.light-theme button.bg-blue-600 *,
+html.light-theme button.bg-blue-500 *,
+html.light-theme button.bg-rose-600 *,
+html.light-theme button.bg-purple-600 *,
+html.light-theme button.bg-amber-600 *,
+html.light-theme button.bg-blue-600 *,
+html.light-theme .bg-indigo-600 *,
+html.light-theme .bg-indigo-500 *,
+html.light-theme .bg-blue-600 *,
+html.light-theme .bg-blue-500 *,
+html.light-theme .bg-rose-600 *,
+html.light-theme .bg-purple-600 * {
+  color: #ffffff !important;
+}
+
+/* Inputs, Selects & Textareas in Light Mode */
+html.light-theme input,
+html.light-theme select,
+html.light-theme textarea {
+  background-color: #f8fafc !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+html.light-theme input::placeholder,
+html.light-theme textarea::placeholder {
+  color: #64748b !important;
+}
+
+html.light-theme input:focus,
+html.light-theme select:focus,
+html.light-theme textarea:focus {
+  background-color: #ffffff !important;
+  border-color: #6366f1 !important;
+}
+
+/* Tables in Light Mode */
+html.light-theme table thead th,
+html.light-theme table thead tr {
+  background-color: #f8fafc !important;
+  color: #1e293b !important;
+  border-color: #e5e7eb !important;
+}
+
+html.light-theme table tbody tr {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #e5e7eb !important;
+}
+
+html.light-theme table tbody tr:hover {
+  background-color: #f1f5f9 !important;
+}
+
+/* Modal Backdrops in Light Mode */
+html.light-theme .bg-slate-950\/85,
+html.light-theme .bg-slate-950\/80,
+html.light-theme .bg-slate-950\/90,
+html.light-theme .bg-black\/80,
+html.light-theme .bg-black\/70,
+html.light-theme .bg-black\/60 {
+  background-color: rgba(15, 23, 42, 0.45) !important;
+  backdrop-filter: blur(8px) !important;
+}
+
+/* Box Shadows in Light Mode */
+html.light-theme .shadow-xl,
+html.light-theme .shadow-2xl,
+html.light-theme .shadow-lg {
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.06), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Smart MenCore Assistant Floating Box in Light Mode */
+html.light-theme .mencore-widget-box {
+  background-color: #ffffff !important;
+  border-color: #e5e7eb !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Scrollbars */
+html.light-theme ::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+html.light-theme ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}

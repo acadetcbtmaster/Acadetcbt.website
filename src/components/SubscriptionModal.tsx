@@ -1,0 +1,468 @@
+import React, { useState, useEffect } from 'react';
+import { UserProfile, SubscriptionPlan } from '../types';
+import {
+  X,
+  CheckCircle2,
+  Zap,
+  ArrowLeft,
+  ShieldCheck,
+  Sparkles,
+  Loader2,
+  CreditCard,
+  AlertCircle,
+} from 'lucide-react';
+import { ApiClient } from '../services/apiClient';
+import { StorageService } from '../services/storage';
+
+interface SubscriptionModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  user: UserProfile;
+  plans?: SubscriptionPlan[];
+  onPaymentSuccess?: (plan: any, tx: any) => void;
+  onUpdateUser?: (updated: UserProfile) => void;
+}
+
+export const SubscriptionModal: React.FC<SubscriptionModalProps> = ({
+  isOpen,
+  onClose,
+  user,
+  plans: propsPlans,
+  onPaymentSuccess,
+  onUpdateUser,
+}) => {
+  const allPlans = (propsPlans && propsPlans.length > 0) ? propsPlans : StorageService.getSubscriptionPlans();
+  const rawActivePlans = allPlans.filter((p) => p.active !== false && p.status !== 'Inactive' && p.status !== 'Disabled');
+  const seenIds = new Set<string>();
+  const seenDurations = new Set<number>();
+  const activePlans = rawActivePlans.filter((p) => {
+    if (seenIds.has(p.id) || seenDurations.has(p.durationDays)) return false;
+    seenIds.add(p.id);
+    seenDurations.add(p.durationDays);
+    return true;
+  });
+
+  const [selectedPlanId, setSelectedPlanId] = useState<string>('');
+  const [selectedGateway, setSelectedGateway] = useState<'squad' | 'korapay'>('squad');
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [verifyingManual, setVerifyingManual] = useState<boolean>(false);
+  const [manualRefInput, setManualRefInput] = useState<string>('');
+  const [showVerifyInput, setShowVerifyInput] = useState<boolean>(false);
+
+  const handleVerifyRecentPayment = async (customRef?: string) => {
+    const refToVerify = (customRef || manualRefInput || localStorage.getItem('pending_payment_ref') || '').trim();
+    if (!refToVerify) {
+      setError('Please enter a valid transaction reference to verify.');
+      return;
+    }
+    setVerifyingManual(true);
+    setError(null);
+    try {
+      const res = await ApiClient.verifyPaymentByRef(refToVerify);
+      if (res && (res.success || res.status === 'success' || res.alreadyVerified)) {
+        const activatedPlan = res.planName || res.user?.subscriptionPlan || 'Premium Membership';
+        const updatedUser: UserProfile = {
+          ...user,
+          subscriptionPlan: activatedPlan,
+          subscriptionStatus: 'active',
+          subscription: {
+            isPremium: true,
+            plan: activatedPlan,
+            startDate: new Date().toISOString(),
+            expiryDate: new Date(Date.now() + 30 * 86400000).toISOString(),
+            questionsAttemptedCount: 0,
+            freeLimit: 999999,
+          },
+        };
+        StorageService.saveUser(updatedUser);
+        if (onUpdateUser) {
+          onUpdateUser(updatedUser);
+        }
+        localStorage.removeItem('pending_payment_ref');
+        localStorage.removeItem('pending_payment_time');
+        alert(`Payment Verified! Premium subscription (${activatedPlan}) is now ACTIVE on your account.`);
+        onClose();
+      } else {
+        setError(res?.error || 'Could not verify payment with Squad/KoraPay. Please check the reference or contact support.');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Error verifying payment. Please try again.');
+    } finally {
+      setVerifyingManual(false);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const currentChosenPlan =
+    activePlans.find((p) => p.id === selectedPlanId) ||
+    activePlans.find((p) => p.popular) ||
+    activePlans[0];
+
+  const handleInitiatePayment = async () => {
+    if (loading) return; // Prevent duplicate clicks
+    const btnClickTime = performance.now();
+    setLoading(true);
+    setError(null);
+
+    const amount = currentChosenPlan ? currentChosenPlan.price : 800;
+    const planId = currentChosenPlan ? currentChosenPlan.id : 'premium';
+    const planName = currentChosenPlan ? currentChosenPlan.name : 'Premium Membership';
+    const durationDays = currentChosenPlan ? currentChosenPlan.durationDays : 30;
+
+    const apiStartTime = performance.now();
+    const timeToApiCallMs = (apiStartTime - btnClickTime).toFixed(2);
+
+    console.log(`[Payment Performance Log - Frontend]`);
+    console.log(`- Time from button click to API request: ${timeToApiCallMs}ms`);
+    console.log(`- Selected Plan Price: ₦${amount}`);
+    console.log(`- Duration Days: ${durationDays}`);
+    console.log(`- Gateway Name: ${selectedGateway.toUpperCase()}`);
+    console.log(`- Plan ID: ${planId} (${planName})`);
+
+    try {
+      const res = await ApiClient.initiatePayment({
+        provider: selectedGateway,
+        gateway: selectedGateway,
+        planId,
+        planName,
+        amount,
+        durationDays,
+        email: (user.email && user.email.includes('@') && !user.email.endsWith('.cbt')) ? user.email : 'student@gmail.com',
+        userId: user.id || 'usr-student',
+        userName: user.name || (user as any).fullName || 'Acadet Student',
+      });
+
+      const totalFrontEndDuration = (performance.now() - btnClickTime).toFixed(2);
+      console.log(`- Time taken by backend to generate link & return response: ${res?.backendTimeMs || 'N/A'}ms`);
+      console.log(`- Total frontend duration before redirect: ${totalFrontEndDuration}ms`);
+
+      if (res && res.success && (res.checkoutUrl || res.paymentLink)) {
+        const redirectUrl = res.checkoutUrl || res.paymentLink;
+        const txRef = res.reference || res.transactionRef || res.paymentId;
+        if (txRef) {
+          localStorage.setItem('pending_payment_ref', txRef);
+          localStorage.setItem('pending_payment_time', Date.now().toString());
+        }
+        window.location.href = redirectUrl;
+      } else {
+        const extraDetails = res?.details && typeof res.details === 'object' 
+          ? Object.values(res.details).flat().join(' ') 
+          : (typeof res?.details === 'string' ? res.details : '');
+        const errorMsg = res?.error || `Failed to initialize ${selectedGateway === 'korapay' ? 'KoraPay' : 'Squad'} payment. Please try again.`;
+        setError(extraDetails ? `${errorMsg} (${extraDetails})` : errorMsg);
+      }
+    } catch (err: any) {
+      setError(err?.message || `Server error while contacting ${selectedGateway === 'korapay' ? 'KoraPay' : 'Squad'} Payment Gateway.`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in overflow-y-auto" id="subscription-modal-wrapper">
+      <div className="bg-slate-900 border border-slate-800 max-w-lg w-full max-h-[90vh] rounded-3xl p-5 sm:p-8 shadow-2xl relative text-left flex flex-col space-y-5 overflow-y-auto my-auto">
+        
+        {/* Top Header Navigation Bar with Back & Cancel Buttons */}
+        <div className="flex items-center justify-between pb-3.5 border-b border-slate-800 shrink-0">
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 text-slate-200 hover:text-white rounded-xl bg-slate-800/90 hover:bg-slate-700 transition-colors flex items-center gap-1.5 text-xs font-bold border border-slate-700 cursor-pointer shadow-sm active:scale-95"
+            id="sub-modal-back-btn"
+            title="Go Back"
+          >
+            <ArrowLeft className="w-4 h-4 text-blue-400 shrink-0" />
+            <span>Back</span>
+          </button>
+
+          <span className="text-[11px] font-black text-blue-400 uppercase tracking-wider flex items-center gap-1.5 bg-blue-500/10 px-2.5 py-1 rounded-full border border-blue-500/30">
+            <Zap className="w-3.5 h-3.5 text-blue-400 fill-blue-400 shrink-0" />
+            <span>Squad Secured</span>
+          </span>
+
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 text-slate-200 hover:text-white rounded-xl bg-slate-800/90 hover:bg-slate-700 transition-colors flex items-center gap-1.5 text-xs font-bold border border-slate-700 cursor-pointer shadow-sm active:scale-95"
+            id="sub-modal-close-btn"
+            title="Cancel and Exit"
+          >
+            <X className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>Cancel</span>
+          </button>
+        </div>
+
+        {/* Modal Main Header */}
+        <div className="text-center space-y-2 shrink-0">
+          <div className="w-12 h-12 sm:w-14 sm:h-14 mx-auto bg-blue-500/20 text-blue-400 border border-blue-500/40 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/10">
+            <ShieldCheck className="w-7 h-7 sm:w-8 sm:h-8 text-blue-400" />
+          </div>
+
+          <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight leading-snug">
+            Upgrade to Premium Access
+          </h2>
+          <p className="text-xs text-slate-300 leading-relaxed max-w-md mx-auto">
+            Unlock unlimited CBT practice exams, SMART step-by-step explanations, PDF lecture notes, and MenCore Smart assistant.
+          </p>
+        </div>
+
+        {/* Dynamic Plan Selectors configured from Admin Panel */}
+        <div className="space-y-3 shrink-0 max-h-60 overflow-y-auto pr-1">
+          {activePlans.length === 0 ? (
+            <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl text-xs text-slate-400 text-center">
+              No subscription plans currently available.
+            </div>
+          ) : (
+            activePlans.map((plan) => {
+              const isSelected = selectedPlanId === plan.id;
+              return (
+                <div
+                  key={plan.id}
+                  onClick={() => setSelectedPlanId(plan.id)}
+                  className={`p-4 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
+                    isSelected
+                      ? 'bg-blue-500/10 border-blue-500 text-white shadow-md shadow-blue-500/10'
+                      : 'bg-slate-950/60 border-slate-800 text-slate-300 hover:border-slate-700'
+                  }`}
+                  id={`plan-card-${plan.id}`}
+                >
+                  <div>
+                    <div className="text-sm font-bold text-white flex items-center gap-2 flex-wrap">
+                      <span>{plan.name}</span>
+                      {plan.popular && (
+                        <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-black">
+                          POPULAR
+                        </span>
+                      )}
+                    </div>
+                    {plan.features && plan.features.length > 0 && (
+                      <p className="text-xs text-slate-400 mt-0.5 line-clamp-1">
+                        {plan.features.slice(0, 2).join(' • ')}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right shrink-0 ml-2">
+                    <span className="text-lg font-black text-blue-400">
+                      ₦{plan.price.toLocaleString()}
+                    </span>
+                    <span className="text-[10px] text-slate-400 block">
+                      / {plan.durationDays} {plan.durationDays === 1 ? 'day' : 'days'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Unlocked Benefits List for Selected Plan */}
+        <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 space-y-2.5 text-xs text-slate-200 shrink-0">
+          {currentChosenPlan && currentChosenPlan.features && currentChosenPlan.features.length > 0 ? (
+            currentChosenPlan.features.map((feat, idx) => (
+              <div key={idx} className="flex items-center gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />
+                <span>{feat}</span>
+              </div>
+            ))
+          ) : (
+            <>
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />
+                <span><strong>Unlimited CBT Exams:</strong> Practice as many courses as you want.</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />
+                <span><strong>AI Exam Generator:</strong> Turn any PDF or lecture note into CBT questions.</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />
+                <span><strong>Verified Solutions:</strong> Detailed step-by-step explanations.</span>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Payment Summary */}
+        {currentChosenPlan && (
+          <div className="bg-slate-950 border border-blue-500/40 rounded-2xl p-4 flex items-center justify-between shrink-0 shadow-lg shadow-blue-500/5">
+            <div>
+              <span className="text-[10px] font-black text-blue-400 uppercase tracking-wider block">
+                Payment Summary
+              </span>
+              <h4 className="text-sm sm:text-base font-extrabold text-white mt-0.5">
+                {currentChosenPlan.name}
+              </h4>
+              <span className="text-xs text-slate-400 font-medium">
+                {currentChosenPlan.durationDays} Days Access
+              </span>
+            </div>
+            <div className="text-right">
+              <span className="text-xl sm:text-2xl font-black text-blue-400">
+                ₦{currentChosenPlan.price.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Payment Gateway Selection */}
+        <div className="space-y-2 shrink-0">
+          <label className="text-xs font-bold text-slate-300 block">
+            Select Payment Gateway:
+          </label>
+          <div className="grid grid-cols-2 gap-2.5">
+            <button
+              type="button"
+              onClick={() => setSelectedGateway('squad')}
+              className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                selectedGateway === 'squad'
+                  ? 'bg-blue-500/15 border-blue-500 text-white shadow-md shadow-blue-500/10'
+                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+              }`}
+              id="gateway-select-squad"
+            >
+              <div className="flex items-center justify-between w-full">
+                <span className="text-xs font-black text-white">Pay with Squad</span>
+                {selectedGateway === 'squad' && (
+                  <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse"></span>
+                )}
+              </div>
+              <span className="text-[10px] text-slate-400 mt-1">Cards, Bank Transfer, USSD</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setSelectedGateway('korapay')}
+              className={`p-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                selectedGateway === 'korapay'
+                  ? 'bg-purple-500/15 border-purple-500 text-white shadow-md shadow-purple-500/10'
+                  : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+              }`}
+              id="gateway-select-korapay"
+            >
+              <div className="flex items-center justify-between w-full">
+                <span className="text-xs font-black text-white">Pay with KoraPay</span>
+                {selectedGateway === 'korapay' && (
+                  <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse"></span>
+                )}
+              </div>
+              <span className="text-[10px] text-slate-400 mt-1">Cards, Virtual Account, Mobile Money</span>
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-xs flex flex-col gap-2 shrink-0">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              <span className="flex-1">{error}</span>
+            </div>
+            <div className="pt-1 flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setError(null);
+                  setSelectedGateway(selectedGateway === 'squad' ? 'korapay' : 'squad');
+                }}
+                className="text-[11px] font-bold text-amber-300 hover:text-amber-200 underline cursor-pointer"
+              >
+                Try paying with {selectedGateway === 'squad' ? 'KoraPay' : 'Squad'} instead &rarr;
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Already Paid? Quick Verification Bar */}
+        <div className="pt-1 border-t border-slate-800/80">
+          {!showVerifyInput ? (
+            <button
+              type="button"
+              onClick={() => {
+                setShowVerifyInput(true);
+                const pendingRef = localStorage.getItem('pending_payment_ref');
+                if (pendingRef) {
+                  setManualRefInput(pendingRef);
+                }
+              }}
+              className="w-full py-2 px-3 bg-slate-800/60 hover:bg-slate-800 text-blue-400 hover:text-blue-300 rounded-xl text-xs font-semibold border border-slate-700/80 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Already made a payment? Verify transaction here</span>
+            </button>
+          ) : (
+            <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-3 space-y-2">
+              <label className="text-[11px] font-bold text-slate-300 block">
+                Enter Payment Transaction Reference:
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={manualRefInput}
+                  onChange={(e) => setManualRefInput(e.target.value)}
+                  placeholder="e.g. ACADE_17234..."
+                  className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleVerifyRecentPayment()}
+                  disabled={verifyingManual}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                >
+                  {verifyingManual ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Verify'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Action Footer with Pay, Back, and Cancel Buttons */}
+        <div className="space-y-2.5 pt-2 shrink-0">
+          <button
+            onClick={handleInitiatePayment}
+            disabled={loading || !currentChosenPlan}
+            className={`w-full py-3.5 ${
+              selectedGateway === 'korapay'
+                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-purple-600/20 border-purple-400/30'
+                : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-teal-500 shadow-blue-600/20 border-blue-400/30'
+            } text-white font-extrabold text-sm rounded-2xl shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer border disabled:opacity-50 active:scale-[0.98]`}
+            id="modal-pay-now-btn"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-4 h-4 text-white animate-spin" />
+                <span>Initiating {selectedGateway === 'korapay' ? 'KoraPay' : 'Squad'} Payment...</span>
+              </>
+            ) : (
+              <>
+                <CreditCard className="w-4 h-4 text-white/80" />
+                <span>
+                  Pay ₦{currentChosenPlan ? currentChosenPlan.price.toLocaleString() : '800'} Now ({selectedGateway === 'korapay' ? 'KoraPay' : 'Squad'})
+                </span>
+              </>
+            )}
+          </button>
+
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <button
+              onClick={onClose}
+              className="py-2.5 px-3 bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-bold border border-slate-700 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              id="sub-modal-footer-back-btn"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+              <span>Back</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="py-2.5 px-3 bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-bold border border-slate-700 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+              id="sub-modal-footer-cancel-btn"
+            >
+              <X className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+              <span>Cancel</span>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+};
+
