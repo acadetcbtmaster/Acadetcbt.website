@@ -232,6 +232,20 @@ export function Navbar({
             </button>
           )}
 
+          {/* Quick Direct Download App Button */}
+          {onOpenInstallModal && (
+            <button
+              onClick={onOpenInstallModal}
+              className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 bg-white/15 hover:bg-white/25 text-white border border-white/25 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs shrink-0"
+              title="Download & Install Mobile App Suite"
+              id="navbar-download-app-btn"
+            >
+              <Smartphone className="w-3.5 h-3.5 text-blue-200" />
+              <span className="hidden sm:inline">Download App</span>
+              <Download className="w-3 h-3 text-white/90" />
+            </button>
+          )}
+
           {/* Download Features PDF Button (Extra wide screens) */}
           {onOpenFeaturesPdf && (
             <button

@@ -46,6 +46,7 @@ import { FounderPage } from './components/FounderPage';
 import { PreJambAcademyApp } from './components/prejamb/PreJambAcademyApp';
 import { InstallAppModal } from './components/InstallAppModal';
 import { MobileSuiteBar } from './components/MobileSuiteBar';
+import { OfflineIndicator } from './components/OfflineIndicator';
 
 export default function App() {
   const [isNotifCenterOpen, setIsNotifCenterOpen] = useState<boolean>(false);
@@ -1017,6 +1018,9 @@ export default function App() {
         }}
         isAuthModalOpen={authModalOpen}
       />
+
+      {/* Offline Connectivity Indicator */}
+      <OfflineIndicator />
 
       {/* Mobile View Suite Bottom Navigation Bar */}
       <MobileSuiteBar
