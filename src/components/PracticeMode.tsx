@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import confetti from 'canvas-confetti';
-import { UserProfile, Question, University, Faculty, Department, Course, Topic, TestSessionResult, SEED_QUESTIONS } from '../types';
+import { UserProfile, Question, University, Faculty, Department, Course, Topic, TestSessionResult } from '../types';
 import { selectRandomQuestions, shuffleArray } from '../utils/questionRandomizer';
 import { safeStringify } from '../services/storage';
 import { ApiClient } from '../services/apiClient';
@@ -75,7 +75,7 @@ export const PracticeMode: React.FC<PracticeModeProps> = ({
   const [step, setStep] = useState<'config' | 'active' | 'completed'>('config');
 
   // Academic Hierarchy Flow: University -> Faculty -> Department -> Level -> Semester -> Course
-  const initialUniId = universities[0]?.id || 'uni-ful';
+  const initialUniId = universities[0]?.id || '';
   const initialFaculties = getFacultiesForUniversity(initialUniId, faculties);
   const initialFacultyId = initialFaculties[0]?.id || '';
   const initialDepts = getDepartmentsForFaculty(initialFacultyId, initialUniId, departments, initialFaculties);

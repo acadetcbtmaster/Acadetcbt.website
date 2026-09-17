@@ -41,6 +41,8 @@ interface LandingPageProps {
   onOpenFounder?: () => void;
   onStartPreJamb?: () => void;
   onOpenInstallModal?: () => void;
+  questionsCount?: number;
+  universitiesCount?: number;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
@@ -52,6 +54,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenFounder,
   onStartPreJamb,
   onOpenInstallModal,
+  questionsCount = 0,
+  universitiesCount = 0,
 }) => {
   const [activeFaq, setActiveFaq] = useState<number | null>(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
@@ -188,12 +192,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             {/* Quick Metrics */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/[0.08] shadow-xs">
               <div className="text-center p-2">
-                <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">50,000+</p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium">Verified Past Questions</p>
+                <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
+                  {questionsCount > 0 ? questionsCount.toLocaleString() : '0'}
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium">Database Questions</p>
               </div>
               <div className="text-center p-2">
-                <p className="text-xl sm:text-2xl font-bold text-[#1b5e20] dark:text-blue-400">36+ Institutions</p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium">FUL, UNILAG, UI & more</p>
+                <p className="text-xl sm:text-2xl font-bold text-[#1b5e20] dark:text-blue-400">
+                  {universitiesCount > 0 ? `${universitiesCount} Universities` : '0 Universities'}
+                </p>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium">Accredited Institutions</p>
               </div>
               <div className="text-center p-2">
                 <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">100% Free</p>

@@ -887,6 +887,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               }
             } catch {}
 
+            const defaultUni = allUniversities[0];
             const loginUser: UserProfile = loadedProfile || {
               id: sbSignData.user.id,
               name: sbSignData.user.user_metadata?.full_name || targetEmail.split('@')[0] || 'University Student',
@@ -895,10 +896,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               password: loginPassword,
               role: 'student',
               authProvider: 'Supabase',
-              universityId: 'uni-ful',
-              universityName: 'Federal University Lokoja, Kogi State (FUL)',
-              departmentId: 'dept-ful-1',
-              departmentName: 'Computer Science',
+              universityId: defaultUni?.id || '',
+              universityName: defaultUni?.name || 'General University',
+              departmentId: '',
+              departmentName: 'General Studies',
               subscription: {
                 isPremium: false,
                 plan: '30-Question Free Tier',
@@ -975,6 +976,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           localStorage.setItem('cbt_active_admin_id', adminAccount.id);
         }
 
+        const defaultUni = allUniversities[0];
         const adminUser: UserProfile = data.adminUser || {
           id: adminAccount.id,
           name: adminAccount.fullName,
@@ -982,10 +984,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           email: adminAccount.email,
           role: 'admin',
           adminRole: adminAccount.role,
-          universityId: 'uni-ful',
-          universityName: 'Federal University Lokoja, Kogi State (FUL)',
-          departmentId: 'dept-ful-1',
-          departmentName: 'Computer Science',
+          universityId: defaultUni?.id || '',
+          universityName: defaultUni?.name || 'All Institutions (Admin)',
+          departmentId: '',
+          departmentName: 'All Departments',
           subscription: {
             isPremium: true,
             plan: '30-Day Premium',

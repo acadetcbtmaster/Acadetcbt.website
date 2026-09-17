@@ -5,8 +5,6 @@ import {
   FacultyGroup,
   University,
   DEFAULT_FACULTY_DEPARTMENTS,
-  FUL_DEPARTMENTS,
-  FUAHSE_DEPARTMENTS,
 } from '../types';
 
 export const ACADEMIC_LEVELS = [
@@ -80,7 +78,7 @@ export function getFacultiesForUniversity(
     }));
   }
 
-  // 1. Check if explicit faculties are registered for this university
+  // 1. Check if explicit faculties are registered in database for this university
   const matchingRegistered = registeredFaculties.filter(
     (f) => f.universityId === universityId
   );
@@ -88,38 +86,7 @@ export function getFacultiesForUniversity(
     return matchingRegistered;
   }
 
-  // 2. Specific institutional tailored faculties
-  if (universityId === 'uni-fuahse' || universityId.includes('fuahse')) {
-    return [
-      { id: 'fac-fuahse-1', universityId, name: 'Faculty of Allied Health Sciences' },
-      { id: 'fac-fuahse-2', universityId, name: 'Faculty of Clinical Sciences & Medicine' },
-      { id: 'fac-fuahse-3', universityId, name: 'Faculty of Basic Medical Sciences' },
-      { id: 'fac-fuahse-4', universityId, name: 'Faculty of Dentistry & Oral Health' },
-      { id: 'fac-fuahse-5', universityId, name: 'Faculty of Public Health & Health Information' },
-    ];
-  }
-
-  if (universityId === 'uni-ful' || universityId.includes('ful')) {
-    return [
-      { id: 'fac-ful-1', universityId, name: 'Faculty of Science & Computing' },
-      { id: 'fac-ful-2', universityId, name: 'Faculty of Arts & Humanities' },
-      { id: 'fac-ful-3', universityId, name: 'Faculty of Social Sciences' },
-      { id: 'fac-ful-4', universityId, name: 'Faculty of Education' },
-      { id: 'fac-ful-5', universityId, name: 'Faculty of Agriculture' },
-    ];
-  }
-
-  if (universityId === 'uni-1' || universityId === 'uni-2') {
-    return [
-      { id: 'fac-1', universityId, name: 'Faculty of Science' },
-      { id: 'fac-2', universityId, name: 'Faculty of Arts' },
-      { id: 'fac-3', universityId, name: 'Faculty of Social Sciences' },
-      { id: 'fac-4', universityId, name: 'Faculty of Management Sciences' },
-      { id: 'fac-5', universityId, name: 'Faculty of Education' },
-    ];
-  }
-
-  // 3. Return comprehensive standard Nigerian faculties for any chosen institution
+  // 2. Return standard Nigerian faculties for any chosen institution when none explicitly registered
   return DEFAULT_FACULTY_DEPARTMENTS.map((group, idx) => {
     const cleanName = group.name.replace(/^\d+\.\s*/, '');
     return {
@@ -154,7 +121,7 @@ export function getDepartmentsForFaculty(
     return list;
   }
 
-  // 1. Check registered departments matching facultyId
+  // 1. Check registered database departments matching facultyId
   const matching = registeredDepartments.filter((d) => d.facultyId === facultyId);
   if (matching.length > 0) {
     return matching;
@@ -167,72 +134,7 @@ export function getDepartmentsForFaculty(
 
   const facultyName = (facultyObj?.name || '').toLowerCase();
 
-  // 3. Institution-specific quick fallbacks
-  if (
-    universityId === 'uni-fuahse' ||
-    (universityId && universityId.includes('fuahse')) ||
-    facultyId === 'fac-fuahse-1' ||
-    facultyName.includes('allied') ||
-    facultyName.includes('health')
-  ) {
-    return FUAHSE_DEPARTMENTS.map((name, idx) => ({
-      id: `dept-fuahse-${idx + 1}`,
-      facultyId: facultyId || 'fac-fuahse-1',
-      name,
-    }));
-  }
-
-  if (
-    universityId === 'uni-ful' ||
-    (universityId && universityId.includes('ful')) ||
-    facultyId?.startsWith('fac-ful')
-  ) {
-    if (facultyId === 'fac-ful-1' || facultyName.includes('science') || facultyName.includes('computing')) {
-      return [
-        { id: 'dept-ful-1', facultyId: facultyId || 'fac-ful-1', name: 'General Studies Unit' },
-        { id: 'dept-ful-2', facultyId: facultyId || 'fac-ful-1', name: 'Mathematics' },
-        { id: 'dept-ful-3', facultyId: facultyId || 'fac-ful-1', name: 'Physics' },
-        { id: 'dept-ful-4', facultyId: facultyId || 'fac-ful-1', name: 'Computer Science' },
-        { id: 'dept-ful-5', facultyId: facultyId || 'fac-ful-1', name: 'Chemistry' },
-        { id: 'dept-ful-sci-6', facultyId: facultyId || 'fac-ful-1', name: 'Biochemistry' },
-        { id: 'dept-ful-sci-7', facultyId: facultyId || 'fac-ful-1', name: 'Microbiology' },
-        { id: 'dept-ful-sci-8', facultyId: facultyId || 'fac-ful-1', name: 'Geology' },
-        { id: 'dept-ful-sci-9', facultyId: facultyId || 'fac-ful-1', name: 'Cyber Security' },
-        { id: 'dept-ful-sci-10', facultyId: facultyId || 'fac-ful-1', name: 'Software Engineering' },
-      ];
-    }
-    if (facultyId === 'fac-ful-2' || facultyName.includes('arts') || facultyName.includes('humanities')) {
-      return [
-        { id: 'dept-ful-6', facultyId: facultyId || 'fac-ful-2', name: 'History and International Studies' },
-        { id: 'dept-ful-art-2', facultyId: facultyId || 'fac-ful-2', name: 'English & Literary Studies' },
-        { id: 'dept-ful-art-3', facultyId: facultyId || 'fac-ful-2', name: 'Philosophy' },
-        { id: 'dept-ful-art-4', facultyId: facultyId || 'fac-ful-2', name: 'Religious Studies' },
-      ];
-    }
-    if (facultyId === 'fac-ful-3' || facultyName.includes('social')) {
-      return [
-        { id: 'dept-ful-7', facultyId: facultyId || 'fac-ful-3', name: 'Economics' },
-        { id: 'dept-ful-8', facultyId: facultyId || 'fac-ful-3', name: 'Sociology' },
-        { id: 'dept-ful-soc-3', facultyId: facultyId || 'fac-ful-3', name: 'Political Science' },
-        { id: 'dept-ful-soc-4', facultyId: facultyId || 'fac-ful-3', name: 'Accounting' },
-      ];
-    }
-  }
-
-  // 4. UNILAG / UI Standard
-  if (facultyId === 'fac-1' || facultyName.includes('science')) {
-    return [
-      { id: 'dept-1', facultyId, name: 'Computer Science' },
-      { id: 'dept-2', facultyId, name: 'General Studies' },
-      { id: 'dept-3', facultyId, name: 'Mathematics' },
-      { id: 'dept-4', facultyId, name: 'Physics' },
-      { id: 'dept-5', facultyId, name: 'Chemistry' },
-      { id: 'dept-6', facultyId, name: 'Biochemistry' },
-      { id: 'dept-7', facultyId, name: 'Microbiology' },
-    ];
-  }
-
-  // 5. Match against DEFAULT_FACULTY_DEPARTMENTS groups
+  // 3. Match against DEFAULT_FACULTY_DEPARTMENTS groups by faculty name
   const matchedGroup = DEFAULT_FACULTY_DEPARTMENTS.find((g) => {
     const cleanGName = g.name.toLowerCase();
     const fWords = facultyName.split(/\s+/).filter((w) => w.length > 3 && w !== 'faculty');
@@ -247,7 +149,7 @@ export function getDepartmentsForFaculty(
     }));
   }
 
-  // 6. Fallback general departments
+  // 4. Fallback general departments
   return [
     'Computer Science & Information Technology',
     'General & Applied Sciences',

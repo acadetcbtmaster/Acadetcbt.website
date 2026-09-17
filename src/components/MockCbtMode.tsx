@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import confetti from 'canvas-confetti';
-import { UserProfile, Question, University, Faculty, Department, Course, TestSessionResult, SEED_QUESTIONS } from '../types';
+import { UserProfile, Question, University, Faculty, Department, Course, TestSessionResult } from '../types';
 import { selectRandomQuestions, shuffleArray } from '../utils/questionRandomizer';
 import {
   ACADEMIC_LEVELS,
@@ -61,7 +61,7 @@ export const MockCbtMode: React.FC<MockCbtModeProps> = ({
   const [step, setStep] = useState<'config' | 'active' | 'result'>('config');
 
   // Academic Hierarchy Flow: University -> Faculty -> Department -> Level -> Semester -> Course
-  const initialUniId = universities[0]?.id || 'uni-ful';
+  const initialUniId = universities[0]?.id || '';
   const initialFaculties = getFacultiesForUniversity(initialUniId, faculties);
   const initialFacultyId = initialFaculties[0]?.id || '';
   const initialDepts = getDepartmentsForFaculty(initialFacultyId, initialUniId, departments, initialFaculties);

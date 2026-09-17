@@ -630,6 +630,8 @@ export default function App() {
         {activeTab === 'landing' && (
           <LandingPage
             currentUser={currentUser}
+            questionsCount={questions.length}
+            universitiesCount={universities.length}
             onStartPractice={() => {
               if (currentUser) {
                 setActiveTab('practice');

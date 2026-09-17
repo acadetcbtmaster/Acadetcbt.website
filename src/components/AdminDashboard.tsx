@@ -357,7 +357,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [courseWithQuestionsOnly, setCourseWithQuestionsOnly] = useState<boolean>(false);
 
   // Add New Course 6-Step Flow State
-  const [newCourseUniId, setNewCourseUniId] = useState<string>(universities[0]?.id || 'uni-ful');
+  const [newCourseUniId, setNewCourseUniId] = useState<string>(universities[0]?.id || '');
   const [newCourseFacultyId, setNewCourseFacultyId] = useState<string>('');
   const [newCourseDeptId, setNewCourseDeptId] = useState<string>('');
   const [newCourseLevel, setNewCourseLevel] = useState<string>('100 Level');
@@ -617,10 +617,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     if (!newCourseCode.trim() || !newCourseTitle.trim()) return;
 
     const selectedUniObj = universities.find((u) => u.id === newCourseUniId) || universities[0];
-    const uniId = selectedUniObj?.id || newCourseUniId || 'uni-ful';
+    const uniId = selectedUniObj?.id || newCourseUniId || '';
     const uniName = selectedUniObj
-      ? `${selectedUniObj.name} (${selectedUniObj.abbreviation})`
-      : 'Federal University Lokoja (FUL)';
+      ? `${selectedUniObj.name}${selectedUniObj.abbreviation ? ` (${selectedUniObj.abbreviation})` : ''}`
+      : 'University';
 
     const availFaculties = getFacultiesForUniversity(uniId, faculties);
     const selectedFacObj = availFaculties.find((f) => f.id === newCourseFacultyId) || availFaculties[0];
@@ -924,10 +924,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const handleAddMaterial = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMatTitle.trim()) return;
+    const defaultUni = universities[0];
     const newM: StudyMaterial = {
       id: `mat-${Date.now()}`,
-      universityId: 'uni-ful',
-      universityName: 'Federal University Lokoja (FUL)',
+      universityId: defaultUni?.id || '',
+      universityName: defaultUni?.name || 'General University',
       courseId: 'c-1',
       courseCode: newMatCourse,
       courseTitle: newMatCourse,
@@ -3193,8 +3194,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                       return matchesSearch && matchesStatus;
                     })
                     .map((uni: any) => {
-                      const uniCoursesCount = courses.filter((c: any) => c.departmentId?.includes(uni.id) || (uni.id === 'uni-ful' && c.code)).length || (uni.id === 'uni-ful' ? 12 : 5);
-                      const uniStudentsCount = studentsList.filter((s: any) => s.universityId === uni.id || (s.universityName && s.universityName.includes(uni.name))).length || 24;
+                      const uniCoursesCount = courses.filter((c: any) => c.universityId === uni.id || c.departmentId?.includes(uni.id)).length;
+                      const uniStudentsCount = studentsList.filter((s: any) => s.universityId === uni.id || (s.universityName && s.universityName.includes(uni.name))).length;
 
                       return (
                         <tr key={uni.id} className="hover:bg-slate-800/50 transition-colors">
@@ -3494,7 +3495,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
                 <button
                   onClick={() => {
-                    setNewCourseUniId(courseUniFilter !== 'all' ? courseUniFilter : (universities[0]?.id || 'uni-ful'));
+                    setNewCourseUniId(courseUniFilter !== 'all' ? courseUniFilter : (universities[0]?.id || ''));
                     setNewCourseModalOpen(true);
                   }}
                   className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-extrabold text-xs rounded-xl flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-blue-600/20 whitespace-nowrap"
@@ -3738,7 +3739,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </p>
                   <button
                     onClick={() => {
-                      setNewCourseUniId(courseUniFilter !== 'all' ? courseUniFilter : (universities[0]?.id || 'uni-ful'));
+                      setNewCourseUniId(courseUniFilter !== 'all' ? courseUniFilter : (universities[0]?.id || ''));
                       setNewCourseModalOpen(true);
                     }}
                     className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl cursor-pointer inline-flex items-center gap-1.5"
@@ -3806,9 +3807,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           <button
                             onClick={() => {
                               setEditingCourse(course);
-                              setEditCourseUniId(course.universityId || universities[0]?.id || 'uni-ful');
-                              setEditCourseFacultyId(course.facultyId || faculties[0]?.id || 'fac-1');
-                              setEditCourseDeptId(course.departmentId || departments[0]?.id || 'dept-1');
+                              setEditCourseUniId(course.universityId || universities[0]?.id || '');
+                              setEditCourseFacultyId(course.facultyId || faculties[0]?.id || '');
+                              setEditCourseDeptId(course.departmentId || departments[0]?.id || '');
                               setEditCourseLevel(course.level || '100 Level');
                               setEditCourseSemester(course.semester || 'First Semester');
                               setEditCourseCode(course.code || '');
@@ -3909,9 +3910,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 <button
                                   onClick={() => {
                                     setEditingCourse(course);
-                                    setEditCourseUniId(course.universityId || universities[0]?.id || 'uni-ful');
-                                    setEditCourseFacultyId(course.facultyId || faculties[0]?.id || 'fac-1');
-                                    setEditCourseDeptId(course.departmentId || departments[0]?.id || 'dept-1');
+                                    setEditCourseUniId(course.universityId || universities[0]?.id || '');
+                                    setEditCourseFacultyId(course.facultyId || faculties[0]?.id || '');
+                                    setEditCourseDeptId(course.departmentId || departments[0]?.id || '');
                                     setEditCourseLevel(course.level || '100 Level');
                                     setEditCourseSemester(course.semester || 'First Semester');
                                     setEditCourseCode(course.code || '');

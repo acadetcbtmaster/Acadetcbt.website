@@ -70,7 +70,7 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
 
   // Academic Hierarchy Selection (University -> Faculty -> Department -> Level -> Semester -> Course)
   const [hierarchy, setHierarchy] = useState<AcademicHierarchyValues>({
-    universityId: universities[0]?.id || 'uni-ful',
+    universityId: universities[0]?.id || '',
     facultyId: '',
     departmentId: '',
     level: '100 Level',

@@ -1128,54 +1128,34 @@ export class StorageService {
           const catalog = await resp.json();
           if (catalog.success) {
             if (Array.isArray(catalog.universities)) {
-              if (catalog.universities.length > 0) {
-                const mapped = catalog.universities.map(fromRow.university);
-                this.memoryCache.set(STORAGE_KEYS.UNIVERSITIES, mapped);
-                localStorage.setItem(STORAGE_KEYS.UNIVERSITIES, safeStringify(mapped));
-              } else {
-                const local = this.getUniversities();
-                if (local.length > 0) syncUniversitiesToSupabase(local).catch(() => {});
-              }
+              const mapped = catalog.universities.map(fromRow.university);
+              this.memoryCache.set(STORAGE_KEYS.UNIVERSITIES, mapped);
+              localStorage.setItem(STORAGE_KEYS.UNIVERSITIES, safeStringify(mapped));
             }
             if (Array.isArray(catalog.courses)) {
-              if (catalog.courses.length > 0) {
-                const mapped = catalog.courses.map(fromRow.course);
-                this.memoryCache.set(STORAGE_KEYS.COURSES, mapped);
-                localStorage.setItem(STORAGE_KEYS.COURSES, safeStringify(mapped));
-              } else {
-                const local = this.getCourses();
-                if (local.length > 0) syncCoursesToSupabase(local).catch(() => {});
-              }
+              const mapped = catalog.courses.map(fromRow.course);
+              this.memoryCache.set(STORAGE_KEYS.COURSES, mapped);
+              localStorage.setItem(STORAGE_KEYS.COURSES, safeStringify(mapped));
             }
-            if (Array.isArray(catalog.departments) && catalog.departments.length > 0) {
+            if (Array.isArray(catalog.departments)) {
               const mapped = catalog.departments.map(fromRow.department);
               this.memoryCache.set(STORAGE_KEYS.DEPARTMENTS, mapped);
               localStorage.setItem(STORAGE_KEYS.DEPARTMENTS, safeStringify(mapped));
             }
-            if (Array.isArray(catalog.faculties) && catalog.faculties.length > 0) {
+            if (Array.isArray(catalog.faculties)) {
               const mapped = catalog.faculties.map(fromRow.faculty);
               this.memoryCache.set(STORAGE_KEYS.FACULTIES, mapped);
               localStorage.setItem(STORAGE_KEYS.FACULTIES, safeStringify(mapped));
             }
             if (Array.isArray(catalog.questions)) {
-              if (catalog.questions.length > 0) {
-                const mapped = catalog.questions.map(fromRow.question);
-                this.memoryCache.set(STORAGE_KEYS.QUESTIONS, mapped);
-                localStorage.setItem(STORAGE_KEYS.QUESTIONS, safeStringify(mapped));
-              } else {
-                const local = this.getQuestions();
-                if (local.length > 0) syncQuestionsToSupabase(local).catch(() => {});
-              }
+              const mapped = catalog.questions.map(fromRow.question);
+              this.memoryCache.set(STORAGE_KEYS.QUESTIONS, mapped);
+              localStorage.setItem(STORAGE_KEYS.QUESTIONS, safeStringify(mapped));
             }
             if (Array.isArray(catalog.materials)) {
-              if (catalog.materials.length > 0) {
-                const mapped = catalog.materials.map(fromRow.material);
-                this.memoryCache.set(STORAGE_KEYS.MATERIALS, mapped);
-                localStorage.setItem(STORAGE_KEYS.MATERIALS, safeStringify(mapped));
-              } else {
-                const local = this.getMaterials();
-                if (local.length > 0) syncMaterialsToSupabase(local).catch(() => {});
-              }
+              const mapped = catalog.materials.map(fromRow.material);
+              this.memoryCache.set(STORAGE_KEYS.MATERIALS, mapped);
+              localStorage.setItem(STORAGE_KEYS.MATERIALS, safeStringify(mapped));
             }
             if (Array.isArray(catalog.plans) && catalog.plans.length > 0) {
               const mapped = catalog.plans.map(fromRow.plan);
@@ -1214,6 +1194,9 @@ export class StorageService {
               sbPlansResult,
               sbUsersResult,
               sbPaymentsResult,
+              sbDeptsResult,
+              sbFacsResult,
+              sbMaterialsResult,
             ] = await Promise.all([
               supabase.from('universities').select('*'),
               supabase.from('courses').select('*'),
@@ -1221,6 +1204,9 @@ export class StorageService {
               supabase.from('subscription_plans').select('*'),
               supabase.from('users').select('*'),
               supabase.from('payments').select('*'),
+              supabase.from('departments').select('*'),
+              supabase.from('faculties').select('*'),
+              supabase.from('materials').select('*'),
             ]);
 
             const sbUnis = sbUnisResult?.data;
@@ -1228,6 +1214,9 @@ export class StorageService {
             const sbPlans = sbPlansResult?.data;
             const sbUsers = sbUsersResult?.data;
             const sbPayments = sbPaymentsResult?.data;
+            const sbDepts = sbDeptsResult?.data;
+            const sbFacs = sbFacsResult?.data;
+            const sbMaterials = sbMaterialsResult?.data;
 
             if (sbUnis && sbUnis.length > 0) {
               const mappedUnis = sbUnis.map(fromRow.university);
@@ -1248,6 +1237,24 @@ export class StorageService {
               this.memoryCache.set(STORAGE_KEYS.QUESTIONS, mappedQuestions);
               localStorage.setItem(STORAGE_KEYS.QUESTIONS, safeStringify(mappedQuestions));
               syncedSuccessfully = true;
+            }
+
+            if (sbDepts && sbDepts.length > 0) {
+              const mappedDepts = sbDepts.map(fromRow.department);
+              this.memoryCache.set(STORAGE_KEYS.DEPARTMENTS, mappedDepts);
+              localStorage.setItem(STORAGE_KEYS.DEPARTMENTS, safeStringify(mappedDepts));
+            }
+
+            if (sbFacs && sbFacs.length > 0) {
+              const mappedFacs = sbFacs.map(fromRow.faculty);
+              this.memoryCache.set(STORAGE_KEYS.FACULTIES, mappedFacs);
+              localStorage.setItem(STORAGE_KEYS.FACULTIES, safeStringify(mappedFacs));
+            }
+
+            if (sbMaterials && sbMaterials.length > 0) {
+              const mappedMaterials = sbMaterials.map(fromRow.material);
+              this.memoryCache.set(STORAGE_KEYS.MATERIALS, mappedMaterials);
+              localStorage.setItem(STORAGE_KEYS.MATERIALS, safeStringify(mappedMaterials));
             }
 
             if (sbPlans && sbPlans.length > 0) {
