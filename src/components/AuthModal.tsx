@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import brandLogo from '../assets/images/exact_acadet_cbt_logo_1786225425882.jpg';
-import { UserProfile, UserRole, FUAHSE_DEPARTMENTS, FUL_DEPARTMENTS, COMMON_UNIVERSITY_DEPARTMENTS, University, FacultyGroup } from '../types';
+import { UserProfile, UserRole, University, FacultyGroup } from '../types';
 import { StorageService, safeStringify } from '../services/storage';
 import { ApiClient } from '../services/apiClient';
 import { getSupabaseClient, isSupabaseConfigured, syncUserToSupabase } from '../lib/supabase';
@@ -564,8 +564,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
 
       const newUserId = authUid || `usr-${Date.now()}`;
-      const uniName = selectedUniObj?.name || selectedUniversity || 'University of Lagos';
-      const uniId = selectedUniObj?.id || (selectedUniversity ? `uni-${selectedUniversity.toLowerCase().replace(/\s+/g, '-')}` : 'uni-1');
+      const uniName = selectedUniObj?.name || selectedUniversity || 'Federal University Lokoja (FUL)';
+      const uniId = selectedUniObj?.id || '963a2101-99ec-4f24-a3d4-d744cbc22b87';
 
       const newUser: UserProfile = {
         id: newUserId,

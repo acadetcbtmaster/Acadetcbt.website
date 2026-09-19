@@ -35,9 +35,6 @@ import {
   University,
   Course,
   FacultyGroup,
-  DEFAULT_FACULTY_DEPARTMENTS,
-  FUL_DEPARTMENTS,
-  FUAHSE_DEPARTMENTS,
 } from '../../types';
 import { StorageService } from '../../services/storage';
 import { getFacultiesForUniversity, getDepartmentsForFaculty } from '../../utils/academicStructure';
@@ -139,9 +136,7 @@ export const DepartmentManagementModule: React.FC<DepartmentManagementModuleProp
   const [deletingFaculty, setDeletingFaculty] = useState<Faculty | null>(null);
   const [deletingDept, setDeletingDept] = useState<Department | null>(null);
 
-  // 7. Seed / Populate Modals
-  const [showSeedConfirmModal, setShowSeedConfirmModal] = useState(false);
-  const [seedTargetUniId, setSeedTargetUniId] = useState('all');
+  // 7. Modals
   const [showResetSignupModal, setShowResetSignupModal] = useState(false);
 
   // Initialize data on mount
@@ -657,76 +652,27 @@ export const DepartmentManagementModule: React.FC<DepartmentManagementModuleProp
   };
 
   // =========================================================================
-  // POPULATE NUC STANDARD FACULTIES & DEPARTMENTS SEED
+  // SYNC FROM DATABASE
   // =========================================================================
-  const handlePopulateStandardCatalog = async () => {
-    const targetUni = seedTargetUniId;
-    const standardFacs = getFacultiesForUniversity(targetUni, []);
-    const newFacsToAdd: Faculty[] = [];
-    const newDeptsToAdd: Department[] = [];
+  const handleSyncCatalogFromDatabase = async () => {
+    showToast('Synchronizing faculties and departments with database...', 'info');
+    try {
+      await StorageService.syncWithCloud(true);
+      const freshFacs = StorageService.getFaculties();
+      const freshDepts = StorageService.getDepartments();
+      const freshUnis = StorageService.getUniversities();
+      setFacultiesList(freshFacs);
+      setDepartmentsList(freshDepts);
+      setAllUniversities(freshUnis);
 
-    standardFacs.forEach((stdFac, fIdx) => {
-      const facId = `fac-${targetUni === 'all' ? 'std' : targetUni}-${fIdx + 1}`;
-      const facCode = generateCodeFromName(stdFac.name);
+      if (onUpdateFaculties) onUpdateFaculties(freshFacs);
+      if (onUpdateDepartments) onUpdateDepartments(freshDepts);
 
-      newFacsToAdd.push({
-        id: facId,
-        universityId: targetUni,
-        name: stdFac.name,
-        code: facCode,
-        status: 'Active',
-        createdAt: new Date().toISOString(),
-      });
-
-      // Get standard departments
-      const standardDepts = getDepartmentsForFaculty(stdFac.id, targetUni, [], [stdFac]);
-      standardDepts.forEach((stdDept, dIdx) => {
-        newDeptsToAdd.push({
-          id: `dept-${targetUni === 'all' ? 'std' : targetUni}-${fIdx + 1}-${dIdx + 1}`,
-          facultyId: facId,
-          universityId: targetUni,
-          name: stdDept.name,
-          code: generateCodeFromName(stdDept.name) || `DPT${dIdx + 1}`,
-          durationYears: 4,
-          status: 'Active',
-          createdAt: new Date().toISOString(),
-        });
-      });
-    });
-
-    // Merge or replace
-    const combinedFacs = [
-      ...facultiesList.filter((f) => f.universityId !== targetUni),
-      ...newFacsToAdd,
-    ];
-    const combinedDepts = [
-      ...departmentsList.filter((d) => d.universityId !== targetUni),
-      ...newDeptsToAdd,
-    ];
-
-    setFacultiesList(combinedFacs);
-    setDepartmentsList(combinedDepts);
-
-    if (onUpdateFaculties) onUpdateFaculties(combinedFacs);
-    if (onUpdateDepartments) onUpdateDepartments(combinedDepts);
-
-    await StorageService.saveFaculties(combinedFacs);
-    await StorageService.saveDepartments(combinedDepts);
-
-    const uniName =
-      targetUni === 'all'
-        ? 'All General Institutions'
-        : allUniversities.find((u) => u.id === targetUni)?.name || targetUni;
-
-    showToast(`Successfully populated standard NUC faculties & departments for ${uniName}!`);
-    setShowSeedConfirmModal(false);
-
-    // Expand all newly populated faculties
-    const allExp: Record<string, boolean> = { ...expandedFaculties };
-    newFacsToAdd.forEach((f) => {
-      allExp[f.id] = true;
-    });
-    setExpandedFaculties(allExp);
+      showToast('Successfully synchronized catalog from database!', 'success');
+    } catch (err) {
+      console.error('Failed to sync catalog:', err);
+      showToast('Error synchronizing with database.', 'error');
+    }
   };
 
   // =========================================================================
@@ -965,12 +911,12 @@ export const DepartmentManagementModule: React.FC<DepartmentManagementModuleProp
             </button>
 
             <button
-              onClick={() => setShowSeedConfirmModal(true)}
-              className="px-3 py-2 bg-slate-950 hover:bg-slate-800 text-amber-300 border border-amber-500/30 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer transition-all"
-              title="Populate Standard NUC accredited faculties and departments catalog"
+              onClick={handleSyncCatalogFromDatabase}
+              className="px-3 py-2 bg-slate-950 hover:bg-slate-800 text-blue-300 border border-blue-500/30 font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer transition-all"
+              title="Synchronize faculties and departments directly from database"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>NUC Standards</span>
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Sync Database</span>
             </button>
 
             <button
@@ -1079,11 +1025,11 @@ export const DepartmentManagementModule: React.FC<DepartmentManagementModuleProp
                   <span>Input First Faculty Manually</span>
                 </button>
                 <button
-                  onClick={() => setShowSeedConfirmModal(true)}
+                  onClick={handleSyncCatalogFromDatabase}
                   className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl flex items-center gap-2 cursor-pointer shadow-lg shadow-indigo-600/20"
                 >
-                  <Sparkles className="w-4 h-4" />
-                  <span>Populate Standard NUC Tree</span>
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Sync from Database</span>
                 </button>
               </div>
             </div>
@@ -2096,73 +2042,7 @@ export const DepartmentManagementModule: React.FC<DepartmentManagementModuleProp
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* MODAL 8: POPULATE NUC STANDARD FACULTIES SEED CONFIRMATION                */}
-      {/* ========================================================================= */}
-      {showSeedConfirmModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-slate-900 border border-amber-500/40 w-full max-w-lg rounded-3xl p-6 sm:p-7 space-y-5 shadow-2xl relative">
-            <div className="flex justify-between items-center pb-3 border-b border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 bg-amber-500/10 border border-amber-500/30 text-amber-400 rounded-xl">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-white text-base">Populate NUC Standard Catalog</h3>
-                  <p className="text-xs text-slate-400">Inject verified Nigerian standard faculties & departments</p>
-                </div>
-              </div>
-              <button onClick={() => setShowSeedConfirmModal(false)} className="p-1.5 text-slate-400 hover:text-white bg-slate-800 rounded-xl">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <div className="space-y-3 text-xs">
-              <p className="text-slate-300 leading-relaxed font-medium">
-                Select the institution you would like to populate standard accredited faculties and departments for:
-              </p>
-
-              <div>
-                <label className="block text-slate-300 font-bold mb-1">Target University</label>
-                <select
-                  value={seedTargetUniId}
-                  onChange={(e) => setSeedTargetUniId(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-amber-400 font-bold focus:outline-none focus:border-amber-500 cursor-pointer"
-                >
-                  <option value="all">All General Institutions (Global Template)</option>
-                  {allUniversities.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} ({u.abbreviation})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="p-3 bg-amber-950/30 border border-amber-500/30 rounded-xl text-amber-200 text-[11px] leading-relaxed">
-                ℹ️ Standard NUC faculties include: Faculty of Science, Allied Health Sciences, Computing & IT, Engineering, Arts, Social Sciences, Basic Medical Sciences, Education, Agriculture, and Management.
-              </div>
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowSeedConfirmModal(false)}
-                className="py-2.5 px-5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handlePopulateStandardCatalog}
-                className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-500 text-white font-extrabold rounded-xl shadow-lg shadow-amber-600/30 cursor-pointer flex items-center justify-center gap-2"
-              >
-                <Sparkles className="w-4 h-4" />
-                <span>Populate Standard Tree</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ========================================================================= */}
       {/* MODAL 9: RESET SIGNUP REGISTRATION CATALOG CONFIRMATION                   */}

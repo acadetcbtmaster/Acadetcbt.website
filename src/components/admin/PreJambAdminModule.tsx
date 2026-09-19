@@ -748,7 +748,7 @@ export const PreJambAdminModule: React.FC = () => {
     setCandEmail('');
     setCandPhone('');
     setCandRegNum(`2026/UTME/${Math.floor(10000 + Math.random() * 90000)}`);
-    setCandUni('University of Ibadan (UI)');
+    setCandUni('Federal University of Allied Health Sciences, Enugu (FUAHSE)');
     setCandCourse('Medicine & Surgery');
     setCandSubStatus('active');
     setIsCandModalOpen(true);

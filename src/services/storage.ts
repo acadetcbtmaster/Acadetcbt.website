@@ -37,14 +37,6 @@ import {
   FaceArenaArchive,
   QuickLinkItem,
   HomepageSection,
-  DEFAULT_FACULTY_DEPARTMENTS,
-  SEED_UNIVERSITIES,
-  SEED_FACULTIES,
-  SEED_DEPARTMENTS,
-  SEED_COURSES,
-  SEED_TOPICS,
-  SEED_QUESTIONS,
-  SEED_STUDY_MATERIALS,
   DEFAULT_PLANS,
 } from '../types';
 import {
@@ -782,14 +774,14 @@ export const DEFAULT_STUDENTS: UserProfile[] = [
     id: 'usr-student-1',
     name: 'Alex Johnson',
     username: 'alex_johnson',
-    email: 'alex.student@unilag.edu.ng',
+    email: 'alex.student@fulokoja.edu.ng',
     phone: '+234 802 345 6789',
     password: 'student123',
     passwordHint: 'Default demo password is student123',
     role: 'student',
     authProvider: 'Email',
-    universityId: 'uni-unilag',
-    universityName: 'University of Lagos (UNILAG)',
+    universityId: 'uni-ful',
+    universityName: 'Federal University Lokoja (FUL)',
     departmentId: 'dept-csc',
     departmentName: 'Computer Science',
     subscription: {
@@ -890,14 +882,14 @@ export const DEFAULT_STUDENTS: UserProfile[] = [
     id: 'usr-student-5',
     name: 'Tunde Bakare',
     username: 'tunde_bakare',
-    email: 'tunde.bakare@ui.edu.ng',
+    email: 'tunde.bakare@fuahse.edu.ng',
     phone: '+234 805 777 8899',
     password: 'student123',
     passwordHint: 'Default demo password is student123',
     role: 'student',
     authProvider: 'Google',
-    universityId: 'uni-ui',
-    universityName: 'University of Ibadan (UI)',
+    universityId: 'uni-fuahse',
+    universityName: 'Federal University of Allied Health Sciences, Enugu (FUAHSE)',
     departmentId: 'dept-med',
     departmentName: 'Medicine and Surgery',
     subscription: {
@@ -917,14 +909,14 @@ export const DEFAULT_STUDENTS: UserProfile[] = [
     id: 'usr-student-6',
     name: 'Fatima Ibrahim',
     username: 'fatima_ibrahim',
-    email: 'fatima.ibrahim@abu.edu.ng',
+    email: 'fatima.ibrahim@fulokoja.edu.ng',
     phone: '+234 809 111 2233',
     password: 'student123',
     passwordHint: 'Default demo password is student123',
     role: 'student',
     authProvider: 'Email',
-    universityId: 'uni-abu',
-    universityName: 'Ahmadu Bello University (ABU Zaria)',
+    universityId: 'uni-ful',
+    universityName: 'Federal University Lokoja (FUL)',
     departmentId: 'dept-pharm',
     departmentName: 'Pharmacy',
     subscription: {
@@ -944,14 +936,14 @@ export const DEFAULT_STUDENTS: UserProfile[] = [
     id: 'usr-student-7',
     name: 'Oluwaseun Adeleke',
     username: 'seun_adeleke',
-    email: 'oluwaseun.adeleke@unilag.edu.ng',
+    email: 'oluwaseun.adeleke@fuahse.edu.ng',
     phone: '+234 807 444 3322',
     password: 'student123',
     passwordHint: 'Default demo password is student123',
     role: 'student',
     authProvider: 'Google',
-    universityId: 'uni-unilag',
-    universityName: 'University of Lagos (UNILAG)',
+    universityId: 'uni-fuahse',
+    universityName: 'Federal University of Allied Health Sciences, Enugu (FUAHSE)',
     departmentId: 'dept-eng',
     departmentName: 'Electrical Engineering',
     subscription: {
@@ -998,14 +990,14 @@ export const DEFAULT_STUDENTS: UserProfile[] = [
     id: 'usr-student-9',
     name: 'Ngozi Eze',
     username: 'ngozi_eze',
-    email: 'ngozi.eze@unn.edu.ng',
+    email: 'ngozi.eze@fuahse.edu.ng',
     phone: '+234 806 888 9900',
     password: 'student123',
     passwordHint: 'Default demo password is student123',
     role: 'student',
     authProvider: 'Email',
-    universityId: 'uni-unn',
-    universityName: 'University of Nigeria, Nsukka (UNN)',
+    universityId: 'uni-fuahse',
+    universityName: 'Federal University of Allied Health Sciences, Enugu (FUAHSE)',
     departmentId: 'dept-law',
     departmentName: 'Faculty of Law',
     subscription: {
@@ -1875,8 +1867,8 @@ export class StorageService {
 
   // Universities, Faculties, Depts, Courses, Topics
   static getUniversities(): University[] {
-    const list = this.getItem<University[]>(STORAGE_KEYS.UNIVERSITIES, SEED_UNIVERSITIES);
-    return Array.isArray(list) ? list : SEED_UNIVERSITIES;
+    const list = this.getItem<University[]>(STORAGE_KEYS.UNIVERSITIES, []);
+    return Array.isArray(list) ? list : [];
   }
 
   static async saveUniversities(data: University[]): Promise<StorageWriteResult> {
@@ -1903,7 +1895,10 @@ export class StorageService {
   }
 
   static getFaculties(): Faculty[] {
-    return this.getItem<Faculty[]>(STORAGE_KEYS.FACULTIES, SEED_FACULTIES);
+    const list = this.getItem<Faculty[]>(STORAGE_KEYS.FACULTIES, []);
+    if (!Array.isArray(list)) return [];
+    // Only return faculties that are saved in the database (filter out legacy synthetic defaults)
+    return list.filter((f) => !f.id.startsWith('fac-def-') && !f.id.startsWith('fac-std-'));
   }
 
   static async saveFaculties(data: Faculty[]): Promise<StorageWriteResult> {
@@ -1929,7 +1924,10 @@ export class StorageService {
   }
 
   static getDepartments(): Department[] {
-    return this.getItem<Department[]>(STORAGE_KEYS.DEPARTMENTS, SEED_DEPARTMENTS);
+    const list = this.getItem<Department[]>(STORAGE_KEYS.DEPARTMENTS, []);
+    if (!Array.isArray(list)) return [];
+    // Only return departments that are saved in the database (filter out legacy synthetic defaults)
+    return list.filter((d) => !d.id.startsWith('dept-all-') && !d.id.startsWith('dept-std-') && !d.id.startsWith('dept-gen-'));
   }
 
   static async saveDepartments(data: Department[]): Promise<StorageWriteResult> {
@@ -2001,7 +1999,8 @@ export class StorageService {
   }
 
   static getTopics(): Topic[] {
-    return this.getItem<Topic[]>(STORAGE_KEYS.TOPICS, SEED_TOPICS);
+    const list = this.getItem<Topic[]>(STORAGE_KEYS.TOPICS, []);
+    return Array.isArray(list) ? list : [];
   }
 
   static async saveTopics(data: Topic[]): Promise<boolean> {
@@ -2097,9 +2096,9 @@ export class StorageService {
         paymentId: 'PAY-884219',
         userId: 'usr-student-1',
         userName: 'Alex Johnson',
-        userEmail: 'alex.student@unilag.edu.ng',
-        studentIdCode: 'UNILAG/2024/CSC/042',
-        universityName: 'University of Lagos',
+        userEmail: 'alex.student@fulokoja.edu.ng',
+        studentIdCode: 'FUL/2024/CSC/042',
+        universityName: 'Federal University Lokoja (FUL)',
         departmentName: 'Computer Science',
         reference: 'PST_8842194012',
         gateway: 'Paystack',
@@ -2384,7 +2383,9 @@ export class StorageService {
 
   // Study Materials
   static getMaterials(): StudyMaterial[] {
-    return this.getItem<StudyMaterial[]>(STORAGE_KEYS.MATERIALS, SEED_STUDY_MATERIALS);
+    const list = this.getItem<StudyMaterial[]>(STORAGE_KEYS.MATERIALS, []);
+    if (!Array.isArray(list)) return [];
+    return list.filter((m) => !m.id.startsWith('mat-seed-') && !m.id.startsWith('mock-'));
   }
 
   static async saveMaterials(materials: StudyMaterial[]): Promise<StorageWriteResult> {
@@ -3076,8 +3077,8 @@ export class StorageService {
         ticketNumber: 'TKT-2026-0840',
         studentId: 'usr-student-1',
         studentName: 'Alex Johnson',
-        studentEmail: 'alex.student@unilag.edu.ng',
-        universityName: 'University of Lagos',
+        studentEmail: 'alex.student@fulokoja.edu.ng',
+        universityName: 'Federal University Lokoja (FUL)',
         departmentName: 'Computer Science',
         title: 'Request Dark Mode Toggle for Late-Night Practice Sessions',
         category: 'Feature Request',
@@ -3459,63 +3460,8 @@ export class StorageService {
 
   // Topic Requests
   static getTopicRequests(): TopicRequest[] {
-    const defaultRequests: TopicRequest[] = [
-      {
-        id: 'req-1',
-        studentId: 'usr-student-1',
-        studentName: 'Alex Johnson',
-        studentEmail: 'alex.student@unilag.edu.ng',
-        universityId: 'uni-fuahse',
-        universityName: 'Federal University of Allied Health Sciences, Enugu (FUAHSE)',
-        level: '100 Level',
-        semester: 'First Semester',
-        courseId: 'crs-fuahse-6',
-        courseCode: 'ANA101',
-        courseTitle: 'Human Anatomy & Histology',
-        topicTitle: 'Muscles of the Upper Limb',
-        challengeDescription: "I don't understand the origin and insertion of the muscles and their innervation pathways.",
-        status: 'In Review',
-        createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-        requestCount: 85,
-      },
-      {
-        id: 'req-2',
-        studentId: 'usr-student-2',
-        studentName: 'Chioma Okeke',
-        studentEmail: 'chioma.o@ful.edu.ng',
-        universityId: 'uni-ful',
-        universityName: 'Federal University Lokoja (FUL)',
-        level: '100 Level',
-        semester: 'First Semester',
-        courseId: 'crs-ful-5',
-        courseCode: 'CHM101',
-        courseTitle: 'General Chemistry I (Physical & Inorganic)',
-        topicTitle: 'Thermodynamics & Enthalpy Calculations',
-        challengeDescription: 'Struggling with Born-Haber cycle diagrams and calculating Gibbs Free Energy changes in CBT exams.',
-        status: 'Tutorial Planned',
-        createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-        requestCount: 62,
-      },
-      {
-        id: 'req-3',
-        studentId: 'usr-student-3',
-        studentName: 'Ibrahim Musa',
-        studentEmail: 'ibrahim.m@ful.edu.ng',
-        universityId: 'uni-ful',
-        universityName: 'Federal University Lokoja (FUL)',
-        level: '100 Level',
-        semester: 'First Semester',
-        courseId: 'crs-2',
-        courseCode: 'MTH101',
-        courseTitle: 'Elementary Mathematics I (Calculus & Algebra)',
-        topicTitle: 'Integration by Parts & Trigonometric Substitution',
-        challengeDescription: 'Fast trick methods for solving definite integrals within the short CBT time limit.',
-        status: 'Completed',
-        createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-        requestCount: 110,
-      },
-    ];
-    return this.getItem<TopicRequest[]>(STORAGE_KEYS.TOPIC_REQUESTS, defaultRequests);
+    const list = this.getItem<TopicRequest[]>(STORAGE_KEYS.TOPIC_REQUESTS, []);
+    return list.filter((r) => !['req-1', 'req-2', 'req-3'].includes(r.id));
   }
 
   static saveTopicRequest(req: TopicRequest): void {
@@ -3560,87 +3506,8 @@ export class StorageService {
 
   // Tutorial Videos
   static getTutorialVideos(): TutorialVideo[] {
-    const defaultVideos: TutorialVideo[] = [
-      {
-        id: 'vid-1',
-        title: 'Muscles of the Upper Limb & Brachial Plexus Breakdown',
-        description: 'Comprehensive walkthrough covering origins, insertions, innervation, and motor functions of upper limb musculature prepared specifically for medical CBT exams.',
-        thumbnailUrl: 'https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?w=800&auto=format&fit=crop&q=80',
-        youtubeUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        youtubeVideoId: 'dQw4w9WgXcQ',
-        universityId: 'uni-fuahse',
-        universityName: 'Federal University of Allied Health Sciences, Enugu (FUAHSE)',
-        level: '100 Level',
-        semester: 'First Semester',
-        courseId: 'crs-fuahse-6',
-        courseCode: 'ANA101',
-        courseTitle: 'Human Anatomy & Histology',
-        topic: 'Muscles of the Upper Limb',
-        durationMinutes: 24,
-        keyLearningPoints: [
-          'Full origin & insertion muscle table mapping',
-          'Brachial plexus roots, trunks, divisions & cords',
-          'Step-by-step clinical case scenarios for CBT questions',
-        ],
-        viewsCount: 1420,
-        isFeatured: true,
-        createdAt: new Date(Date.now() - 86400000 * 4).toISOString(),
-        createdByName: 'Joyce and video tutorial team',
-      },
-      {
-        id: 'vid-2',
-        title: 'Calculus Fast-Trick Methods for MTH101 CBT',
-        description: 'Master definite integrals, limits, and trigonometric derivatives in under 45 seconds per question with shortcut hacks.',
-        thumbnailUrl: 'https://images.unsplash.com/photo-1635070041078-e363dbe005cb?w=800&auto=format&fit=crop&q=80',
-        youtubeUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        youtubeVideoId: 'dQw4w9WgXcQ',
-        universityId: 'uni-ful',
-        universityName: 'Federal University Lokoja (FUL)',
-        level: '100 Level',
-        semester: 'First Semester',
-        courseId: 'crs-2',
-        courseCode: 'MTH101',
-        courseTitle: 'Elementary Mathematics I (Calculus & Algebra)',
-        topic: 'Integration by Parts & Limits',
-        durationMinutes: 18,
-        keyLearningPoints: [
-          'L’Hôpital’s rule quick shortcuts for CBT limits',
-          'Tabular integration by parts formula',
-          'Past CBT paper solutions walkthrough',
-        ],
-        viewsCount: 2890,
-        isFeatured: true,
-        createdAt: new Date(Date.now() - 86400000 * 7).toISOString(),
-        createdByName: 'Joyce and video tutorial team',
-      },
-      {
-        id: 'vid-3',
-        title: 'GST101 Use of English Grammar & Concord Masterclass',
-        description: 'Complete guide to subject-verb agreement, lexical structures, and common CBT exam traps in university general studies.',
-        thumbnailUrl: 'https://images.unsplash.com/photo-1456513080510-7bf3a84b82f8?w=800&auto=format&fit=crop&q=80',
-        youtubeUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        youtubeVideoId: 'dQw4w9WgXcQ',
-        universityId: 'uni-ful',
-        universityName: 'Federal University Lokoja (FUL)',
-        level: '100 Level',
-        semester: 'First Semester',
-        courseId: 'crs-1',
-        courseCode: 'GST101',
-        courseTitle: 'Use of English & Communication',
-        topic: 'Grammatical Concord & Syntax',
-        durationMinutes: 15,
-        keyLearningPoints: [
-          '20 golden rules of subject-verb concord',
-          'Phonetics & stress accent patterns',
-          'Elimination techniques for 100% CBT accuracy',
-        ],
-        viewsCount: 3100,
-        isFeatured: false,
-        createdAt: new Date(Date.now() - 86400000 * 10).toISOString(),
-        createdByName: 'Joyce and video tutorial team',
-      },
-    ];
-    return this.getItem<TutorialVideo[]>(STORAGE_KEYS.TUTORIAL_VIDEOS, defaultVideos);
+    const list = this.getItem<TutorialVideo[]>(STORAGE_KEYS.TUTORIAL_VIDEOS, []);
+    return list.filter((v) => !['vid-1', 'vid-2', 'vid-3'].includes(v.id));
   }
 
   static saveTutorialVideo(video: TutorialVideo): void {
@@ -3754,45 +3621,8 @@ export class StorageService {
 
   // Community Discussion Posts
   static getCommunityPosts(): CommunityDiscussionPost[] {
-    const defaultPosts: CommunityDiscussionPost[] = [
-      {
-        id: 'post-1',
-        authorId: 'usr-student-2',
-        authorName: 'Chioma Okeke',
-        authorUniversity: 'Federal University Lokoja (FUL)',
-        authorLevel: '100 Level',
-        courseCode: 'ANA101',
-        courseTitle: 'Human Anatomy & Histology',
-        topic: 'Muscles of the Upper Limb',
-        title: 'How do you remember the nerve supply for muscles of the anterior forearm compartment?',
-        content: "I keep confusing median nerve supply with ulnar nerve branches for flexor carpi ulnaris and flexor digitorum profundus. Does anyone have a simple mnemonic that worked for them in CBT tests?",
-        upvotes: 18,
-        upvotedBy: ['usr-student-1', 'usr-student-3'],
-        repliesCount: 4,
-        isReported: false,
-        createdAt: new Date(Date.now() - 3600000 * 5).toISOString(),
-        status: 'Active',
-      },
-      {
-        id: 'post-2',
-        authorId: 'usr-student-3',
-        authorName: 'Ibrahim Musa',
-        authorUniversity: 'Federal University Lokoja (FUL)',
-        authorLevel: '100 Level',
-        courseCode: 'MTH101',
-        courseTitle: 'Elementary Mathematics I',
-        topic: 'Calculus Integration',
-        title: 'Shortcut for solving integral of e^(2x) sin(3x) dx under 30 seconds',
-        content: "When using integration by parts twice, it takes over 3 minutes on CBT. You can use the tabular method formula: e^(ax)/(a^2 + b^2) * [a sin(bx) - b cos(bx)]. Plug in a=2, b=3 and select the option immediately!",
-        upvotes: 42,
-        upvotedBy: ['usr-student-1', 'usr-student-2'],
-        repliesCount: 7,
-        isReported: false,
-        createdAt: new Date(Date.now() - 3600000 * 12).toISOString(),
-        status: 'Active',
-      },
-    ];
-    return this.getItem<CommunityDiscussionPost[]>(STORAGE_KEYS.COMMUNITY_POSTS, defaultPosts);
+    const list = this.getItem<CommunityDiscussionPost[]>(STORAGE_KEYS.COMMUNITY_POSTS, []);
+    return list.filter((p) => !['post-1', 'post-2'].includes(p.id));
   }
 
   static saveCommunityPost(post: CommunityDiscussionPost): void {
@@ -3838,27 +3668,8 @@ export class StorageService {
 
   // Community Replies
   static getCommunityReplies(postId: string): CommunityReply[] {
-    const allReplies = this.getItem<CommunityReply[]>(STORAGE_KEYS.COMMUNITY_REPLIES, [
-      {
-        id: 'rep-1',
-        postId: 'post-1',
-        authorId: 'usr-student-1',
-        authorName: 'Alex Johnson',
-        authorRole: 'student',
-        content: 'Remember 1 & a half muscles supplied by Ulnar nerve (Flexor Carpi Ulnaris and medial half of Flexor Digitorum Profundus). ALL the rest in the flexor compartment are Median nerve!',
-        createdAt: new Date(Date.now() - 3600000 * 3).toISOString(),
-      },
-      {
-        id: 'rep-2',
-        postId: 'post-1',
-        authorId: 'admin-super',
-        authorName: 'Joyce & Video Tutorial Team (Acadet Educator)',
-        authorRole: 'admin',
-        content: 'Great question Chioma! We just published a video tutorial covering forearm innervation with anatomical diagrams. Check the Tutorial Videos tab in Learning Community!',
-        createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-      }
-    ]);
-    return allReplies.filter((r) => r.postId === postId);
+    const allReplies = this.getItem<CommunityReply[]>(STORAGE_KEYS.COMMUNITY_REPLIES, []);
+    return allReplies.filter((r) => r.postId === postId && !['rep-1', 'rep-2'].includes(r.id));
   }
 
   static saveCommunityReply(reply: CommunityReply): void {
@@ -3875,45 +3686,8 @@ export class StorageService {
 
   // Learning Resources
   static getLearningResources(): LearningResourceItem[] {
-    const defaultResources: LearningResourceItem[] = [
-      {
-        id: 'res-1',
-        title: 'Upper Limb Musculature & Innervation Summary Sheet',
-        description: 'High-yield PDF summary table detailing origin, insertion, nerve supply, and clinical CBT test notes.',
-        resourceType: 'PDF Summary',
-        fileUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-        fileSize: '1.8 MB',
-        universityName: 'Federal University of Allied Health Sciences, Enugu (FUAHSE)',
-        courseCode: 'ANA101',
-        level: '100 Level',
-        createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
-      },
-      {
-        id: 'res-2',
-        title: 'MTH101 Calculus & Algebra Formula Cheat Sheet',
-        description: 'Complete list of standard integration rules, limit tricks, and series expansions for university CBT exams.',
-        resourceType: 'Formula Sheet',
-        fileUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-        fileSize: '850 KB',
-        universityName: 'Federal University Lokoja (FUL)',
-        courseCode: 'MTH101',
-        level: '100 Level',
-        createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-      },
-      {
-        id: 'res-3',
-        title: 'CHM101 Thermodynamics & Kinetics Quick Revision Outline',
-        description: 'Step-by-step calculation formulas and concept maps for first year chemistry.',
-        resourceType: 'Revision Outline',
-        fileUrl: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-        fileSize: '1.2 MB',
-        universityName: 'Federal University Lokoja (FUL)',
-        courseCode: 'CHM101',
-        level: '100 Level',
-        createdAt: new Date(Date.now() - 86400000 * 8).toISOString(),
-      },
-    ];
-    return this.getItem<LearningResourceItem[]>(STORAGE_KEYS.LEARNING_RESOURCES, defaultResources);
+    const list = this.getItem<LearningResourceItem[]>(STORAGE_KEYS.LEARNING_RESOURCES, []);
+    return list.filter((r) => !['res-1', 'res-2', 'res-3'].includes(r.id));
   }
 
   static saveLearningResource(resource: LearningResourceItem): void {
@@ -3937,28 +3711,8 @@ export class StorageService {
 
   // Community Announcements
   static getCommunityAnnouncements(): CommunityAnnouncement[] {
-    const defaultAnnouncements: CommunityAnnouncement[] = [
-      {
-        id: 'ann-1',
-        title: 'Welcome to the Acadet Learning Community!',
-        content: 'We are thrilled to launch the official Acadet Learning Community! Here you can request difficult course topics, watch video tutorials by Joyce and the video tutorial team, discuss past question hacks, and access summary resources.',
-        category: 'Academic Update',
-        authorName: 'Menmex',
-        createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-        isPinned: true,
-      },
-      {
-        id: 'ann-2',
-        title: 'New Video Tutorial Released: Muscles of the Upper Limb',
-        content: 'By popular student request (85 requests!), we have published a complete video tutorial covering origin, insertion, and innervation of upper limb muscles. Watch the preview now in Tutorial Videos!',
-        category: 'New Tutorial',
-        authorName: 'Joyce & Video Tutorial Team',
-        youtubeLink: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        createdAt: new Date(Date.now() - 86400000 * 1).toISOString(),
-        isPinned: true,
-      },
-    ];
-    return this.getItem<CommunityAnnouncement[]>(STORAGE_KEYS.COMMUNITY_ANNOUNCEMENTS, defaultAnnouncements);
+    const list = this.getItem<CommunityAnnouncement[]>(STORAGE_KEYS.COMMUNITY_ANNOUNCEMENTS, []);
+    return list.filter((a) => !['ann-1', 'ann-2'].includes(a.id));
   }
 
   static saveCommunityAnnouncement(announcement: CommunityAnnouncement): void {
@@ -3982,7 +3736,22 @@ export class StorageService {
 
   // Sign Up Faculties & Departments Management
   static getSignupFacultyGroups(): FacultyGroup[] {
-    return this.getItem<FacultyGroup[]>(STORAGE_KEYS.SIGNUP_FACULTY_GROUPS, DEFAULT_FACULTY_DEPARTMENTS);
+    const saved = this.getItem<FacultyGroup[]>(STORAGE_KEYS.SIGNUP_FACULTY_GROUPS, []);
+    if (Array.isArray(saved) && saved.length > 0) {
+      return saved;
+    }
+    const faculties = this.getFaculties();
+    const departments = this.getDepartments();
+    if (faculties.length > 0) {
+      return faculties.map((fac) => ({
+        id: fac.id,
+        name: fac.name,
+        departments: departments
+          .filter((d) => d.facultyId === fac.id)
+          .map((d) => d.name),
+      }));
+    }
+    return [];
   }
 
   static async saveSignupFacultyGroups(groups: FacultyGroup[]): Promise<StorageWriteResult> {
@@ -3995,8 +3764,17 @@ export class StorageService {
   }
 
   static resetSignupFacultyGroups(): FacultyGroup[] {
-    this.saveSignupFacultyGroups(DEFAULT_FACULTY_DEPARTMENTS);
-    return DEFAULT_FACULTY_DEPARTMENTS;
+    const faculties = this.getFaculties();
+    const departments = this.getDepartments();
+    const generated: FacultyGroup[] = faculties.map((fac) => ({
+      id: fac.id,
+      name: fac.name,
+      departments: departments
+        .filter((d) => d.facultyId === fac.id)
+        .map((d) => d.name),
+    }));
+    this.saveSignupFacultyGroups(generated);
+    return generated;
   }
 
   // Dynamic Interface Editor: Quick Links

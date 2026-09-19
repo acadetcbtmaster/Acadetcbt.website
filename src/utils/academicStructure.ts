@@ -4,7 +4,6 @@ import {
   Faculty,
   FacultyGroup,
   University,
-  DEFAULT_FACULTY_DEPARTMENTS,
 } from '../types';
 
 export const ACADEMIC_LEVELS = [
@@ -62,105 +61,78 @@ export function normalizeSemester(semester?: string): string {
 }
 
 /**
- * Standard Nigerian University Faculties generator for any university.
+ * Universal university ID matcher resolving compatibility between Supabase UUIDs and legacy Firestore IDs
+ */
+export function isMatchingUniversityId(idA?: string, idB?: string): boolean {
+  if (!idA || !idB || idA === 'all' || idB === 'all') return true;
+  if (idA === idB) return true;
+  const isFulA = idA === 'uni-ful' || idA === '963a2101-99ec-4f24-a3d4-d744cbc22b87';
+  const isFulB = idB === 'uni-ful' || idB === '963a2101-99ec-4f24-a3d4-d744cbc22b87';
+  if (isFulA && isFulB) return true;
+  const isFuahseA = idA === 'uni-fuahse' || idA === '05e96031-bc94-44e5-a8c5-611644dba5ba';
+  const isFuahseB = idB === 'uni-fuahse' || idB === '05e96031-bc94-44e5-a8c5-611644dba5ba';
+  if (isFuahseA && isFuahseB) return true;
+  return false;
+}
+
+/**
+ * Returns strictly the faculties registered in the database for the given university.
+ * If no faculties are saved in the database for this university, returns an empty array.
  */
 export function getFacultiesForUniversity(
   universityId?: string,
   registeredFaculties: Faculty[] = []
 ): Faculty[] {
+  if (!Array.isArray(registeredFaculties) || registeredFaculties.length === 0) {
+    return [];
+  }
   if (!universityId || universityId === 'all') {
-    // Return all registered faculties or default groups
-    if (registeredFaculties.length > 0) return registeredFaculties;
-    return DEFAULT_FACULTY_DEPARTMENTS.map((g, idx) => ({
-      id: `fac-def-${idx + 1}`,
-      universityId: 'all',
-      name: g.name.replace(/^\d+\.\s*/, ''),
-    }));
+    return registeredFaculties;
   }
 
-  // 1. Check if explicit faculties are registered in database for this university
-  const matchingRegistered = registeredFaculties.filter(
-    (f) => f.universityId === universityId
+  // Return ONLY explicit faculties saved in database for this university (or common/all faculties)
+  return registeredFaculties.filter(
+    (f) => !f.universityId || f.universityId === 'all' || isMatchingUniversityId(f.universityId, universityId)
   );
-  if (matchingRegistered.length > 0) {
-    return matchingRegistered;
-  }
-
-  // 2. Return standard Nigerian faculties for any chosen institution when none explicitly registered
-  return DEFAULT_FACULTY_DEPARTMENTS.map((group, idx) => {
-    const cleanName = group.name.replace(/^\d+\.\s*/, '');
-    return {
-      id: `fac-${universityId}-${idx + 1}`,
-      universityId,
-      name: cleanName,
-    };
-  });
 }
 
 /**
- * Resolves Departments belonging to a specific Faculty and University.
+ * Returns strictly the departments registered in the database belonging to a specific Faculty and University.
+ * If no departments are saved in the database for this faculty, returns an empty array.
  */
 export function getDepartmentsForFaculty(
   facultyId?: string,
   universityId?: string,
   registeredDepartments: Department[] = [],
-  registeredFaculties: Faculty[] = []
+  _registeredFaculties: Faculty[] = []
 ): Department[] {
+  if (!Array.isArray(registeredDepartments) || registeredDepartments.length === 0) {
+    return [];
+  }
+
   if (!facultyId || facultyId === 'all') {
-    if (registeredDepartments.length > 0) return registeredDepartments;
-    const list: Department[] = [];
-    DEFAULT_FACULTY_DEPARTMENTS.forEach((fg, fIdx) => {
-      fg.departments.forEach((deptName, dIdx) => {
-        list.push({
-          id: `dept-all-${fIdx + 1}-${dIdx + 1}`,
-          facultyId: `fac-def-${fIdx + 1}`,
-          name: deptName,
-        });
-      });
-    });
-    return list;
+    if (universityId && universityId !== 'all') {
+      return registeredDepartments.filter(
+        (d) => !d.universityId || d.universityId === 'all' || isMatchingUniversityId(d.universityId, universityId)
+      );
+    }
+    return registeredDepartments;
   }
 
-  // 1. Check registered database departments matching facultyId
-  const matching = registeredDepartments.filter((d) => d.facultyId === facultyId);
-  if (matching.length > 0) {
-    return matching;
-  }
-
-  // 2. Resolve faculty name
-  const facultyObj =
-    registeredFaculties.find((f) => f.id === facultyId) ||
-    getFacultiesForUniversity(universityId, registeredFaculties).find((f) => f.id === facultyId);
-
-  const facultyName = (facultyObj?.name || '').toLowerCase();
-
-  // 3. Match against DEFAULT_FACULTY_DEPARTMENTS groups by faculty name
-  const matchedGroup = DEFAULT_FACULTY_DEPARTMENTS.find((g) => {
-    const cleanGName = g.name.toLowerCase();
-    const fWords = facultyName.split(/\s+/).filter((w) => w.length > 3 && w !== 'faculty');
-    return fWords.some((w) => cleanGName.includes(w));
+  // Return ONLY registered database departments matching facultyId
+  return registeredDepartments.filter((d) => {
+    if (d.facultyId !== facultyId) return false;
+    if (
+      universityId &&
+      universityId !== 'all' &&
+      d.universityId &&
+      d.universityId !== 'all' &&
+      !isMatchingUniversityId(d.universityId, universityId)
+    ) {
+      return false;
+    }
+    return true;
   });
-
-  if (matchedGroup && matchedGroup.departments.length > 0) {
-    return matchedGroup.departments.map((deptName, idx) => ({
-      id: `dept-${facultyId}-${idx + 1}`,
-      facultyId,
-      name: deptName,
-    }));
-  }
-
-  // 4. Fallback general departments
-  return [
-    'Computer Science & Information Technology',
-    'General & Applied Sciences',
-    'Business & Management Studies',
-    'Humanities & Social Studies',
-    'General Studies Unit (GST)',
-  ].map((name, idx) => ({
-    id: `dept-gen-${facultyId}-${idx + 1}`,
-    facultyId,
-    name,
-  }));
 }
 
 /**
@@ -240,7 +212,7 @@ export function getCoursesForHierarchy({
   return allCourses.filter((c) => {
     // 1. University Filter (if scoped)
     if (universityId && universityId !== 'all') {
-      if (c.universityId && c.universityId !== universityId) {
+      if (c.universityId && !isMatchingUniversityId(c.universityId, universityId)) {
         return false;
       }
     }

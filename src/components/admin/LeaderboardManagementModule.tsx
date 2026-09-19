@@ -679,7 +679,6 @@ export const LeaderboardManagementModule: React.FC<LeaderboardManagementModulePr
                   <option value="all">All Universities</option>
                   <option value="FUL">Federal Univ. Lokoja (FUL)</option>
                   <option value="FUAHSE">Federal Univ. FUAHSE Enugu</option>
-                  <option value="UNILAG">University of Lagos</option>
                 </select>
               </div>
 
@@ -1016,16 +1015,6 @@ export const LeaderboardManagementModule: React.FC<LeaderboardManagementModulePr
                   </div>
                   <span className="px-2.5 py-1 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 font-bold rounded-lg">
                     86.2% Mean Score
-                  </span>
-                </div>
-
-                <div className="py-3 flex items-center justify-between">
-                  <div>
-                    <p className="font-bold text-white">University of Lagos (UNILAG)</p>
-                    <p className="text-[11px] text-slate-400">650 CBT participants</p>
-                  </div>
-                  <span className="px-2.5 py-1 bg-slate-800 text-slate-300 font-bold rounded-lg">
-                    82.1% Mean Score
                   </span>
                 </div>
               </div>

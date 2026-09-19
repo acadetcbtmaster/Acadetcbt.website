@@ -3994,14 +3994,39 @@ app.get("/api/catalog/all", async (_req, res) => {
     }
 
     // 3. Intelligently Merge Both Sources
-    // Universities: Combine Supabase (mapped with universityFromRow) and Firestore
+    // Universities: Strictly retain ONLY the two universities originally stored in the database:
+    // 1. Federal University Lokoja (FUL) -> '963a2101-99ec-4f24-a3d4-d744cbc22b87'
+    // 2. Federal University of Allied Health Sciences, Enugu (FUAHSE) -> '05e96031-bc94-44e5-a8c5-611644dba5ba'
+    const ALLOWED_UNI_IDS = new Set([
+      "963a2101-99ec-4f24-a3d4-d744cbc22b87",
+      "05e96031-bc94-44e5-a8c5-611644dba5ba",
+      "uni-ful",
+      "uni-fuahse",
+      "9f1b6ee0-57f4-40eb-a336-df442d0670d1",
+      "11ef6658-7448-4795-aa3e-a94f6cf6d02b",
+    ]);
+
+    const isTargetUniversity = (u: any): boolean => {
+      if (!u) return false;
+      const id = String(u.id || "");
+      if (ALLOWED_UNI_IDS.has(id)) return true;
+      const name = String(u.name || "").toLowerCase();
+      const code = String(u.abbreviation || u.code || "").toUpperCase();
+      if (code === "FUL" || code === "FUAHSE") return true;
+      if (name.includes("lokoja") || name.includes("allied health") || name.includes("fuahse")) return true;
+      return false;
+    };
+
     const uniMap = new Map<string, any>();
     sbUnis.forEach(row => {
       const u = universityFromRow(row);
-      uniMap.set(u.id, u);
-      if (u.name) uniMap.set(u.name.trim().toLowerCase(), u);
+      if (isTargetUniversity(u)) {
+        uniMap.set(u.id, u);
+        if (u.name) uniMap.set(u.name.trim().toLowerCase(), u);
+      }
     });
     fsUnis.forEach(fu => {
+      if (!isTargetUniversity(fu)) return; // Strictly ignore all other universities
       const id = String(fu.id);
       const nameKey = (fu.name || "").trim().toLowerCase();
       const existing = uniMap.get(id) || (nameKey ? uniMap.get(nameKey) : null);
@@ -4015,18 +4040,74 @@ app.get("/api/catalog/all", async (_req, res) => {
       uniMap.set(merged.id, merged);
       if (nameKey) uniMap.set(nameKey, merged);
     });
+
     const uniqueUniMap = new Map<string, any>();
-    uniMap.forEach(u => uniqueUniMap.set(u.id, u));
+    uniMap.forEach(u => {
+      if (isTargetUniversity(u)) {
+        const nameLower = (u.name || "").toLowerCase();
+        const isFul = u.id === "uni-ful" || u.id === "963a2101-99ec-4f24-a3d4-d744cbc22b87" || nameLower.includes("lokoja") || u.abbreviation === "FUL";
+        const canonicalId = isFul ? "963a2101-99ec-4f24-a3d4-d744cbc22b87" : "05e96031-bc94-44e5-a8c5-611644dba5ba";
+        uniqueUniMap.set(canonicalId, {
+          id: canonicalId,
+          name: isFul ? "Federal University Lokoja" : "Federal University of Allied Health Sciences, Enugu",
+          abbreviation: isFul ? "FUL" : "FUAHSE",
+          location: isFul ? "Lokoja, Kogi State" : (u.location || "Enugu State"),
+          logoUrl: u.logoUrl || null,
+        });
+      }
+    });
+
+    // Ensure the two original universities are always present in the response
+    if (!uniqueUniMap.has("963a2101-99ec-4f24-a3d4-d744cbc22b87")) {
+      uniqueUniMap.set("963a2101-99ec-4f24-a3d4-d744cbc22b87", {
+        id: "963a2101-99ec-4f24-a3d4-d744cbc22b87",
+        name: "Federal University Lokoja",
+        abbreviation: "FUL",
+        location: "Lokoja, Kogi State",
+        logoUrl: null,
+      });
+    }
+    if (!uniqueUniMap.has("05e96031-bc94-44e5-a8c5-611644dba5ba")) {
+      uniqueUniMap.set("05e96031-bc94-44e5-a8c5-611644dba5ba", {
+        id: "05e96031-bc94-44e5-a8c5-611644dba5ba",
+        name: "Federal University of Allied Health Sciences, Enugu",
+        abbreviation: "FUAHSE",
+        location: "Enugu State",
+        logoUrl: null,
+      });
+    }
     const universities = Array.from(uniqueUniMap.values());
 
     // Courses: Combine Supabase (mapped with courseFromRow) and Firestore
     const courseMap = new Map<string, any>();
     sbCourses.forEach(row => {
       const c = courseFromRow(row);
+      // Canonicalize university_id to the 2 persistent universities
+      if (c.universityId === "uni-ful" || c.universityId === "9f1b6ee0-57f4-40eb-a336-df442d0670d1") {
+        c.universityId = "963a2101-99ec-4f24-a3d4-d744cbc22b87";
+        c.universityName = "Federal University Lokoja (FUL)";
+      } else if (c.universityId === "uni-fuahse" || c.universityId === "11ef6658-7448-4795-aa3e-a94f6cf6d02b") {
+        c.universityId = "05e96031-bc94-44e5-a8c5-611644dba5ba";
+        c.universityName = "Federal University of Allied Health Sciences, Enugu (FUAHSE)";
+      }
       courseMap.set(c.id, c);
       if (c.code) courseMap.set(c.code.trim().toUpperCase(), c);
     });
     fsCourses.forEach(fc => {
+      // Exclude courses from extraneous universities (e.g. UNILAG or UI)
+      if (fc.universityId === "uni-1" || fc.universityId === "uni-2" || fc.code === "GES101" || fc.code === "CSC111") {
+        return;
+      }
+      let targetUniId = fc.universityId;
+      let targetUniName = fc.universityName;
+      if (targetUniId === "uni-ful" || targetUniId === "9f1b6ee0-57f4-40eb-a336-df442d0670d1" || (targetUniName && targetUniName.toLowerCase().includes("lokoja"))) {
+        targetUniId = "963a2101-99ec-4f24-a3d4-d744cbc22b87";
+        targetUniName = "Federal University Lokoja (FUL)";
+      } else if (targetUniId === "uni-fuahse" || targetUniId === "11ef6658-7448-4795-aa3e-a94f6cf6d02b" || (targetUniName && (targetUniName.toLowerCase().includes("allied health") || targetUniName.toLowerCase().includes("fuahse")))) {
+        targetUniId = "05e96031-bc94-44e5-a8c5-611644dba5ba";
+        targetUniName = "Federal University of Allied Health Sciences, Enugu (FUAHSE)";
+      }
+
       const id = String(fc.id);
       const codeKey = (fc.code || "").trim().toUpperCase();
       const existing = courseMap.get(id) || (codeKey ? courseMap.get(codeKey) : null);
@@ -4034,8 +4115,8 @@ app.get("/api/catalog/all", async (_req, res) => {
         id: existing?.id || id,
         code: fc.code || existing?.code || "",
         title: fc.title || existing?.title || "",
-        universityId: fc.universityId || existing?.universityId || "",
-        universityName: fc.universityName || existing?.universityName || "",
+        universityId: targetUniId || existing?.universityId || "05e96031-bc94-44e5-a8c5-611644dba5ba",
+        universityName: targetUniName || existing?.universityName || "Federal University of Allied Health Sciences, Enugu (FUAHSE)",
         departmentId: fc.departmentId || existing?.departmentId || "",
         level: fc.level || existing?.level || "100 Level",
         semester: fc.semester || existing?.semester || "First Semester",

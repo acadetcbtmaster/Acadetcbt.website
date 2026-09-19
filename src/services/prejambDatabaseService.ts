@@ -291,7 +291,7 @@ export class PreJambDatabaseService {
           name: 'John Doe',
           email: 'john.doe@prejambacademy.com',
           phone: '+234 801 234 5678',
-          targetUniversity: 'University of Ibadan (UI)',
+          targetUniversity: 'Federal University of Allied Health Sciences, Enugu (FUAHSE)',
           targetCourse: 'Medicine & Surgery',
           utmeSubjects: ['use-of-english', 'mathematics', 'physics', 'chemistry'],
           subscriptionStatus: 'active',

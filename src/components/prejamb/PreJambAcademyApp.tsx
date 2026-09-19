@@ -88,7 +88,7 @@ export const PreJambAcademyApp: React.FC<PreJambAcademyAppProps> = ({
         name: user.name || 'Candidate',
         email: user.email || 'candidate@prejambacademy.com',
         phone: user.phone || '+234 801 234 5678',
-        targetUniversity: user.universityName || 'University of Ibadan (UI)',
+        targetUniversity: user.universityName || 'Federal University of Allied Health Sciences, Enugu (FUAHSE)',
         targetCourse: user.departmentName || 'Medicine & Surgery',
         utmeSubjects: ['use-of-english', 'mathematics', 'physics', 'chemistry'],
         subscriptionStatus: 'active',

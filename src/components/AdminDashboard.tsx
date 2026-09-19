@@ -11,8 +11,6 @@ import {
   PaymentTransaction,
   SubscriptionPlan,
   SystemSettings,
-  FUL_DEPARTMENTS,
-  FUAHSE_DEPARTMENTS,
   UserProfile
 } from '../types';
 import { StorageService, safeStringify, safeClone } from '../services/storage';
@@ -624,13 +622,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     const availFaculties = getFacultiesForUniversity(uniId, faculties);
     const selectedFacObj = availFaculties.find((f) => f.id === newCourseFacultyId) || availFaculties[0];
-    const facId = selectedFacObj?.id || 'fac-1';
-    const facName = selectedFacObj?.name || 'Faculty of Science';
+    const facId = selectedFacObj?.id || '';
+    const facName = selectedFacObj?.name || 'General';
 
     const availDepts = getDepartmentsForFaculty(facId, uniId, departments, availFaculties);
     const selectedDeptObj = availDepts.find((d) => d.id === newCourseDeptId) || availDepts[0];
-    const deptId = selectedDeptObj?.id || 'dept-1';
-    const deptName = selectedDeptObj?.name || 'Department of Computer Science';
+    const deptId = selectedDeptObj?.id || '';
+    const deptName = selectedDeptObj?.name || 'General';
 
     const newC: Course = {
       id: `crs-${Date.now()}`,
@@ -670,13 +668,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
     const availFaculties = getFacultiesForUniversity(uniId, faculties);
     const selectedFacObj = availFaculties.find((f) => f.id === editCourseFacultyId) || availFaculties[0];
-    const facId = selectedFacObj?.id || editingCourse.facultyId || 'fac-1';
-    const facName = selectedFacObj?.name || editingCourse.facultyName || 'Faculty of Science';
+    const facId = selectedFacObj?.id || editingCourse.facultyId || '';
+    const facName = selectedFacObj?.name || editingCourse.facultyName || 'General';
 
     const availDepts = getDepartmentsForFaculty(facId, uniId, departments, availFaculties);
     const selectedDeptObj = availDepts.find((d) => d.id === editCourseDeptId) || availDepts[0];
-    const deptId = selectedDeptObj?.id || editingCourse.departmentId || 'dept-1';
-    const deptName = selectedDeptObj?.name || editingCourse.departmentName || 'Department of Computer Science';
+    const deptId = selectedDeptObj?.id || editingCourse.departmentId || '';
+    const deptName = selectedDeptObj?.name || editingCourse.departmentName || 'General';
 
     const updatedCourses = courses.map((c) => {
       if (c.id === editingCourse.id) {
@@ -3782,12 +3780,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         {/* Hierarchy Path */}
                         <div className="bg-slate-950 border border-slate-800/80 rounded-xl p-2.5 space-y-1.5 text-[11px]">
                           <div className="text-amber-300 font-bold">
-                            {assignedUni ? `${assignedUni.name} (${assignedUni.abbreviation})` : (course.universityName || 'Federal University Lokoja')}
+                            {assignedUni ? `${assignedUni.name} (${assignedUni.abbreviation})` : (course.universityName || 'Institution')}
                           </div>
                           <div className="flex items-center gap-1.5 text-slate-400 flex-wrap">
-                            <span className="text-indigo-400 font-medium">{course.facultyName || 'Faculty of Science'}</span>
+                            <span className="text-indigo-400 font-medium">{course.facultyName || 'Faculty'}</span>
                             <span className="text-slate-600">›</span>
-                            <span className="text-blue-400 font-medium">{course.departmentName || 'Computer Science'}</span>
+                            <span className="text-blue-400 font-medium">{course.departmentName || 'Department'}</span>
                           </div>
                           <div className="flex items-center gap-2 pt-1">
                             <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-semibold text-[10px]">
@@ -3873,12 +3871,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               <td className="p-4">
                                 <div className="space-y-1 max-w-xs">
                                   <span className="inline-block px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300 font-bold text-[10px] truncate max-w-full">
-                                    {assignedUni ? `${assignedUni.name} (${assignedUni.abbreviation})` : (course.universityName || 'Federal University Lokoja')}
+                                    {assignedUni ? `${assignedUni.name} (${assignedUni.abbreviation})` : (course.universityName || 'Institution')}
                                   </span>
                                   <div className="text-[10px] text-slate-400 flex items-center gap-1">
-                                    <span className="text-indigo-400 font-medium">{course.facultyName || 'Faculty of Science'}</span>
+                                    <span className="text-indigo-400 font-medium">{course.facultyName || 'Faculty'}</span>
                                     <span className="text-slate-600">›</span>
-                                    <span className="text-blue-400 font-medium">{course.departmentName || 'Computer Science'}</span>
+                                    <span className="text-blue-400 font-medium">{course.departmentName || 'Department'}</span>
                                   </div>
                                 </div>
                               </td>
