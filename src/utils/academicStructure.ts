@@ -76,6 +76,30 @@ export function isMatchingUniversityId(idA?: string, idB?: string): boolean {
 }
 
 /**
+ * Universal department ID matcher resolving compatibility between Supabase UUIDs and legacy Firestore IDs
+ */
+export function isMatchingDepartmentId(idA?: string, idB?: string): boolean {
+  if (!idA || !idB || idA === 'all' || idB === 'all') return true;
+  if (idA === idB) return true;
+  const is100A = idA === 'dept-1' || idA === '297656eb-016e-410a-ac72-fda4b1e704f1';
+  const is100B = idB === 'dept-1' || idB === '297656eb-016e-410a-ac72-fda4b1e704f1';
+  if (is100A && is100B) return true;
+  return false;
+}
+
+/**
+ * Universal faculty ID matcher resolving compatibility between Supabase UUIDs and legacy Firestore IDs
+ */
+export function isMatchingFacultyId(idA?: string, idB?: string): boolean {
+  if (!idA || !idB || idA === 'all' || idB === 'all') return true;
+  if (idA === idB) return true;
+  const is100FacA = idA === 'fac-100-fuahse' || idA === 'fac-1' || idA === '4a7996d7-ce9b-42da-a809-04bec2924b04';
+  const is100FacB = idB === 'fac-100-fuahse' || idB === 'fac-1' || idB === '4a7996d7-ce9b-42da-a809-04bec2924b04';
+  if (is100FacA && is100FacB) return true;
+  return false;
+}
+
+/**
  * Returns strictly the faculties registered in the database for the given university.
  * If no faculties are saved in the database for this university, returns an empty array.
  */
@@ -220,15 +244,16 @@ export function getCoursesForHierarchy({
     // 2. Faculty Filter (Step 1)
     if (facultyId && facultyId !== 'all') {
       if (c.facultyId) {
-        if (c.facultyId !== facultyId) return false;
+        if (!isMatchingFacultyId(c.facultyId, facultyId)) return false;
       } else if (facultyDepartmentIds && c.departmentId) {
-        if (!facultyDepartmentIds.has(c.departmentId)) return false;
+        const matchesAny = Array.from(facultyDepartmentIds).some((fid) => isMatchingDepartmentId(fid, c.departmentId));
+        if (!facultyDepartmentIds.has(c.departmentId) && !matchesAny) return false;
       }
     }
 
     // 3. Department Filter (Step 2)
     if (departmentId && departmentId !== 'all') {
-      if (c.departmentId && c.departmentId !== departmentId) {
+      if (c.departmentId && !isMatchingDepartmentId(c.departmentId, departmentId)) {
         return false;
       }
     }
@@ -304,21 +329,22 @@ export function getQuestionsForHierarchy({
 
     // 1. University filter
     if (universityId && universityId !== 'all') {
-      if (qUniId && qUniId !== universityId) return false;
+      if (qUniId && !isMatchingUniversityId(qUniId, universityId)) return false;
     }
 
     // 2. Faculty filter
     if (facultyId && facultyId !== 'all') {
       if (qFacultyId) {
-        if (qFacultyId !== facultyId) return false;
+        if (!isMatchingFacultyId(qFacultyId, facultyId)) return false;
       } else if (facultyDepartmentIds && qDeptId) {
-        if (!facultyDepartmentIds.has(qDeptId)) return false;
+        const matchesAny = Array.from(facultyDepartmentIds).some((fid) => isMatchingDepartmentId(fid, qDeptId));
+        if (!facultyDepartmentIds.has(qDeptId) && !matchesAny) return false;
       }
     }
 
     // 3. Department filter
     if (departmentId && departmentId !== 'all') {
-      if (qDeptId && qDeptId !== departmentId) return false;
+      if (qDeptId && !isMatchingDepartmentId(qDeptId, departmentId)) return false;
     }
 
     // 4. Level filter

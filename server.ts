@@ -4078,6 +4078,44 @@ app.get("/api/catalog/all", async (_req, res) => {
     }
     const universities = Array.from(uniqueUniMap.values());
 
+    // Department & Faculty Lookup for Course Meta
+    const deptIdToDept = new Map<string, any>();
+    sbDepts.forEach(d => {
+      const dep = departmentFromRow(d);
+      deptIdToDept.set(dep.id, dep);
+    });
+    if (deptIdToDept.has("297656eb-016e-410a-ac72-fda4b1e704f1")) {
+      deptIdToDept.set("dept-1", deptIdToDept.get("297656eb-016e-410a-ac72-fda4b1e704f1"));
+    }
+
+    const facIdToFac = new Map<string, any>();
+    sbFacs.forEach(f => {
+      const fac = facultyFromRow(f);
+      facIdToFac.set(fac.id, fac);
+    });
+    if (facIdToFac.has("4a7996d7-ce9b-42da-a809-04bec2924b04")) {
+      facIdToFac.set("fac-100-fuahse", facIdToFac.get("4a7996d7-ce9b-42da-a809-04bec2924b04"));
+      facIdToFac.set("fac-1", facIdToFac.get("4a7996d7-ce9b-42da-a809-04bec2924b04"));
+    }
+
+    const fuahse100Meta: Record<string, { code: string; title: string; id: string }> = {
+      "GST111": { code: "GST 111", title: "use of English", id: "98bd61de-3a1e-4836-acbe-2b1e830590bd" },
+      "MATH101": { code: "Math 101", title: "mathematics", id: "7423d8be-94c5-401f-a469-6161be51daf4" },
+      "MTH101": { code: "Math 101", title: "mathematics", id: "7423d8be-94c5-401f-a469-6161be51daf4" },
+      "BIO101": { code: "BIO 101", title: "Biology", id: "803a1dbc-92d2-43f3-a8d0-3ebb8fe48938" },
+      "CHEM101": { code: "Chem 101", title: "chemistry", id: "832037a8-8fb1-4c83-a5da-dc31b9e8a9cc" },
+      "CHM101": { code: "Chem 101", title: "chemistry", id: "832037a8-8fb1-4c83-a5da-dc31b9e8a9cc" },
+      "PHY101": { code: "Phy 101", title: "use of physics", id: "4f159947-facd-43ef-a55a-58cafcb1739e" },
+      "IGB101": { code: "Igb 101", title: "Igbo language", id: "17d4f6d3-1337-4ac4-ae55-4ab549fa7c5d" },
+      "FRN101": { code: "Frn 101", title: "French", id: "3514fe96-d277-4049-ae09-72fcbd5667b8" },
+      "GET103": { code: "GET 103", title: "work shop practice", id: "ed341b61-5ed9-4a88-a7b3-0295002bcd5d" },
+      "GLS": { code: "GLS", title: "use of library studies", id: "cfa1d52b-3fed-4523-a0bb-946d25ff8a33" },
+      "PHY107": { code: "Phy 107", title: "practical physics", id: "aad15392-47b8-4d23-a3c4-dfb9cfdb9d4c" },
+      "CHEM107": { code: "Chem 107", title: "chemistry practical", id: "d53f3f84-d243-43aa-a6d5-685bb613a5e1" },
+      "CHM107": { code: "Chem 107", title: "chemistry practical", id: "d53f3f84-d243-43aa-a6d5-685bb613a5e1" },
+      "BIO107": { code: "Bio 107", title: "Biology practical", id: "728eac7d-80e2-4a34-abfc-e2684684fa7a" },
+    };
+
     // Courses: Combine Supabase (mapped with courseFromRow) and Firestore
     const courseMap = new Map<string, any>();
     sbCourses.forEach(row => {
@@ -4090,9 +4128,57 @@ app.get("/api/catalog/all", async (_req, res) => {
         c.universityId = "05e96031-bc94-44e5-a8c5-611644dba5ba";
         c.universityName = "Federal University of Allied Health Sciences, Enugu (FUAHSE)";
       }
+
+      // Canonicalize department and faculty info
+      if (c.departmentId === "dept-1") {
+        c.departmentId = "297656eb-016e-410a-ac72-fda4b1e704f1";
+      }
+      if (c.departmentId) {
+        const dept = deptIdToDept.get(c.departmentId);
+        if (dept) {
+          c.departmentName = c.departmentName || dept.name;
+          c.facultyId = c.facultyId || dept.facultyId;
+        }
+      }
+      if (c.facultyId === "fac-100-fuahse" || c.facultyId === "fac-1") {
+        c.facultyId = "4a7996d7-ce9b-42da-a809-04bec2924b04";
+      }
+      if (c.facultyId) {
+        const fac = facIdToFac.get(c.facultyId);
+        if (fac) {
+          c.facultyName = c.facultyName || fac.name;
+        }
+      }
+
+      // Check if this course belongs to FUAHSE 100 level first semester
+      const normCode = (c.code || "").trim().toUpperCase().replace(/\s+/g, "");
+      if (fuahse100Meta[normCode] && (c.universityId === "05e96031-bc94-44e5-a8c5-611644dba5ba" || !c.universityId)) {
+        const meta = fuahse100Meta[normCode];
+        c.id = meta.id;
+        c.code = meta.code;
+        c.title = meta.title;
+        c.universityId = "05e96031-bc94-44e5-a8c5-611644dba5ba";
+        c.universityName = "Federal University of Allied Health Sciences, Enugu (FUAHSE)";
+        c.facultyId = "4a7996d7-ce9b-42da-a809-04bec2924b04";
+        c.facultyName = "All 100level Federal University of allied health science";
+        c.departmentId = "297656eb-016e-410a-ac72-fda4b1e704f1";
+        c.departmentName = "All 100level departments";
+        c.level = "100 Level";
+        c.semester = "First Semester";
+      }
+
       courseMap.set(c.id, c);
-      if (c.code) courseMap.set(c.code.trim().toUpperCase(), c);
+      if (c.code) {
+        const codeKey = c.code.trim().toUpperCase();
+        courseMap.set(codeKey, c);
+        const codeKeyNoSpace = codeKey.replace(/\s+/g, "");
+        courseMap.set(codeKeyNoSpace, c);
+        if (c.universityId) {
+          courseMap.set(`${c.universityId}_${codeKeyNoSpace}`, c);
+        }
+      }
     });
+
     fsCourses.forEach(fc => {
       // Exclude courses from extraneous universities (e.g. UNILAG or UI)
       if (fc.universityId === "uni-1" || fc.universityId === "uni-2" || fc.code === "GES101" || fc.code === "CSC111") {
@@ -4110,23 +4196,89 @@ app.get("/api/catalog/all", async (_req, res) => {
 
       const id = String(fc.id);
       const codeKey = (fc.code || "").trim().toUpperCase();
-      const existing = courseMap.get(id) || (codeKey ? courseMap.get(codeKey) : null);
+      const codeKeyNoSpace = codeKey.replace(/\s+/g, "");
+      const uniKey = targetUniId ? `${targetUniId}_${codeKeyNoSpace}` : "";
+      const existing = courseMap.get(id) || (uniKey ? courseMap.get(uniKey) : null) || (codeKey ? courseMap.get(codeKey) : null) || (codeKeyNoSpace ? courseMap.get(codeKeyNoSpace) : null);
+
+      let canonicalDeptId = fc.departmentId || existing?.departmentId || "";
+      if (canonicalDeptId === "dept-1") {
+        canonicalDeptId = "297656eb-016e-410a-ac72-fda4b1e704f1";
+      }
+
+      let canonicalFacId = fc.facultyId || existing?.facultyId || "";
+      if (canonicalFacId === "fac-100-fuahse" || canonicalFacId === "fac-1") {
+        canonicalFacId = "4a7996d7-ce9b-42da-a809-04bec2924b04";
+      }
+      if (!canonicalFacId && canonicalDeptId) {
+        const dept = deptIdToDept.get(canonicalDeptId);
+        if (dept) canonicalFacId = dept.facultyId;
+      }
+
+      const deptObj = canonicalDeptId ? deptIdToDept.get(canonicalDeptId) : null;
+      const facObj = canonicalFacId ? facIdToFac.get(canonicalFacId) : null;
+
+      let courseCode = existing?.code || fc.code || "";
+      let courseTitle = existing?.title || fc.title || "";
+      let finalCourseId = existing?.id || id;
+
+      // Special check for FUAHSE 100 level first semester courses
+      if (fuahse100Meta[codeKeyNoSpace] && (targetUniId === "05e96031-bc94-44e5-a8c5-611644dba5ba" || !targetUniId)) {
+        const meta = fuahse100Meta[codeKeyNoSpace];
+        finalCourseId = meta.id;
+        courseCode = meta.code;
+        courseTitle = meta.title;
+        targetUniId = "05e96031-bc94-44e5-a8c5-611644dba5ba";
+        targetUniName = "Federal University of Allied Health Sciences, Enugu (FUAHSE)";
+        canonicalDeptId = "297656eb-016e-410a-ac72-fda4b1e704f1";
+        canonicalFacId = "4a7996d7-ce9b-42da-a809-04bec2924b04";
+      }
+
       const merged = {
-        id: existing?.id || id,
-        code: fc.code || existing?.code || "",
-        title: fc.title || existing?.title || "",
+        id: finalCourseId,
+        code: courseCode,
+        title: courseTitle,
         universityId: targetUniId || existing?.universityId || "05e96031-bc94-44e5-a8c5-611644dba5ba",
         universityName: targetUniName || existing?.universityName || "Federal University of Allied Health Sciences, Enugu (FUAHSE)",
-        departmentId: fc.departmentId || existing?.departmentId || "",
-        level: fc.level || existing?.level || "100 Level",
-        semester: fc.semester || existing?.semester || "First Semester",
-        session: fc.session || existing?.session || "2024/2025",
-        description: fc.description || existing?.description || "",
-        isDisabled: fc.isDisabled ?? false,
+        departmentId: canonicalDeptId,
+        departmentName: existing?.departmentName || fc.departmentName || deptObj?.name || (canonicalDeptId === "297656eb-016e-410a-ac72-fda4b1e704f1" ? "All 100level departments" : ""),
+        facultyId: canonicalFacId,
+        facultyName: existing?.facultyName || fc.facultyName || facObj?.name || (canonicalFacId === "4a7996d7-ce9b-42da-a809-04bec2924b04" ? "All 100level Federal University of allied health science" : ""),
+        level: existing?.level || fc.level || "100 Level",
+        semester: existing?.semester || fc.semester || "First Semester",
+        session: existing?.session || fc.session || "2024/2025",
+        description: existing?.description || fc.description || "",
+        isDisabled: existing?.isDisabled ?? fc.isDisabled ?? false,
       };
+
       courseMap.set(merged.id, merged);
       if (codeKey) courseMap.set(codeKey, merged);
+      if (codeKeyNoSpace) courseMap.set(codeKeyNoSpace, merged);
+      if (uniKey) courseMap.set(uniKey, merged);
     });
+
+    // Ensure all 12 target FUAHSE courses are explicitly present and registered
+    Object.values(fuahse100Meta).forEach(meta => {
+      if (!courseMap.has(meta.id)) {
+        const canonicalCourse = {
+          id: meta.id,
+          code: meta.code,
+          title: meta.title,
+          universityId: "05e96031-bc94-44e5-a8c5-611644dba5ba",
+          universityName: "Federal University of Allied Health Sciences, Enugu (FUAHSE)",
+          facultyId: "4a7996d7-ce9b-42da-a809-04bec2924b04",
+          facultyName: "All 100level Federal University of allied health science",
+          departmentId: "297656eb-016e-410a-ac72-fda4b1e704f1",
+          departmentName: "All 100level departments",
+          level: "100 Level",
+          semester: "First Semester",
+          session: "2024/2025",
+          description: meta.title,
+          isDisabled: false
+        };
+        courseMap.set(meta.id, canonicalCourse);
+      }
+    });
+
     const uniqueCourseMap = new Map<string, any>();
     courseMap.forEach(c => uniqueCourseMap.set(c.id, c));
     const courses = Array.from(uniqueCourseMap.values());
