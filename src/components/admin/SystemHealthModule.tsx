@@ -591,7 +591,7 @@ export const SystemHealthModule: React.FC = () => {
                 <span className="w-2.5 h-2.5 rounded-full bg-blue-400 animate-pulse" />
                 Supabase
               </p>
-              <p className="text-[10px] text-slate-500 font-mono truncate">{supabaseStatus?.supabaseUrl || 'https://gkpvaqeykvvtjvilpksg.supabase.co'}</p>
+              <p className="text-[10px] text-slate-500 font-mono truncate">{supabaseStatus?.supabaseUrl || 'Cloud Firestore / Local DB'}</p>
             </div>
 
             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-1">

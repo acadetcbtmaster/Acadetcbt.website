@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Sparkles,
   BookOpen,
@@ -22,10 +22,15 @@ import {
   Video,
   Globe,
   Youtube,
-  Smartphone,
-  Download,
+  FileText,
+  Search,
+  Layers,
+  FlaskConical,
+  Stethoscope,
+  Wrench,
+  Languages,
 } from 'lucide-react';
-import { SubscriptionPlan, UserProfile, QuickLinkItem, HomepageSection } from '../types';
+import { SubscriptionPlan, UserProfile, QuickLinkItem, HomepageSection, Course, Faculty, University } from '../types';
 import { StorageService } from '../services/storage';
 import cbtCandidatesImg from '../assets/images/cbt_candidates.jpg';
 
@@ -40,9 +45,26 @@ interface LandingPageProps {
   currentUser?: UserProfile | null;
   onOpenFounder?: () => void;
   onStartPreJamb?: () => void;
-  onOpenInstallModal?: () => void;
+  onOpenFeaturesPdf?: () => void;
   questionsCount?: number;
   universitiesCount?: number;
+  courses?: Course[];
+  faculties?: Faculty[];
+  universities?: University[];
+}
+
+interface AcademicCategory {
+  id: string;
+  name: string;
+  shortName: string;
+  iconName: string;
+  description: string;
+  badge: string;
+  colorClass: string;
+  borderClass: string;
+  bgLightClass: string;
+  sampleCourses: { code: string; title: string; level?: string }[];
+  isPreJamb?: boolean;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
@@ -53,15 +75,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   currentUser,
   onOpenFounder,
   onStartPreJamb,
-  onOpenInstallModal,
+  onOpenFeaturesPdf,
   questionsCount = 0,
   universitiesCount = 0,
+  courses = [],
+  faculties = [],
+  universities = [],
 }) => {
   const [activeFaq, setActiveFaq] = useState<number | null>(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [showExplanation, setShowExplanation] = useState(false);
+  const [selectedCategoryTab, setSelectedCategoryTab] = useState<string>('all');
+  const [categorySearchQuery, setCategorySearchQuery] = useState<string>('');
 
-  // Dynamic Interface Editor Content
+  // Dynamic Interface Editor Content from Admin
   const [quickLinks, setQuickLinks] = useState<QuickLinkItem[]>([]);
   const [homepageSections, setHomepageSections] = useState<HomepageSection[]>([]);
 
@@ -99,6 +126,147 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     }
   };
 
+  // Pre-configured academic categories based on Nigerian university curriculum & UTME
+  const academicCategories: AcademicCategory[] = useMemo(() => [
+    {
+      id: 'gst',
+      name: 'General Studies (GST 100-Level)',
+      shortName: 'General Studies',
+      iconName: 'BookOpen',
+      badge: 'Core 100L',
+      description: 'Foundational university courses taken across all faculties: Use of English, Logic, Culture, and Communication.',
+      colorClass: 'text-emerald-700 dark:text-emerald-400',
+      borderClass: 'border-emerald-200 dark:border-emerald-800/40',
+      bgLightClass: 'bg-emerald-50 dark:bg-emerald-950/30',
+      sampleCourses: [
+        { code: 'GST 111', title: 'Use of English & Communication', level: '100L' },
+        { code: 'GST 101', title: 'Use of English I', level: '100L' },
+        { code: 'GST 102', title: 'Philosophy & Logic', level: '100L' },
+        { code: 'GST 103', title: 'Nigerian Peoples and Culture', level: '100L' },
+      ],
+    },
+    {
+      id: 'science',
+      name: 'Sciences & Computing',
+      shortName: 'Sciences',
+      iconName: 'FlaskConical',
+      badge: 'STEM & Tech',
+      description: 'Mathematics, Physics, Chemistry, Biology, and Computer Science theories & practicals with detailed solutions.',
+      colorClass: 'text-blue-700 dark:text-blue-400',
+      borderClass: 'border-blue-200 dark:border-blue-800/40',
+      bgLightClass: 'bg-blue-50 dark:bg-blue-950/30',
+      sampleCourses: [
+        { code: 'Math 101', title: 'Elementary Mathematics I (Algebra & Trig)', level: '100L' },
+        { code: 'Phy 101', title: 'General Physics I (Mechanics & Heat)', level: '100L' },
+        { code: 'Chem 101', title: 'General Chemistry I (Inorganic & Physical)', level: '100L' },
+        { code: 'BIO 101', title: 'General Biology I (Cell Biology & Diversity)', level: '100L' },
+        { code: 'Phy 107', title: 'General Physics Practical I', level: '100L' },
+        { code: 'Chem 107', title: 'General Chemistry Practical I', level: '100L' },
+        { code: 'Bio 107', title: 'General Biology Practical I', level: '100L' },
+      ],
+    },
+    {
+      id: 'health',
+      name: 'Health & Medical Sciences',
+      shortName: 'Medical Sciences',
+      iconName: 'Stethoscope',
+      badge: 'Healthcare',
+      description: 'Clinical anatomy, biochemistry, medical biology, pharmacology, and allied healthcare exam preparations.',
+      colorClass: 'text-rose-700 dark:text-rose-400',
+      borderClass: 'border-rose-200 dark:border-rose-800/40',
+      bgLightClass: 'bg-rose-50 dark:bg-rose-950/30',
+      sampleCourses: [
+        { code: 'BIO 101', title: 'Medical Biology & Genetics', level: '100L' },
+        { code: 'Chem 101', title: 'Medical Organic & Physical Chemistry', level: '100L' },
+        { code: 'Phy 101', title: 'Biophysics & Radiation Principles', level: '100L' },
+        { code: 'Bio 107', title: 'Histology & Biology Lab Practicals', level: '100L' },
+        { code: 'GLS', title: 'Laboratory Safety & Medical Techniques', level: '100L' },
+      ],
+    },
+    {
+      id: 'engineering',
+      name: 'Engineering & Applied Technology',
+      shortName: 'Engineering',
+      iconName: 'Wrench',
+      badge: 'Engineering',
+      description: 'Applied mathematics, mechanics, technical drawing, and engineering principles in modern society.',
+      colorClass: 'text-amber-700 dark:text-amber-400',
+      borderClass: 'border-amber-200 dark:border-amber-800/40',
+      bgLightClass: 'bg-amber-50 dark:bg-amber-950/30',
+      sampleCourses: [
+        { code: 'GET 103', title: 'Engineers in Society & Ethics', level: '100L' },
+        { code: 'Math 101', title: 'Calculus & Analytical Geometry', level: '100L' },
+        { code: 'Phy 101', title: 'Engineering Physics & Statics', level: '100L' },
+        { code: 'Phy 107', title: 'Applied Physics Experimental Practicals', level: '100L' },
+      ],
+    },
+    {
+      id: 'arts',
+      name: 'Arts, Humanities & Languages',
+      shortName: 'Arts & Languages',
+      iconName: 'Languages',
+      badge: 'Humanities',
+      description: 'Indigenous languages, international studies, communication arts, and cultural literature past tests.',
+      colorClass: 'text-purple-700 dark:text-purple-400',
+      borderClass: 'border-purple-200 dark:border-purple-800/40',
+      bgLightClass: 'bg-purple-50 dark:bg-purple-950/30',
+      sampleCourses: [
+        { code: 'Igb 101', title: 'Introduction to Igbo Language & Linguistics', level: '100L' },
+        { code: 'Frn 101', title: 'French for Beginners & Written Expression', level: '100L' },
+        { code: 'GST 111', title: 'Communication Skills in Humanities', level: '100L' },
+      ],
+    },
+    {
+      id: 'pre_jamb',
+      name: 'Pre-JAMB / UTME Examination Academy',
+      shortName: 'Pre-JAMB CBT',
+      iconName: 'GraduationCap',
+      badge: 'JAMB / UTME',
+      description: 'Official 4-subject combination JAMB simulations with real-time countdown, negative marking, and instant scores.',
+      colorClass: 'text-indigo-700 dark:text-indigo-400',
+      borderClass: 'border-indigo-200 dark:border-indigo-800/40',
+      bgLightClass: 'bg-indigo-50 dark:bg-indigo-950/30',
+      isPreJamb: true,
+      sampleCourses: [
+        { code: 'ENG', title: 'Use of English (60 Questions)', level: 'UTME' },
+        { code: 'MTH', title: 'Mathematics (40 Questions)', level: 'UTME' },
+        { code: 'PHY', title: 'Physics (40 Questions)', level: 'UTME' },
+        { code: 'CHM', title: 'Chemistry (40 Questions)', level: 'UTME' },
+        { code: 'BIO', title: 'Biology (40 Questions)', level: 'UTME' },
+        { code: 'GOV', title: 'Government (40 Questions)', level: 'UTME' },
+      ],
+    },
+  ], []);
+
+  // Filter categories based on tab and search query
+  const filteredCategories = useMemo(() => {
+    return academicCategories.filter((cat) => {
+      const matchesTab = selectedCategoryTab === 'all' || cat.id === selectedCategoryTab;
+      if (!matchesTab) return false;
+
+      if (!categorySearchQuery.trim()) return true;
+
+      const q = categorySearchQuery.toLowerCase();
+      const inName = cat.name.toLowerCase().includes(q);
+      const inDesc = cat.description.toLowerCase().includes(q);
+      const inCourses = cat.sampleCourses.some(
+        (c) => c.code.toLowerCase().includes(q) || c.title.toLowerCase().includes(q)
+      );
+      return inName || inDesc || inCourses;
+    });
+  }, [academicCategories, selectedCategoryTab, categorySearchQuery]);
+
+  const renderCategoryIcon = (iconName: string) => {
+    switch (iconName) {
+      case 'FlaskConical': return <FlaskConical className="w-5 h-5 text-blue-600 dark:text-blue-400" />;
+      case 'Stethoscope': return <Stethoscope className="w-5 h-5 text-rose-600 dark:text-rose-400" />;
+      case 'Wrench': return <Wrench className="w-5 h-5 text-amber-600 dark:text-amber-400" />;
+      case 'Languages': return <Languages className="w-5 h-5 text-purple-600 dark:text-purple-400" />;
+      case 'GraduationCap': return <GraduationCap className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />;
+      default: return <BookOpen className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />;
+    }
+  };
+
   const sampleQuestion = {
     q: 'GST101: Which of the following best exemplifies the subject-verb concord rule regarding proximity in "neither... nor"?',
     a: 'Neither the principal nor the teachers were present.',
@@ -120,7 +288,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     },
     {
       q: 'Is the Mock CBT timer realistic to actual university CBT software?',
-      a: 'Yes. The Mock CBT practice engine mimics authentic computer-based testing environments used by Nigerian universities (UNILAG, UI, ABU, OAU, CU) including countdown timers, question navigation palettes, mark for review, and auto-submission on timeout.',
+      a: 'Yes. The Mock CBT practice engine mimics authentic computer-based testing environments used by Nigerian universities (FUAHSE, FUL, UNILAG, UI, ABU, OAU) including countdown timers, question navigation palettes, mark for review, and auto-submission on timeout.',
     },
     {
       q: 'What payment methods are supported for Nigerian & International students?',
@@ -135,22 +303,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   return (
     <div className="w-full max-w-full bg-[#f4f5f7] dark:bg-slate-950 text-slate-900 dark:text-slate-100 min-h-screen font-sans" id="landing-container">
       
-      {/* Hero Section */}
-      <section className="relative pt-10 pb-14 sm:pt-14 sm:pb-20 border-b border-slate-200 dark:border-white/[0.08] w-full" id="hero-section">
+      {/* Hero Section - Clean, Focused, No Download Noise */}
+      <section className="relative pt-10 pb-14 sm:pt-14 sm:pb-18 border-b border-slate-200 dark:border-white/[0.08] w-full bg-white dark:bg-slate-950" id="hero-section">
         <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="text-center max-w-3xl mx-auto">
             
-            {/* Primary Brand Title: ACADET CBT MASTER at the top only */}
+            {/* Primary Brand Title */}
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold text-slate-900 dark:text-white tracking-tight leading-tight mb-2">
               ACADET CBT MASTER
             </h1>
 
-            {/* Immediately at the bottom of the ACADET CBT MASTER name */}
+            {/* Sub-Brand Tagline */}
             <p className="text-lg sm:text-xl sm:leading-snug font-bold text-[#1b5e20] dark:text-blue-400 tracking-tight mb-4">
-              Master Past Questions & Course Material Exams
+              Nigerian University Learning & CBT Practice Engine
             </p>
 
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-100 dark:bg-blue-950/60 text-[#1b5e20] dark:text-blue-400 border border-blue-300 dark:border-blue-800 text-xs font-semibold tracking-normal mb-5">
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-50 dark:bg-blue-950/60 text-[#1b5e20] dark:text-blue-400 border border-blue-200 dark:border-blue-800 text-xs font-semibold tracking-normal mb-5">
               <GraduationCap className="w-4 h-4 text-[#1b5e20] dark:text-blue-400 shrink-0" />
               <span>Nigerian Tertiary Institutions & Pre-JAMB CBT Examination Portal</span>
             </div>
@@ -159,6 +327,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               Practice verified Nigerian university past questions, simulate authentic timed CBT examinations, generate custom questions from lecture notes, and get instant step-by-step explanations to score A’s.
             </p>
 
+            {/* Clean, Streamlined Action Buttons */}
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-8">
               <button
                 onClick={onStartPractice}
@@ -168,38 +337,42 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 <BookOpen className="w-4 h-4" />
                 Start Free Practice (30 Free Qs)
               </button>
+              
+              <button
+                onClick={() => {
+                  const catEl = document.getElementById('categories-section');
+                  if (catEl) {
+                    catEl.scrollIntoView({ behavior: 'smooth' });
+                  }
+                }}
+                className="w-full sm:w-auto px-6 py-3 bg-[#1e3a8a] hover:bg-[#172554] text-white font-semibold text-xs sm:text-sm rounded-xl shadow-xs transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                id="hero-explore-categories-btn"
+              >
+                <Layers className="w-4 h-4" />
+                Explore Study Categories
+              </button>
+
               <button
                 onClick={() => onOpenAuth('register')}
-                className="w-full sm:w-auto px-6 py-3 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white font-semibold text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-white/[0.08] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                className="w-full sm:w-auto px-6 py-3 bg-white hover:bg-slate-50 dark:bg-slate-900 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 hover:text-slate-900 dark:hover:text-white font-semibold text-xs sm:text-sm rounded-xl border border-slate-300 dark:border-white/[0.12] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
                 id="hero-register-btn"
               >
                 Create Student Account
                 <ArrowRight className="w-4 h-4 text-slate-500" />
               </button>
-              {onOpenInstallModal && (
-                <button
-                  onClick={onOpenInstallModal}
-                  className="w-full sm:w-auto px-5 py-3 bg-blue-50 hover:bg-blue-100 dark:bg-slate-900 dark:hover:bg-slate-800 text-[#1b5e20] dark:text-blue-400 font-bold text-xs sm:text-sm rounded-xl border border-blue-200 dark:border-white/[0.08] transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
-                  id="hero-install-app-btn"
-                >
-                  <Smartphone className="w-4 h-4 text-[#1b5e20] dark:text-blue-400" />
-                  <span>Download Mobile App</span>
-                  <Download className="w-3.5 h-3.5" />
-                </button>
-              )}
             </div>
 
             {/* Quick Metrics */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/[0.08] shadow-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-white/[0.08] shadow-xs">
               <div className="text-center p-2">
                 <p className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white">
-                  {questionsCount > 0 ? questionsCount.toLocaleString() : '0'}
+                  {questionsCount > 0 ? questionsCount.toLocaleString() : '1,000+'}
                 </p>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium">Database Questions</p>
               </div>
               <div className="text-center p-2">
                 <p className="text-xl sm:text-2xl font-bold text-[#1b5e20] dark:text-blue-400">
-                  {universitiesCount > 0 ? `${universitiesCount} Universities` : '0 Universities'}
+                  {universitiesCount > 0 ? `${universitiesCount} Universities` : '2+ Universities'}
                 </p>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-medium">Accredited Institutions</p>
               </div>
@@ -217,7 +390,161 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* Dynamic Homepage Sections Managed via Admin Interface Editor */}
+      {/* Primary Academic Categories Section - Simple, Direct, Easy Browsing */}
+      <section className="py-12 sm:py-16 bg-white dark:bg-slate-900/60 border-b border-slate-200 dark:border-white/[0.08] w-full" id="categories-section">
+        <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          
+          <div className="text-center max-w-3xl mx-auto mb-8">
+            <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#1e3a8a] dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 px-3.5 py-1.5 rounded-full mb-2">
+              <Layers className="w-3.5 h-3.5" />
+              Organized Study Categories
+            </span>
+            <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+              Explore Practice by Academic Category
+            </h2>
+            <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm mt-1 max-w-2xl mx-auto font-normal">
+              Browse your faculty, course outline, or pre-university examination track. Select any category to launch direct CBT practice.
+            </p>
+          </div>
+
+          {/* Quick Filter Tabs & Search */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mb-8">
+            {/* Category Filter Tabs */}
+            <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-2 sm:pb-0 scrollbar-none">
+              <button
+                onClick={() => setSelectedCategoryTab('all')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+                  selectedCategoryTab === 'all'
+                    ? 'bg-[#1e3a8a] text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                }`}
+              >
+                All Categories ({academicCategories.length})
+              </button>
+              {academicCategories.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategoryTab(cat.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+                    selectedCategoryTab === cat.id
+                      ? 'bg-[#1e3a8a] text-white shadow-xs'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  {cat.shortName}
+                </button>
+              ))}
+            </div>
+
+            {/* Quick Search */}
+            <div className="relative w-full sm:w-64 shrink-0">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search course code e.g. Phy 101, GST..."
+                value={categorySearchQuery}
+                onChange={(e) => setCategorySearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-1.5 text-xs rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {categorySearchQuery && (
+                <button
+                  onClick={() => setCategorySearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-600"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Clean Category Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filteredCategories.map((category) => (
+              <div
+                key={category.id}
+                className="p-5 sm:p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/[0.08] shadow-xs hover:border-[#1e3a8a] dark:hover:border-blue-500/50 transition-all flex flex-col justify-between group"
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-3.5">
+                    <div className="w-10 h-10 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 flex items-center justify-center shrink-0">
+                      {renderCategoryIcon(category.iconName)}
+                    </div>
+                    <span className="text-[10px] font-black px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 uppercase tracking-wider">
+                      {category.badge}
+                    </span>
+                  </div>
+
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1.5 group-hover:text-[#1e3a8a] dark:group-hover:text-blue-400 transition-colors">
+                    {category.name}
+                  </h3>
+
+                  <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-normal mb-4">
+                    {category.description}
+                  </p>
+
+                  {/* Sample Courses List / Badges */}
+                  <div className="space-y-1.5 mb-5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                      Available Courses:
+                    </span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {category.sampleCourses.map((c, idx) => (
+                        <span
+                          key={idx}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200/80 dark:border-slate-700/60"
+                        >
+                          <span className="font-bold text-[#1e3a8a] dark:text-blue-400">{c.code}</span>
+                          <span className="text-[10px] text-slate-500 truncate max-w-[130px] hidden sm:inline">{c.title}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Direct Action Button */}
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-800">
+                  {category.isPreJamb ? (
+                    <button
+                      onClick={onStartPreJamb ? onStartPreJamb : onStartPractice}
+                      className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      id={`practice-category-${category.id}`}
+                    >
+                      <GraduationCap className="w-3.5 h-3.5" />
+                      <span>Launch Pre-JAMB CBT Practice</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={onStartPractice}
+                      className="w-full py-2.5 bg-[#1b5e20] hover:bg-[#155217] text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      id={`practice-category-${category.id}`}
+                    >
+                      <BookOpen className="w-3.5 h-3.5" />
+                      <span>Practice {category.shortName} Courses</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {filteredCategories.length === 0 && (
+            <div className="text-center py-10 bg-slate-50 dark:bg-slate-900 rounded-2xl border border-dashed border-slate-300 dark:border-slate-800">
+              <p className="text-xs text-slate-500">No category matched your search "{categorySearchQuery}".</p>
+              <button
+                onClick={() => { setSelectedCategoryTab('all'); setCategorySearchQuery(''); }}
+                className="mt-2 text-xs font-bold text-[#1e3a8a] hover:underline"
+              >
+                Reset filters
+              </button>
+            </div>
+          )}
+
+        </div>
+      </section>
+
+      {/* Dynamic Homepage Sections Managed via Admin Interface Editor (if any active) */}
       {homepageSections.map((sec) => (
         <section key={sec.id} className="py-10 border-b border-slate-200 dark:border-slate-900 bg-white dark:bg-slate-950 w-full">
           <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -336,7 +663,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       ))}
 
       {/* Interactive Sample CBT Teaser */}
-      <section className="py-14 bg-white dark:bg-slate-900/40 border-b border-slate-200 dark:border-white/[0.08] w-full" id="sample-cbt-teaser">
+      <section className="py-12 sm:py-16 bg-white dark:bg-slate-900/40 border-b border-slate-200 dark:border-white/[0.08] w-full" id="sample-cbt-teaser">
         <div className="w-full max-w-4xl mx-auto px-4 sm:px-6">
           <div className="text-center mb-8">
             <span className="text-xs font-semibold uppercase tracking-wider text-[#1b5e20] dark:text-blue-400 bg-blue-100 dark:bg-blue-950/60 border border-blue-300 dark:border-blue-800 px-3.5 py-1 rounded-full shadow-xs">
@@ -402,10 +729,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* Features Grid */}
-      <section className="py-14 sm:py-18 border-b border-slate-200 dark:border-white/[0.08] w-full" id="features-section">
+      {/* Features Grid - Clean, Uncluttered */}
+      <section className="py-12 sm:py-16 border-b border-slate-200 dark:border-white/[0.08] w-full" id="features-section">
         <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-2xl mx-auto mb-12">
+          <div className="text-center max-w-2xl mx-auto mb-10">
             <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">Everything You Need for Exam Success</h2>
             <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-2 font-normal">Built specifically to match official Nigerian university CBT software standards.</p>
           </div>
@@ -436,29 +763,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     <Brain className="w-5 h-5" />
                   </div>
                   <span className="text-xs font-black px-3 py-1 rounded-md bg-purple-700 dark:bg-purple-600 text-white shadow-xs uppercase tracking-wide">
-                    Smart Question Generator
+                    Exam Simulator
                   </span>
                 </div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1.5">Material Question Generator</h3>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1.5">Authentic Exam Timer</h3>
                 <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
-                  Lecturers and admins upload course materials or outlines; the generator extracts realistic multiple-choice questions with answer keys.
-                </p>
-              </div>
-            </div>
-
-            <div className="p-6 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/[0.08] shadow-xs flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/40 text-blue-700 dark:text-blue-400 flex items-center justify-center mb-4">
-                    <Clock className="w-5 h-5" />
-                  </div>
-                  <span className="text-xs font-black px-3 py-1 rounded-md bg-blue-700 dark:bg-blue-600 text-white shadow-xs uppercase tracking-wide">
-                    Timed Exam Hall
-                  </span>
-                </div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1.5">Timed Mock CBT</h3>
-                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
-                  Authentic examination conditions with countdown timers, question grid palette, marked for review, and auto-submit.
+                  Simulate real CBT hall pressure with time countdowns, mark for review palettes, and automated score computation.
                 </p>
               </div>
             </div>
@@ -467,15 +777,32 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/40 text-amber-700 dark:text-amber-400 flex items-center justify-center">
-                    <ShieldCheck className="w-5 h-5" />
+                    <Zap className="w-5 h-5" />
                   </div>
                   <span className="text-xs font-black px-3 py-1 rounded-md bg-amber-700 dark:bg-amber-600 text-white shadow-xs uppercase tracking-wide">
-                    Step-by-Step
+                    Smart Tools
                   </span>
                 </div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1.5">Detailed Explanations</h3>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1.5">Question Generator</h3>
                 <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
-                  Never guess again. Every question includes a clear step-by-step reasoning breakdown explaining why the answer is right.
+                  Convert syllabus outlines, lecture notes, or PDF study materials into verified practice questions automatically.
+                </p>
+              </div>
+            </div>
+
+            <div className="p-6 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/[0.08] shadow-xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 text-[#1b5e20] dark:text-emerald-400 flex items-center justify-center">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </div>
+                  <span className="text-xs font-black px-3 py-1 rounded-md bg-[#1b5e20] dark:bg-emerald-600 text-white shadow-xs uppercase tracking-wide">
+                    Solutions
+                  </span>
+                </div>
+                <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1.5">Step-by-Step Explanations</h3>
+                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
+                  Never guess answers. View in-depth explanations, formulas, references, and key academic concepts after every question.
                 </p>
               </div>
             </div>
@@ -509,7 +836,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </div>
                 <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1.5">Multi-University Scale</h3>
                 <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed font-normal">
-                  Supports FUL, UNILAG, UI, ABU, OAU, Covenant University, and easily expandable to any tertiary institution.
+                  Supports FUAHSE, FUL, UNILAG, UI, ABU, OAU, Covenant University, and easily expandable to any Nigerian tertiary institution.
                 </p>
               </div>
             </div>
@@ -519,9 +846,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* Free Access Plan Card */}
-      <section className="py-14 sm:py-18 border-b border-slate-200 dark:border-white/[0.08] w-full" id="pricing-section">
+      <section className="py-12 sm:py-16 border-b border-slate-200 dark:border-white/[0.08] w-full" id="pricing-section">
         <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-2xl mx-auto mb-10">
+          <div className="text-center max-w-2xl mx-auto mb-8">
             <span className="text-xs font-semibold uppercase tracking-wider text-[#1b5e20] dark:text-blue-400 bg-blue-100 dark:bg-blue-950/60 border border-blue-300 dark:border-blue-800 px-3.5 py-1.5 rounded-full">
               Zero Payment Required
             </span>
@@ -579,9 +906,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* FAQ Accordion */}
-      <section className="py-14 sm:py-18 border-b border-slate-200 dark:border-white/[0.08] w-full" id="faq-section">
+      <section className="py-12 sm:py-16 border-b border-slate-200 dark:border-white/[0.08] w-full" id="faq-section">
         <div className="w-full max-w-3xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-10">
+          <div className="text-center mb-8">
             <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">Frequently Asked Questions</h2>
             <p className="text-slate-500 dark:text-slate-400 text-xs sm:text-sm mt-1 font-normal">Have questions before starting? We have answers.</p>
           </div>
@@ -611,10 +938,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* About Acadet Section */}
-      <section className="py-14 sm:py-18 bg-white dark:bg-slate-900/40 border-b border-slate-200 dark:border-white/[0.08] w-full" id="about-acadet-section">
+      <section className="py-12 sm:py-16 bg-white dark:bg-slate-900/40 border-b border-slate-200 dark:border-white/[0.08] w-full" id="about-acadet-section">
         <div className="w-full max-w-5xl mx-auto px-4 sm:px-6">
           
-          <div className="text-center max-w-3xl mx-auto mb-10">
+          <div className="text-center max-w-3xl mx-auto mb-8">
             <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-blue-700 dark:bg-blue-600 text-white text-xs font-black uppercase tracking-wider mb-3 shadow-xs">
               <GraduationCap className="w-3.5 h-3.5 text-white" />
               <span>Modern Nigerian University Practice Engine</span>
@@ -647,10 +974,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               Acadet is designed to help university students prepare smarter, practice confidently, and achieve academic success. The platform provides organized course materials, past questions, mock examinations, performance tracking, and interactive learning tools tailored to each university, level, semester, and course.
             </p>
             <p>
-              Built with reliability, simplicity, and innovation in mind, Acadet offers a seamless learning experience where students can access quality academic resources, monitor their progress, and strengthen their knowledge through structured practice. Every feature is designed to deliver accurate, real-time content while providing a secure and user-friendly environment.
-            </p>
-            <p>
-              Whether you're preparing for semester tests, faculty examinations, or mastering challenging course topics, Acadet is built to support your academic journey every step of the way.
+              Built with reliability, simplicity, and innovation in mind, Acadet offers a seamless learning experience where students can access quality academic resources, monitor their progress, and strengthen their knowledge through structured practice.
             </p>
 
             {/* Mission & Vision Cards */}
@@ -708,14 +1032,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             </div>
 
-            {/* Inspiration Quote */}
-            <blockquote className="bg-white dark:bg-white/[0.02] border-l-4 border-[#1e3a8a] p-4 rounded-r-xl italic text-slate-700 dark:text-slate-300 text-xs sm:text-sm leading-relaxed shadow-xs">
-              "Great ideas become reality through collaboration, dedication, and a shared commitment to excellence. Acadet is a reflection of that vision—built to inspire learning, empower students, and shape academic success."
-            </blockquote>
-
             {/* Official Social Media Links */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* YouTube Channel */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
               <div className="bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/[0.08] p-5 rounded-xl flex flex-col justify-between gap-3.5 shadow-xs">
                 <div className="flex items-start gap-3 text-left">
                   <div className="w-10 h-10 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 flex items-center justify-center text-red-600 shrink-0">
@@ -740,7 +1058,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 </a>
               </div>
 
-              {/* Official WhatsApp Channel */}
               <div className="bg-white dark:bg-white/[0.02] border border-slate-200 dark:border-white/[0.08] p-5 rounded-xl flex flex-col justify-between gap-3.5 shadow-xs">
                 <div className="flex items-start gap-3 text-left">
                   <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 flex items-center justify-center text-[#1e3a8a] shrink-0">
@@ -771,7 +1088,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       </section>
 
       {/* CTA Footer Banner */}
-      <section className="py-14 bg-blue-50 dark:bg-slate-900 border-b border-blue-200 dark:border-white/[0.08] text-center w-full" id="cta-footer">
+      <section className="py-12 bg-blue-50 dark:bg-slate-900 border-b border-blue-200 dark:border-white/[0.08] text-center w-full" id="cta-footer">
         <div className="w-full max-w-4xl mx-auto px-4">
           <h2 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white mb-2 tracking-tight">Ready to Score A’s in Your Next CBT Exams?</h2>
           <p className="text-slate-600 dark:text-slate-400 text-xs sm:text-sm mb-6 max-w-xl mx-auto font-normal">Join thousands of university students practicing past questions and course material tests.</p>
@@ -784,7 +1101,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* Footer */}
+      {/* Clean Footer - Without Download Link */}
       <footer className="py-8 bg-white dark:bg-slate-950 border-t border-slate-200 dark:border-white/[0.08] text-center text-xs text-slate-500 w-full">
         <div className="w-full max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="font-normal text-[11px] sm:text-xs text-slate-600 dark:text-slate-400">
@@ -826,6 +1143,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             >
               Free Practice
             </button>
+            {onOpenFeaturesPdf && (
+              <button
+                onClick={onOpenFeaturesPdf}
+                className="text-slate-600 dark:text-slate-400 hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
+              >
+                <FileText className="w-3 h-3" />
+                <span>Features Guide</span>
+              </button>
+            )}
           </div>
         </div>
       </footer>

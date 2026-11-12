@@ -163,19 +163,45 @@ function getRealtimeOptions(): RealtimeOptions | undefined {
   return isNode && !hasWebSocket ? { transport: NoopWebSocket } : undefined;
 }
 
+let isPreJambCircuitBroken = false;
+
+export function markPreJambSupabaseFailed(reason?: string): void {
+  if (!isPreJambCircuitBroken) {
+    isPreJambCircuitBroken = true;
+    cachedClient = null;
+    cachedAdminClient = null;
+    console.info(`[PreJambSupabase] Service note: remote Pre-JAMB endpoint unavailable (${reason || 'network unreachable'}). Routing to local storage.`);
+  }
+}
+
 /**
  * Returns true if Pre-JAMB Supabase URL and Anon Key are configured
  */
 export function isPreJambSupabaseConfigured(): boolean {
+  if (isPreJambCircuitBroken) return false;
   const url = getPreJambSupabaseUrl();
   const key = getPreJambSupabaseAnonKey();
-  return Boolean(url && key && url.trim().length > 0 && key.trim().length > 0 && !url.includes('placeholder'));
+  if (!url || !key) return false;
+  const trimmedUrl = url.trim().toLowerCase();
+  const trimmedKey = key.trim();
+  if (
+    trimmedUrl.includes('placeholder') ||
+    trimmedUrl.includes('gkpvaqeykvvtjvilpksg') ||
+    !trimmedUrl.startsWith('http')
+  ) {
+    return false;
+  }
+  return trimmedUrl.length > 0 && trimmedKey.length > 0;
 }
 
 /**
  * Returns the distinct client for Pre-JAMB Supabase queries
  */
 export function getPreJambSupabaseClient(): SupabaseClient | null {
+  if (!isPreJambSupabaseConfigured()) {
+    return null;
+  }
+
   const url = getPreJambSupabaseUrl();
   const key = getPreJambSupabaseAnonKey();
 
@@ -195,6 +221,7 @@ export function getPreJambSupabaseClient(): SupabaseClient | null {
       });
     } catch (err) {
       console.error('[PreJambSupabase] Client initialization error:', err);
+      markPreJambSupabaseFailed(err instanceof Error ? err.message : String(err));
       return null;
     }
   }
@@ -206,6 +233,10 @@ export function getPreJambSupabaseClient(): SupabaseClient | null {
  * Returns the privileged admin client for Pre-JAMB Supabase queries
  */
 export function getPreJambSupabaseAdminClient(): SupabaseClient | null {
+  if (!isPreJambSupabaseConfigured()) {
+    return null;
+  }
+
   const url = getPreJambSupabaseUrl();
   const serviceKey = getPreJambSupabaseServiceKey() || getPreJambSupabaseAnonKey();
 
@@ -224,6 +255,7 @@ export function getPreJambSupabaseAdminClient(): SupabaseClient | null {
       });
     } catch (err) {
       console.error('[PreJambSupabase] Admin client initialization error:', err);
+      markPreJambSupabaseFailed(err instanceof Error ? err.message : String(err));
       return null;
     }
   }

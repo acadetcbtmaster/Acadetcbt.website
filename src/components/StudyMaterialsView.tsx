@@ -53,6 +53,8 @@ interface MaterialItem {
   description: string;
   downloadsCount: number;
   downloadPriceNGN: number;
+  topic?: string;
+  extractedTextPreview?: string;
 }
 
 export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
@@ -123,6 +125,8 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
     description: sm.description || 'Comprehensive study resource for CBT exams.',
     downloadsCount: sm.totalDownloads || 0,
     downloadPriceNGN: 500,
+    topic: sm.topic,
+    extractedTextPreview: sm.extractedTextPreview,
   }));
 
   const filteredMaterials = materials.filter((m) => {
@@ -206,12 +210,30 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
       document.body.removeChild(element);
     } else {
       const element = document.createElement('a');
-      const file = new Blob(
-        [
-          `==================================================\nCBT MASTER - OFFICIAL STUDY MATERIAL\nTitle: ${material.title}\nCourse: ${material.courseCode} - ${material.courseTitle}\nDownloaded By: ${user.name} (${user.email})\nDownload Date: ${new Date().toLocaleDateString()}\nStatus: Verified Student Download\n==================================================\n\nOVERVIEW:\n${material.description}\n\nSUMMARY & EXAM HIGHLIGHTS:\n- High-yield past questions compiled for university CBT examinations.\n- Key formulas, solutions, and memory mnemonics.\n\n[Official Study Material Document]`
-        ],
-        { type: 'text/plain;charset=utf-8' }
-      );
+      const lines = [
+        "==================================================",
+        "ACADET CBT MASTER - OFFICIAL STUDY MATERIAL",
+        "==================================================",
+        `Title: ${material.title}`,
+        `Course: ${material.courseCode} - ${material.courseTitle || ""}`,
+        `Topic: ${material.topic || "General Course Revision & Exam Prep"}`,
+        `Level: ${material.level || "100 Level"} | Semester: ${material.semester || "First Semester"}`,
+        `Downloaded By: ${user.name} (${user.email})`,
+        `Download Date: ${new Date().toLocaleDateString()}`,
+        "Status: Verified Student Download",
+        "==================================================",
+        "",
+        "OVERVIEW & SYLLABUS ALIGNMENT:",
+        material.description || "Comprehensive exam preparation material aligned with university CBT curriculum.",
+        "",
+        "--------------------------------------------------",
+        "LECTURE NOTES & HIGH-YIELD HIGHLIGHTS:",
+        material.extractedTextPreview || "- Key course concepts and fundamental principles\n- Solved past question breakdowns and calculation formulas\n- High-yield memory mnemonics and examination tips",
+        "",
+        "==================================================",
+        "[Official Acadet CBT Master Study Material Document - Save for Offline Revision]"
+      ];
+      const file = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
       element.href = URL.createObjectURL(file);
       element.download = `${material.courseCode}_${material.title.replace(/[^a-zA-Z0-9]/g, '_')}.txt`;
       document.body.appendChild(element);

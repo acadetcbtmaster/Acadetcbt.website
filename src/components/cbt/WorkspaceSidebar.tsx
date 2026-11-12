@@ -1,0 +1,139 @@
+import {
+  BarChart3,
+  BookOpen,
+  FileText,
+  HelpCircle,
+  Home,
+  LogOut,
+  Settings,
+  Shield,
+  X,
+} from 'lucide-react';
+import React from 'react';
+import type { UserRole } from '../../types/cbt';
+
+export type WorkspaceTab =
+  | 'home'
+  | 'results'
+  | 'materials'
+  | 'practice'
+  | 'help'
+  | 'admin';
+
+interface WorkspaceSidebarProps {
+  activeTab: WorkspaceTab;
+  role: UserRole;
+  mobileOpen: boolean;
+  onCloseMobile: () => void;
+  onSelectTab: (tab: WorkspaceTab) => void;
+  onOpenSettings: () => void;
+  onLogout: () => void;
+}
+
+export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
+  activeTab,
+  role,
+  mobileOpen,
+  onCloseMobile,
+  onSelectTab,
+  onOpenSettings,
+  onLogout,
+}) => {
+  const isAdmin = role === 'admin' || role === 'super_admin';
+
+  const navItems: Array<{
+    id: WorkspaceTab | 'settings';
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }> = [
+    { id: 'home', label: 'Home', icon: Home },
+    { id: 'results', label: 'View Results', icon: BarChart3 },
+    { id: 'materials', label: 'Study Materials', icon: BookOpen },
+    { id: 'practice', label: 'Practice Exams', icon: FileText },
+    { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'help', label: 'Help & Support', icon: HelpCircle },
+    ...(isAdmin ? [{ id: 'admin' as const, label: 'Admin Console', icon: Shield }] : []),
+  ];
+
+  const renderLinks = (afterClick?: () => void) => (
+    <div className="flex flex-col h-full justify-between py-4 px-3">
+      <nav className="space-y-1.5" aria-label="Workspace navigation">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = item.id !== 'settings' && activeTab === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => {
+                if (item.id === 'settings') {
+                  onOpenSettings();
+                } else {
+                  onSelectTab(item.id);
+                }
+                afterClick?.();
+              }}
+              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-colors min-h-[44px] ${
+                isActive
+                  ? 'bg-[#0a58ed] text-white shadow-sm'
+                  : 'text-blue-100/90 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <Icon className="w-5 h-5 shrink-0" />
+              <span className="truncate">{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      <div className="pt-4 border-t border-white/15">
+        <button
+          type="button"
+          onClick={() => {
+            afterClick?.();
+            onLogout();
+          }}
+          className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold text-blue-100 hover:bg-red-500/20 hover:text-white transition-colors min-h-[44px]"
+        >
+          <LogOut className="w-5 h-5 shrink-0" />
+          <span>Logout</span>
+        </button>
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      {/* Desktop Persistent Sidebar */}
+      <aside className="hidden lg:flex w-56 shrink-0 bg-[#072661] text-white flex-col border-r border-white/10">
+        {renderLinks()}
+      </aside>
+
+      {/* Mobile / Tablet Slide-Over Drawer */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden flex">
+          <div
+            className="fixed inset-0 bg-slate-950/50 backdrop-blur-[1px]"
+            onClick={onCloseMobile}
+          />
+          <aside className="relative z-10 w-64 bg-[#072661] text-white flex flex-col h-full shadow-2xl">
+            <div className="px-4 py-3.5 border-b border-white/15 flex items-center justify-between">
+              <span className="font-extrabold text-base">Acadet Menu</span>
+              <button
+                type="button"
+                onClick={onCloseMobile}
+                aria-label="Close navigation menu"
+                className="p-2 rounded-lg hover:bg-white/10"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {renderLinks(onCloseMobile)}
+            </div>
+          </aside>
+        </div>
+      )}
+    </>
+  );
+};

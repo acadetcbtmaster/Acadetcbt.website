@@ -23,8 +23,6 @@ import {
   FileText,
   Sun,
   Moon,
-  Smartphone,
-  Download,
   Bookmark,
 } from 'lucide-react';
 import { getEffectiveStreak } from '../utils/streak';
@@ -232,19 +230,7 @@ export function Navbar({
             </button>
           )}
 
-          {/* Quick Direct Download App Button */}
-          {onOpenInstallModal && (
-            <button
-              onClick={onOpenInstallModal}
-              className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 bg-white/15 hover:bg-white/25 text-white border border-white/25 rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs shrink-0"
-              title="Download & Install Mobile App Suite"
-              id="navbar-download-app-btn"
-            >
-              <Smartphone className="w-3.5 h-3.5 text-blue-200" />
-              <span className="hidden sm:inline">Download App</span>
-              <Download className="w-3 h-3 text-white/90" />
-            </button>
-          )}
+
 
           {/* Download Features PDF Button (Extra wide screens) */}
           {onOpenFeaturesPdf && (
@@ -355,19 +341,7 @@ export function Navbar({
                       </button>
                     )}
 
-                    {onOpenInstallModal && (
-                      <button
-                        onClick={() => {
-                          setUserDropdownOpen(false);
-                          onOpenInstallModal();
-                        }}
-                        className="w-full text-left px-4 py-2.5 text-xs text-[#1e3a8a] dark:text-blue-300 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-blue-900 dark:hover:text-blue-200 flex items-center gap-2.5 font-bold transition-colors cursor-pointer"
-                        id="dropdown-item-install-app"
-                      >
-                        <Smartphone className="w-4 h-4 text-[#1e3a8a] dark:text-blue-400" />
-                        <span>Install Mobile App Suite</span>
-                      </button>
-                    )}
+
                   </div>
 
                   <div className="py-1">
@@ -801,18 +775,6 @@ export function Navbar({
                   Admin Portal
                 </button>
               )}
-              {onOpenInstallModal && (
-                <button
-                  onClick={() => { onOpenInstallModal(); setMobileMenuOpen(false); }}
-                  className="w-full text-left px-3 py-2.5 text-xs font-bold text-white bg-gradient-to-r from-indigo-600 to-[#1e3a8a] rounded-lg flex items-center justify-between shadow"
-                >
-                  <span className="flex items-center gap-2">
-                    <Smartphone className="w-4 h-4" />
-                    Download & Install Mobile App
-                  </span>
-                  <Download className="w-3.5 h-3.5" />
-                </button>
-              )}
               <button
                 onClick={() => { onNavigate('founder'); setMobileMenuOpen(false); }}
                 className="block w-full text-left px-3 py-2 text-sm text-amber-400 font-bold hover:bg-slate-800 rounded-lg"
@@ -834,16 +796,6 @@ export function Navbar({
             </>
           ) : (
             <div className="flex flex-col gap-2 pt-2">
-              {onOpenInstallModal && (
-                <button
-                  onClick={() => { onOpenInstallModal(); setMobileMenuOpen(false); }}
-                  className="w-full text-center px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-[#1e3a8a] hover:from-indigo-500 hover:to-blue-900 text-white font-extrabold rounded-lg text-xs flex items-center justify-center gap-2 shadow"
-                >
-                  <Smartphone className="w-4 h-4" />
-                  <span>Download & Install Mobile App</span>
-                  <Download className="w-3.5 h-3.5" />
-                </button>
-              )}
               <button
                 onClick={() => { onNavigate('founder'); setMobileMenuOpen(false); }}
                 className="w-full text-center px-4 py-2.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 font-bold rounded-lg border border-amber-500/30 text-xs flex items-center justify-center gap-1.5"

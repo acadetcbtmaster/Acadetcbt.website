@@ -34,6 +34,29 @@ import {
   Sparkles,
 } from 'lucide-react';
 
+const JambCrestIcon: React.FC<{ className?: string }> = ({ className = 'w-16 h-16' }) => (
+  <svg className={`${className} mx-auto mb-1`} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    {/* Outer Green Wreath & Gold Border */}
+    <circle cx="50" cy="46" r="38" fill="#006633" stroke="#f59e0b" strokeWidth="2.5" />
+    <circle cx="50" cy="46" r="33" fill="#ffffff" stroke="#006633" strokeWidth="1.5" />
+    
+    {/* Inner Book / Scroll */}
+    <path d="M38 52C42 50 46 51 50 53C54 51 58 50 62 52V38C58 36 54 37 50 39C46 37 42 36 38 38V52Z" fill="#006633" />
+    <line x1="50" y1="39" x2="50" y2="53" stroke="#ffffff" strokeWidth="1.5" />
+    
+    {/* Torch / Flame */}
+    <path d="M50 24C51.5 27 53.5 29 52 32C50.5 34 49.5 34 48 32C46.5 29 48.5 27 50 24Z" fill="#f59e0b" />
+    
+    {/* Laurel Leaves left & right */}
+    <path d="M22 46C22 34 32 24 45 22" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeDasharray="3 3" />
+    <path d="M78 46C78 34 68 24 55 22" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeDasharray="3 3" />
+
+    {/* Green Ribbon Banner below */}
+    <path d="M20 68L28 63L50 67L72 63L80 68L76 76L50 72L24 76L20 68Z" fill="#006633" stroke="#f59e0b" strokeWidth="1" />
+    <text x="50" y="70" textAnchor="middle" fill="#ffffff" fontSize="5.2" fontWeight="bold" letterSpacing="0.4">SERVICE & INTEGRITY</text>
+  </svg>
+);
+
 interface AuthModalProps {
   isOpen: boolean;
   initialMode?: 'register' | 'login' | 'admin' | 'forgot' | 'guest';
@@ -177,6 +200,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   // Student Login Mode State
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
 
   // Admin Login State
   const [adminUsername, setAdminUsername] = useState('');
@@ -1158,6 +1182,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         className={
           isRegister
             ? "w-full min-h-screen bg-slate-900 flex flex-col relative"
+            : mode === 'login'
+            ? "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 w-full max-w-md rounded-2xl shadow-2xl p-5 sm:p-7 relative overflow-hidden max-h-[95vh] flex flex-col text-slate-900 dark:text-white"
             : "bg-slate-900 border border-slate-800 w-full max-w-lg rounded-2xl shadow-2xl p-5 sm:p-7 relative overflow-hidden max-h-[92vh] flex flex-col"
         }
         id="auth-modal-box"
@@ -1308,37 +1334,61 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           ) : (
             /* Header for Login / Admin / Forgot Modes */
-            <div className="text-center mb-5 pt-1">
-              <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center mx-auto mb-3 shadow-inner overflow-hidden">
-                {mode === 'admin' ? (
-                  <Shield className="w-6 h-6 text-amber-400" />
-                ) : (
-                  <img 
-                    src={brandLogo} 
-                    alt="Acadet CBT Logo" 
-                    className="w-full h-full object-cover" 
-                    referrerPolicy="no-referrer" 
-                  />
-                )}
-              </div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-                {mode === 'login' && 'Student Sign In'}
-                {mode === 'admin' && 'Administrator Portal'}
-                {mode === 'forgot' && 'Reset Password'}
-                {mode === 'guest' && 'Guest Practice Access'}
-              </h1>
-              <p className="text-xs sm:text-sm text-slate-400 mt-1.5 max-w-lg mx-auto leading-relaxed">
-                {mode === 'login' && 'Sign in as a student to access CBT practice tests, track performance, and take mock exams.'}
-                {mode === 'admin' && 'Secure administrator portal. Restricted access for system management.'}
-                {mode === 'forgot' && 'Enter your email address and password hint to verify your identity and reset your password.'}
-                {mode === 'guest' && 'Enjoy instant practice access with 30 free questions without signing in.'}
-              </p>
+            <div className="text-center mb-4 pt-1">
+              {mode === 'login' ? (
+                <div>
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full ring-2 ring-[#006633] p-1 bg-white shadow-md mx-auto mb-2 overflow-hidden flex items-center justify-center">
+                    <img 
+                      src={brandLogo} 
+                      alt="Acadet CBT Master Logo" 
+                      className="w-full h-full object-cover rounded-full" 
+                      referrerPolicy="no-referrer" 
+                    />
+                  </div>
+                  <p className="text-[11px] font-black tracking-[0.25em] text-[#006633] dark:text-emerald-400 uppercase mt-1">
+                    ACADET CBT MASTER
+                  </p>
+                  <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight mt-3">
+                    Login to your account
+                  </h1>
+                  <div className="w-12 h-1 bg-[#d97706] rounded-full mx-auto mt-2 mb-3"></div>
+                </div>
+              ) : (
+                <>
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center mx-auto mb-3 shadow-inner overflow-hidden">
+                    {mode === 'admin' ? (
+                      <Shield className="w-6 h-6 text-amber-400" />
+                    ) : (
+                      <img 
+                        src={brandLogo} 
+                        alt="Acadet CBT Logo" 
+                        className="w-full h-full object-cover" 
+                        referrerPolicy="no-referrer" 
+                      />
+                    )}
+                  </div>
+                  <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+                    {mode === 'admin' && 'Administrator Portal'}
+                    {mode === 'forgot' && 'Reset Password'}
+                    {mode === 'guest' && 'Guest Practice Access'}
+                  </h1>
+                  <p className="text-xs sm:text-sm text-slate-400 mt-1.5 max-w-lg mx-auto leading-relaxed">
+                    {mode === 'admin' && 'Secure administrator portal. Restricted access for system management.'}
+                    {mode === 'forgot' && 'Enter your email address and password hint to verify your identity and reset your password.'}
+                    {mode === 'guest' && 'Enjoy instant practice access with 30 free questions without signing in.'}
+                  </p>
+                </>
+              )}
             </div>
           )}
 
           {/* Mode Selector Tabs (only shown when not in full-screen register and not in forgot) */}
           {!isRegister && mode !== 'forgot' && (
-            <div className="grid grid-cols-3 p-1 bg-slate-950 rounded-xl border border-slate-800 mb-6 max-w-md mx-auto w-full" id="mode-selector-tab">
+            <div className={`grid grid-cols-3 p-1 rounded-xl border mb-5 max-w-md mx-auto w-full ${
+              mode === 'login'
+                ? 'bg-slate-100 dark:bg-slate-950 border-slate-200 dark:border-slate-800'
+                : 'bg-slate-950 rounded-xl border border-slate-800'
+            }`} id="mode-selector-tab">
               <button
                 type="button"
                 onClick={() => {
@@ -1348,7 +1398,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   setTopBannerSuccess(null);
                   setAdminAuthError(null);
                 }}
-                className="py-2 text-[11px] font-semibold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer text-slate-400 hover:text-slate-200"
+                className={`py-2 text-[11px] font-semibold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                  mode === 'login' ? 'text-slate-600 dark:text-slate-400 hover:text-slate-900' : 'text-slate-400 hover:text-slate-200'
+                }`}
                 id="tab-register"
               >
                 <UserCheck className="w-3.5 h-3.5" />
@@ -1364,7 +1416,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   setAdminAuthError(null);
                 }}
                 className={`py-2 text-[11px] font-semibold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
-                  mode === 'login' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                  mode === 'login' ? 'bg-[#006633] text-white shadow-xs font-bold' : 'text-slate-400 hover:text-slate-200'
                 }`}
                 id="tab-student-login"
               >
@@ -1381,7 +1433,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   setAdminAuthError(null);
                 }}
                 className={`py-2 text-[11px] font-semibold rounded-lg transition-all flex items-center justify-center gap-1 cursor-pointer ${
-                  mode === 'admin' ? 'bg-amber-600 text-white shadow-md' : 'text-slate-400 hover:text-slate-200'
+                  mode === 'admin' ? 'bg-amber-600 text-white shadow-md' : mode === 'login' ? 'text-slate-600 dark:text-slate-400 hover:text-slate-900' : 'text-slate-400 hover:text-slate-200'
                 }`}
                 id="tab-admin-login"
               >
@@ -1687,20 +1739,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </button>
             </form>
           ) : mode === 'login' ? (
-            /* Mode: Student Login */
+            /* Mode: Student Login (Exact JAMB E-Facility Institutional Vibe from Image 2) */
             <form onSubmit={handleStudentLogin} className="space-y-4" noValidate>
               
-              {/* Login Identifier (Username or Email) */}
+              {/* Field 1: e-Mail Address with green mail envelope inside left square bordered box */}
               <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">
-                  Username or Email Address <span className="text-rose-400">*</span>
-                </label>
-                <div className="relative">
-                  <User className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                <div className="flex rounded-md shadow-2xs overflow-hidden">
+                  <div className="w-12 h-12 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 border-r-0 rounded-l-md flex items-center justify-center shrink-0">
+                    <Mail className="w-5 h-5 text-[#006633] dark:text-emerald-500" />
+                  </div>
                   <input
                     ref={loginEmailRef}
                     type="text"
-                    placeholder="Enter username or email address"
+                    placeholder="e-Mail Address"
                     value={loginEmail}
                     onChange={(e) => {
                       setLoginEmail(e.target.value);
@@ -1708,44 +1759,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       if (topBannerError) setTopBannerError(null);
                     }}
                     onBlur={() => touchLoginField('loginEmail')}
-                    className={`w-full pl-9 pr-3 py-2.5 bg-slate-950 border rounded-xl text-xs text-slate-100 focus:outline-none transition-all ${
+                    className={`w-full h-12 px-3.5 bg-white dark:bg-slate-950 border rounded-r-md text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none transition-all ${
                       loginTouched.loginEmail && loginErrors.loginEmail
                         ? 'border-rose-500 bg-rose-500/5 focus:border-rose-500'
-                        : 'border-slate-800 focus:border-indigo-500'
+                        : 'border-slate-300 dark:border-slate-700 focus:border-[#006633]'
                     }`}
                   />
                 </div>
                 {loginTouched.loginEmail && loginErrors.loginEmail && (
-                  <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3 shrink-0" />
+                  <p className="text-[11px] text-rose-500 mt-1 flex items-center gap-1 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                     <span>{loginErrors.loginEmail}</span>
                   </p>
                 )}
               </div>
 
-              {/* Login Password */}
+              {/* Field 2: Password with green lock icon inside left square bordered box */}
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-medium text-slate-300">
-                    Password <span className="text-rose-400">*</span>
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setForgotEmail(loginEmail);
-                      setMode('forgot');
-                    }}
-                    className="text-[11px] text-indigo-400 hover:underline cursor-pointer"
-                  >
-                    Forgot Password?
-                  </button>
-                </div>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
+                <div className="flex rounded-md shadow-2xs overflow-hidden relative">
+                  <div className="w-12 h-12 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 border-r-0 rounded-l-md flex items-center justify-center shrink-0">
+                    <Lock className="w-5 h-5 text-[#006633] dark:text-emerald-500" />
+                  </div>
                   <input
                     ref={loginPasswordRef}
-                    type="password"
-                    placeholder="••••••••"
+                    type={showLoginPassword ? 'text' : 'password'}
+                    placeholder="Password"
                     value={loginPassword}
                     onChange={(e) => {
                       setLoginPassword(e.target.value);
@@ -1753,25 +1791,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       if (topBannerError) setTopBannerError(null);
                     }}
                     onBlur={() => touchLoginField('loginPassword')}
-                    className={`w-full pl-9 pr-3 py-2.5 bg-slate-950 border rounded-xl text-xs text-slate-100 focus:outline-none transition-all ${
+                    className={`w-full h-12 pl-3.5 pr-10 bg-white dark:bg-slate-950 border rounded-r-md text-xs sm:text-sm text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none transition-all ${
                       loginTouched.loginPassword && loginErrors.loginPassword
                         ? 'border-rose-500 bg-rose-500/5 focus:border-rose-500'
-                        : 'border-slate-800 focus:border-indigo-500'
+                        : 'border-slate-300 dark:border-slate-700 focus:border-[#006633]'
                     }`}
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword(!showLoginPassword)}
+                    className="absolute right-3.5 top-3.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
+                    aria-label="Toggle password visibility"
+                  >
+                    {showLoginPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
                 </div>
                 {loginTouched.loginPassword && loginErrors.loginPassword && (
-                  <p className="text-[11px] text-rose-400 mt-1 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3 shrink-0" />
+                  <p className="text-[11px] text-rose-500 mt-1 flex items-center gap-1 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                     <span>{loginErrors.loginPassword}</span>
                   </p>
                 )}
               </div>
 
+              {/* Login Button (Solid Forest Green from Image 2) */}
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg shadow-indigo-600/25 transition-all cursor-pointer flex items-center justify-center gap-2"
+                className="w-full py-3.5 bg-[#006633] hover:bg-[#004d26] disabled:opacity-50 text-white font-bold text-sm rounded shadow-sm hover:shadow transition-all cursor-pointer flex items-center justify-center gap-2 tracking-wide"
+                id="jamb-login-btn"
               >
                 {isSubmitting ? (
                   <>
@@ -1779,9 +1827,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <span>Signing In...</span>
                   </>
                 ) : (
-                  <span>Sign In as Student</span>
+                  <span>Login</span>
                 )}
               </button>
+
+              {/* Forgot your Password? Click here to reset it. (Exact text from Image 2) */}
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForgotEmail(loginEmail);
+                    setMode('forgot');
+                  }}
+                  className="text-xs text-slate-600 dark:text-slate-400 hover:text-[#006633] dark:hover:text-emerald-400 transition-colors cursor-pointer"
+                >
+                  Forgot your Password? <span className="underline font-semibold">Click here to reset it.</span>
+                </button>
+              </div>
+
+              {/* Institutional Bottom Banner from Image 2 */}
+              <div className="mt-4 pt-1">
+                <div className="bg-[#004d26] text-white text-[11px] sm:text-xs py-2.5 px-3 text-center font-bold tracking-wider rounded shadow-inner">
+                  2026 © Acadet CBT Master • All Rights Reserved
+                </div>
+              </div>
             </form>
           ) : mode === 'guest' ? (
             /* Mode: Guest Access */
@@ -2609,7 +2678,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* Bottom Switch Text (Shown for non-register modes) */}
         {!isRegister && (
-          <div className="mt-4 text-center text-xs text-slate-400 max-w-md mx-auto w-full pb-4">
+          <div className="mt-4 text-center text-xs text-slate-600 dark:text-slate-400 max-w-md mx-auto w-full pb-4">
             {mode === 'login' ? (
               <p>
                 Don't have an account?{' '}
@@ -2620,7 +2689,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     setTopBannerError(null);
                     setTopBannerSuccess(null);
                   }}
-                  className="text-indigo-400 font-bold hover:underline ml-1 cursor-pointer"
+                  className="text-[#006633] dark:text-emerald-400 font-bold hover:underline ml-1 cursor-pointer"
                 >
                   Create Account
                 </button>

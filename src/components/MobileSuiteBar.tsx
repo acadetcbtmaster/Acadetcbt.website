@@ -22,7 +22,10 @@ import {
   FileText,
   CreditCard,
   Crown,
-  Bell
+  Bell,
+  Wallet,
+  GraduationCap,
+  ClipboardCheck
 } from 'lucide-react';
 import { UserProfile } from '../types';
 import { getEffectiveStreak } from '../utils/streak';
@@ -90,7 +93,7 @@ export const MobileSuiteBar: React.FC<MobileSuiteBarProps> = ({
       >
         <div className="max-w-md mx-auto px-2 py-1.5 grid grid-cols-5 gap-1 items-center justify-around">
           
-          {/* Tab 1: Home / Dashboard */}
+          {/* Tab 1: Dashboard */}
           <button
             onClick={() => {
               if (isLoggedIn) {
@@ -102,121 +105,139 @@ export const MobileSuiteBar: React.FC<MobileSuiteBarProps> = ({
             className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all cursor-pointer ${
               activeTab === 'dashboard' || activeTab === 'landing' || activeTab === 'admin'
                 ? themeMode === 'light'
-                  ? 'text-[#1e3a8a] font-bold'
+                  ? 'text-[#1a429b] font-bold'
                   : 'text-blue-400 font-bold'
                 : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
-            id="mobile-nav-tab-home"
+            id="mobile-nav-tab-dashboard"
           >
             <div className="relative p-1">
               <LayoutDashboard className="w-5 h-5" />
               {(activeTab === 'dashboard' || activeTab === 'landing' || activeTab === 'admin') && (
-                <span className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#1e3a8a] dark:bg-blue-400"></span>
+                <span className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#1a429b] dark:bg-blue-400"></span>
               )}
             </div>
-            <span className="text-[10px] tracking-tight whitespace-nowrap">
-              {isAdmin ? 'Admin' : isLoggedIn ? 'Dashboard' : 'Home'}
-            </span>
+            <span className="text-[10px] tracking-tight whitespace-nowrap">Dashboard</span>
           </button>
 
-          {/* Tab 2: Practice */}
+          {/* Tab 2: Fees (Subscription / Wallet) */}
+          <button
+            onClick={() => {
+              if (isLoggedIn) {
+                onOpenSubscribe();
+              } else {
+                onOpenAuth('login');
+              }
+            }}
+            className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all cursor-pointer ${
+              activeTab === 'subscribe'
+                ? themeMode === 'light'
+                  ? 'text-[#1a429b] font-bold'
+                  : 'text-blue-400 font-bold'
+                : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+            }`}
+            id="mobile-nav-tab-fees"
+          >
+            <div className="relative p-1">
+              <Wallet className="w-5 h-5" />
+            </div>
+            <span className="text-[10px] tracking-tight whitespace-nowrap">Fees</span>
+          </button>
+
+          {/* Tab 3: SGS (School of General Studies / CBT Practice) */}
           <button
             onClick={() => {
               if (isLoggedIn) {
                 onNavigate('practice');
               } else {
-                onOpenAuth('login');
+                onNavigate('pre_jamb');
               }
             }}
             className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all cursor-pointer ${
-              activeTab === 'practice'
+              activeTab === 'practice' || activeTab === 'pre_jamb'
                 ? themeMode === 'light'
-                  ? 'text-[#1e3a8a] font-bold'
+                  ? 'text-[#1a429b] font-bold'
                   : 'text-blue-400 font-bold'
                 : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
-            id="mobile-nav-tab-practice"
+            id="mobile-nav-tab-sgs"
           >
             <div className="relative p-1">
-              <Zap className="w-5 h-5" />
-              {activeTab === 'practice' && (
-                <span className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#1e3a8a] dark:bg-blue-400"></span>
+              <GraduationCap className="w-5 h-5" />
+              {(activeTab === 'practice' || activeTab === 'pre_jamb') && (
+                <span className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#1a429b] dark:bg-blue-400"></span>
               )}
             </div>
             <span className="text-[10px] tracking-tight whitespace-nowrap">Practice</span>
           </button>
 
-          {/* Tab 3: Mock CBT / Pre-JAMB */}
+          {/* Tab 4: Result (Performance Analytics & Clearance) */}
           <button
             onClick={() => {
               if (isLoggedIn) {
-                onNavigate('mock_cbt');
-              } else {
-                onNavigate('pre_jamb');
-              }
-            }}
-            className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all cursor-pointer ${
-              activeTab === 'mock_cbt' || activeTab === 'pre_jamb'
-                ? themeMode === 'light'
-                  ? 'text-[#1e3a8a] font-bold'
-                  : 'text-blue-400 font-bold'
-                : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
-            }`}
-            id="mobile-nav-tab-mock"
-          >
-            <div className="relative p-1">
-              <BookOpen className="w-5 h-5" />
-              {(activeTab === 'mock_cbt' || activeTab === 'pre_jamb') && (
-                <span className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#1e3a8a] dark:bg-blue-400"></span>
-              )}
-            </div>
-            <span className="text-[10px] tracking-tight whitespace-nowrap">
-              Mock CBT
-            </span>
-          </button>
-
-          {/* Tab 4: Materials */}
-          <button
-            onClick={() => {
-              if (isLoggedIn) {
-                onNavigate('materials');
+                onNavigate('performance');
               } else {
                 onOpenAuth('login');
               }
             }}
             className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all cursor-pointer ${
-              activeTab === 'materials'
+              activeTab === 'performance'
                 ? themeMode === 'light'
-                  ? 'text-[#1e3a8a] font-bold'
+                  ? 'text-[#1a429b] font-bold'
                   : 'text-blue-400 font-bold'
                 : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
             }`}
-            id="mobile-nav-tab-materials"
+            id="mobile-nav-tab-result"
           >
             <div className="relative p-1">
-              <FolderDown className="w-5 h-5" />
-              {activeTab === 'materials' && (
-                <span className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#1e3a8a] dark:bg-blue-400"></span>
+              <ClipboardCheck className="w-5 h-5" />
+              {activeTab === 'performance' && (
+                <span className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#1a429b] dark:bg-blue-400"></span>
               )}
             </div>
-            <span className="text-[10px] tracking-tight whitespace-nowrap">Materials</span>
+            <span className="text-[10px] tracking-tight whitespace-nowrap">Result</span>
           </button>
 
-          {/* Tab 5: Suite Menu (Opens Full Mobile Suite Drawer) */}
+          {/* Tab 5: Course (Materials / Syllabus / Courses Offered) */}
           <button
-            onClick={() => setSuiteMenuOpen(true)}
-            className="flex flex-col items-center justify-center py-1 px-1 rounded-xl text-slate-500 hover:text-[#1e3a8a] dark:text-slate-400 dark:hover:text-blue-400 transition-all cursor-pointer"
-            id="mobile-nav-tab-suite-menu"
+            onClick={() => {
+              if (isLoggedIn) {
+                onNavigate('materials');
+              } else {
+                onNavigate('practice');
+              }
+            }}
+            className={`flex flex-col items-center justify-center py-1 px-1 rounded-xl transition-all cursor-pointer ${
+              activeTab === 'materials'
+                ? themeMode === 'light'
+                  ? 'text-[#1a429b] font-bold'
+                  : 'text-blue-400 font-bold'
+                : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+            }`}
+            id="mobile-nav-tab-course"
           >
             <div className="relative p-1">
-              <Menu className="w-5 h-5" />
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500"></span>
+              <BookOpen className="w-5 h-5" />
+              {activeTab === 'materials' && (
+                <span className="absolute bottom-0 left-1/2 transform -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#1a429b] dark:bg-blue-400"></span>
+              )}
             </div>
-            <span className="text-[10px] tracking-tight whitespace-nowrap">Suite Menu</span>
+            <span className="text-[10px] tracking-tight whitespace-nowrap">Course</span>
           </button>
 
         </div>
       </nav>
+
+      {/* Floating Suite Menu Trigger on Mobile */}
+      <button
+        onClick={() => setSuiteMenuOpen(true)}
+        className="md:hidden fixed bottom-18 right-3.5 z-40 p-2.5 rounded-full bg-[#1a429b] text-white shadow-lg hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center justify-center border-2 border-white/80"
+        title="Open Full Suite Menu"
+        aria-label="Open Full Suite Menu"
+        id="mobile-floating-suite-menu-btn"
+      >
+        <Menu className="w-4 h-4" />
+      </button>
 
       {/* Full-Screen Mobile Suite Menu Display */}
       {suiteMenuOpen && (
@@ -284,21 +305,8 @@ export const MobileSuiteBar: React.FC<MobileSuiteBarProps> = ({
 
             <button
               type="button"
-              onClick={() => {
-                setSuiteMenuOpen(false);
-                onOpenInstallModal();
-              }}
-              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 text-xs font-bold cursor-pointer transition-colors"
-              title="Install Mobile App"
-            >
-              <Smartphone className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span>Install App</span>
-            </button>
-
-            <button
-              type="button"
               onClick={onToggleTheme}
-              className="inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-200/80 hover:bg-slate-300/80 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-bold cursor-pointer transition-colors"
+              className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-200/80 hover:bg-slate-300/80 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-300 dark:border-slate-700 text-xs font-bold cursor-pointer transition-colors"
               title="Toggle Theme"
             >
               {themeMode === 'light' ? (
@@ -306,7 +314,7 @@ export const MobileSuiteBar: React.FC<MobileSuiteBarProps> = ({
               ) : (
                 <Moon className="w-3.5 h-3.5 text-indigo-400" />
               )}
-              <span>{themeMode === 'light' ? 'Light' : 'Dark'}</span>
+              <span>{themeMode === 'light' ? 'Light Mode' : 'Dark Mode'}</span>
             </button>
           </div>
 
@@ -315,27 +323,6 @@ export const MobileSuiteBar: React.FC<MobileSuiteBarProps> = ({
             className="flex-1 overflow-y-auto p-4 space-y-4 pb-28 custom-scrollbar"
             id="mobile-suite-drawer-content"
           >
-
-            {/* High-Priority Download / Install Mobile App Banner Button */}
-            <button
-              onClick={() => {
-                setSuiteMenuOpen(false);
-                onOpenInstallModal();
-              }}
-              className="w-full py-3 px-4 bg-[#1e3a8a] hover:bg-[#172554] text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-between transition-all cursor-pointer"
-              id="mobile-drawer-install-app-btn"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="p-1.5 rounded-lg bg-white/15">
-                  <Smartphone className="w-4 h-4 text-white" />
-                </div>
-                <div className="text-left">
-                  <p className="text-xs font-bold text-white">Download & Install Mobile App</p>
-                  <p className="text-[10px] text-blue-100 font-normal">Add to Home Screen for Offline CBT</p>
-                </div>
-              </div>
-              <Download className="w-4 h-4 text-white" />
-            </button>
 
             {/* Streak card if available */}
             {streakData && (

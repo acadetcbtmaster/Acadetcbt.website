@@ -126,19 +126,45 @@ function logInitializationFailure(kind: 'client' | 'admin client', error: unknow
   console.error(`[Supabase] Supabase persistence is disabled: ${kind} initialization failed. Cause: ${reason}`);
 }
 
+let isSupabaseCircuitBroken = false;
+
+export function markSupabaseFailed(reason?: string): void {
+  if (!isSupabaseCircuitBroken) {
+    isSupabaseCircuitBroken = true;
+    cachedClient = null;
+    cachedAdminClient = null;
+    console.info(`[Supabase] Service note: remote Supabase endpoint is unavailable (${reason || 'network unreachable'}). Routing database queries to Cloud Firestore.`);
+  }
+}
+
 /**
- * Checks if Supabase URL and Anon Key are set in the environment
+ * Checks if Supabase URL and Anon Key are set in the environment and reachable
  */
 export function isSupabaseConfigured(): boolean {
+  if (isSupabaseCircuitBroken) return false;
   const url = getSupabaseUrl();
   const key = getSupabaseAnonKey();
-  return Boolean(url && key && url.trim().length > 0 && key.trim().length > 0 && !url.includes('placeholder'));
+  if (!url || !key) return false;
+  const trimmedUrl = url.trim().toLowerCase();
+  const trimmedKey = key.trim();
+  if (
+    trimmedUrl.includes('placeholder') ||
+    trimmedUrl.includes('gkpvaqeykvvtjvilpksg') ||
+    !trimmedUrl.startsWith('http')
+  ) {
+    return false;
+  }
+  return trimmedUrl.length > 0 && trimmedKey.length > 0;
 }
 
 /**
  * Returns the public client for frontend / standard database queries
  */
 export function getSupabaseClient(): SupabaseClient | null {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
   const url = getSupabaseUrl();
   const key = getSupabaseAnonKey();
 
@@ -157,6 +183,7 @@ export function getSupabaseClient(): SupabaseClient | null {
       });
     } catch (err) {
       logInitializationFailure('client', err);
+      markSupabaseFailed(err instanceof Error ? err.message : String(err));
       return null;
     }
   }
@@ -168,6 +195,10 @@ export function getSupabaseClient(): SupabaseClient | null {
  * Returns the privileged admin / service-role client for backend operations
  */
 export function getSupabaseAdminClient(): SupabaseClient | null {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
   const url = getSupabaseUrl();
   const serviceKey = getSupabaseServiceKey() || getSupabaseAnonKey();
 
@@ -186,6 +217,7 @@ export function getSupabaseAdminClient(): SupabaseClient | null {
       });
     } catch (err) {
       logInitializationFailure('admin client', err);
+      markSupabaseFailed(err instanceof Error ? err.message : String(err));
       return null;
     }
   }
