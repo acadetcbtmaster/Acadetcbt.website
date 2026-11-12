@@ -3,7 +3,7 @@ import { eq, or, sql } from 'drizzle-orm';
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { getDb } from '../../db/index.js';
-import { seedDatabaseIfEmpty } from '../../db/seed.js';
+import { ensureBootstrapAdmin, seedDatabaseIfEmpty } from '../../db/seed.js';
 import { DEFAULT_USER_PREFERENCES, users } from '../../db/schema.js';
 import { writeAuditLog } from '../lib/audit.js';
 import { sanitizeUser, signAuthToken } from '../lib/jwt.js';
@@ -137,6 +137,12 @@ router.post('/login', requireDb, async (req, res) => {
     const parsed = loginSchema.parse(req.body);
     const db = getDb();
     const ident = parsed.identifier.toLowerCase();
+
+    const envAdminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+    const envAdminUser = (process.env.ADMIN_USERNAME?.trim() || 'admin').toLowerCase();
+    if (envAdminEmail && (ident === envAdminEmail || ident === envAdminUser)) {
+      await ensureBootstrapAdmin();
+    }
 
     const [found] = await db
       .select()

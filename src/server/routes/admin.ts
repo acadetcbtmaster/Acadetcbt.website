@@ -1,9 +1,9 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { desc, eq, sql } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { Router, type RequestHandler } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
-import { getDb } from '../../db/index.js';
+import { getDb, getPool } from '../../db/index.js';
 import {
   announcements,
   auditLogs,
@@ -91,18 +91,31 @@ const updateUserSchema = z.object({
 
 router.get('/overview', async (_req, res) => {
   try {
-    const db = getDb();
-    const [counts] = await db
-      .select({
-        totalUsers: sql<number>`(SELECT COUNT(*)::int FROM users)`,
-        totalSubjects: sql<number>`(SELECT COUNT(*)::int FROM subjects)`,
-        totalQuestions: sql<number>`(SELECT COUNT(*)::int FROM questions)`,
-        totalMaterials: sql<number>`(SELECT COUNT(*)::int FROM study_materials)`,
-        totalSubmittedExams: sql<number>`(SELECT COUNT(*)::int FROM exam_sessions WHERE status = 'submitted')`,
-      })
-      .from(sql`(SELECT 1) AS _dummy`);
+    const pool = getPool();
+    const result = await pool.query<{
+      totalUsers: number;
+      totalSubjects: number;
+      totalQuestions: number;
+      totalMaterials: number;
+      totalSubmittedExams: number;
+    }>(`
+      SELECT
+        (SELECT COUNT(*)::int FROM users) AS "totalUsers",
+        (SELECT COUNT(*)::int FROM subjects) AS "totalSubjects",
+        (SELECT COUNT(*)::int FROM questions) AS "totalQuestions",
+        (SELECT COUNT(*)::int FROM study_materials) AS "totalMaterials",
+        (SELECT COUNT(*)::int FROM exam_sessions WHERE status = 'submitted') AS "totalSubmittedExams"
+    `);
 
-    res.json({ overview: counts });
+    res.json({
+      overview: result.rows[0] || {
+        totalUsers: 0,
+        totalSubjects: 0,
+        totalQuestions: 0,
+        totalMaterials: 0,
+        totalSubmittedExams: 0,
+      },
+    });
   } catch (err) {
     handleApiError(res, err, 'fetching admin overview');
   }
@@ -395,7 +408,7 @@ router.post('/questions/generate', async (req, res) => {
       },
     });
 
-    const drafts = JSON.parse(response.text || '[]') as Array<{
+    let drafts: Array<{
       questionText: string;
       optionA: string;
       optionB: string;
@@ -403,7 +416,21 @@ router.post('/questions/generate', async (req, res) => {
       optionD: string;
       correctOption: 'A' | 'B' | 'C' | 'D';
       explanation: string;
-    }>;
+    }> = [];
+    try {
+      const parsedJson = JSON.parse(response.text || '[]');
+      if (Array.isArray(parsedJson)) {
+        drafts = parsedJson;
+      }
+    } catch {
+      res.status(502).json({ error: 'AI returned an invalid question payload. Please retry.' });
+      return;
+    }
+
+    if (drafts.length === 0) {
+      res.status(502).json({ error: 'AI did not generate any questions. Please try a different topic.' });
+      return;
+    }
 
     const inserted = await db
       .insert(questions)

@@ -288,21 +288,33 @@ export default function App() {
       />
 
       {activeTab === 'home' ? (
-        <main className="flex-1 flex flex-col">
-          <HomeDashboard
-            subjects={subjects}
-            selectedSubjectId={selectedSubjectId}
-            defaultDifficulty={user.preferences.defaultDifficulty}
-            announcements={announcements}
-            activity={activity}
-            onSelectSubject={setSelectedSubjectId}
-            onStartExam={handleStartExam}
-            onNavigateViewResults={() => setActiveTab('results')}
-            onNavigateStudyMaterials={() => setActiveTab('materials')}
+        <>
+          <WorkspaceSidebar
+            activeTab={activeTab}
+            role={user.role}
+            mobileOpen={mobileMenuOpen}
+            mobileOnly
+            onCloseMobile={() => setMobileMenuOpen(false)}
+            onSelectTab={setActiveTab}
             onOpenSettings={() => setSettingsOpen(true)}
-            startingExam={startingExam}
+            onLogout={handleLogout}
           />
-        </main>
+          <main className="flex-1 flex flex-col">
+            <HomeDashboard
+              subjects={subjects}
+              selectedSubjectId={selectedSubjectId}
+              defaultDifficulty={user.preferences.defaultDifficulty}
+              announcements={announcements}
+              activity={activity}
+              onSelectSubject={setSelectedSubjectId}
+              onStartExam={handleStartExam}
+              onNavigateViewResults={() => setActiveTab('results')}
+              onNavigateStudyMaterials={() => setActiveTab('materials')}
+              onOpenSettings={() => setSettingsOpen(true)}
+              startingExam={startingExam}
+            />
+          </main>
+        </>
       ) : (
         <div className="flex-1 flex min-h-0">
           <WorkspaceSidebar

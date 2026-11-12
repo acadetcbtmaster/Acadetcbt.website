@@ -83,28 +83,45 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
   const [annPinned, setAnnPinned] = useState(true);
 
   const loadAllAdminData = async () => {
-    try {
-      const [ov, subRes, qRes, matRes, annRes, usrRes] = await Promise.all([
-        api.admin.getOverview(),
-        api.admin.listSubjects(),
-        api.admin.listQuestions(),
-        api.materials.list(),
-        api.admin.listAnnouncements(),
-        api.admin.listUsers(),
-      ]);
-      setOverview(ov.overview);
-      setSubjects(subRes.subjects);
-      setQuestions(qRes.questions);
-      setMaterials(matRes.materials);
-      setAnnouncements(annRes.announcements);
-      setUsers(usrRes.users);
-      if (!qSubjectId && subRes.subjects[0]) {
-        setQSubjectId(subRes.subjects[0].id);
+    const [ov, subRes, qRes, matRes, annRes, usrRes] = await Promise.allSettled([
+      api.admin.getOverview(),
+      api.admin.listSubjects(),
+      api.admin.listQuestions(),
+      api.materials.list(),
+      api.admin.listAnnouncements(),
+      api.admin.listUsers(),
+    ]);
+
+    const errors: string[] = [];
+
+    if (ov.status === 'fulfilled') setOverview(ov.value.overview);
+    else errors.push(ov.reason instanceof Error ? ov.reason.message : 'overview');
+
+    if (subRes.status === 'fulfilled') {
+      setSubjects(subRes.value.subjects);
+      if (!qSubjectId && subRes.value.subjects[0]) {
+        setQSubjectId(subRes.value.subjects[0].id);
       }
-    } catch (err) {
+    } else {
+      errors.push(subRes.reason instanceof Error ? subRes.reason.message : 'subjects');
+    }
+
+    if (qRes.status === 'fulfilled') setQuestions(qRes.value.questions);
+    else errors.push(qRes.reason instanceof Error ? qRes.reason.message : 'questions');
+
+    if (matRes.status === 'fulfilled') setMaterials(matRes.value.materials);
+    else errors.push(matRes.reason instanceof Error ? matRes.reason.message : 'materials');
+
+    if (annRes.status === 'fulfilled') setAnnouncements(annRes.value.announcements);
+    else errors.push(annRes.reason instanceof Error ? annRes.reason.message : 'announcements');
+
+    if (usrRes.status === 'fulfilled') setUsers(usrRes.value.users);
+    else errors.push(usrRes.reason instanceof Error ? usrRes.reason.message : 'users');
+
+    if (errors.length > 0) {
       setFeedback({
         type: 'err',
-        text: err instanceof Error ? err.message : 'Unable to load admin console.',
+        text: errors[0],
       });
     }
   };
@@ -114,20 +131,41 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (subjects.length === 0) {
+      if (qSubjectId) setQSubjectId('');
+      return;
+    }
+    if (!qSubjectId || !subjects.some((s) => s.id === qSubjectId)) {
+      setQSubjectId(subjects[0].id);
+    }
+  }, [subjects, qSubjectId]);
+
   const handleCreateSubject = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setFeedback(null);
     try {
+      const normalizedFromName = subjName
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+      const normalizedFromCode = subjCode
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+      const computedSlug =
+        subjSlug.trim().toLowerCase() ||
+        (normalizedFromName.length >= 2
+          ? normalizedFromName
+          : normalizedFromCode.length >= 2
+            ? normalizedFromCode
+            : `subject-${Date.now().toString().slice(-4)}`);
+
       await api.admin.createSubject({
         name: subjName,
         code: subjCode.toUpperCase(),
-        slug:
-          subjSlug.trim() ||
-          subjName
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-|-$/g, ''),
+        slug: computedSlug,
         description: subjDesc,
       });
       setSubjName('');
@@ -401,11 +439,24 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                   </div>
                   <button
                     type="button"
+                    disabled={busy}
                     onClick={async () => {
-                      await api.admin.deleteSubject(sub.id);
-                      await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+                      setBusy(true);
+                      setFeedback(null);
+                      try {
+                        await api.admin.deleteSubject(sub.id);
+                        setFeedback({ type: 'ok', text: `Deleted subject "${sub.name}".` });
+                        await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+                      } catch (err) {
+                        setFeedback({
+                          type: 'err',
+                          text: err instanceof Error ? err.message : 'Failed to delete subject.',
+                        });
+                      } finally {
+                        setBusy(false);
+                      }
                     }}
-                    className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg"
+                    className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg disabled:opacity-50"
                     title="Delete subject"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -418,6 +469,11 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
 
         {section === 'questions' && (
           <div className="space-y-5">
+            {subjects.length === 0 && (
+              <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-4 py-3 text-sm font-medium text-amber-800 dark:text-amber-200">
+                No subjects found yet. Create a subject in the Subjects tab before adding questions.
+              </div>
+            )}
             <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/70 border border-[#d6e4fa] dark:border-slate-700 p-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
               <Sparkles className="w-5 h-5 text-[#0a58ed] shrink-0" />
               <select
@@ -574,11 +630,25 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                   </div>
                   <button
                     type="button"
+                    disabled={busy}
                     onClick={async () => {
-                      await api.admin.deleteQuestion(q.id);
-                      await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+                      setBusy(true);
+                      setFeedback(null);
+                      try {
+                        await api.admin.deleteQuestion(q.id);
+                        setFeedback({ type: 'ok', text: 'Question deleted.' });
+                        await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+                      } catch (err) {
+                        setFeedback({
+                          type: 'err',
+                          text: err instanceof Error ? err.message : 'Failed to delete question.',
+                        });
+                      } finally {
+                        setBusy(false);
+                      }
                     }}
-                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg shrink-0"
+                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg shrink-0 disabled:opacity-50"
+                    title="Delete question"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -657,11 +727,25 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                   </div>
                   <button
                     type="button"
+                    disabled={busy}
                     onClick={async () => {
-                      await api.admin.deleteMaterial(m.id);
-                      await loadAllAdminData();
+                      setBusy(true);
+                      setFeedback(null);
+                      try {
+                        await api.admin.deleteMaterial(m.id);
+                        setFeedback({ type: 'ok', text: 'Study material deleted.' });
+                        await loadAllAdminData();
+                      } catch (err) {
+                        setFeedback({
+                          type: 'err',
+                          text: err instanceof Error ? err.message : 'Failed to delete material.',
+                        });
+                      } finally {
+                        setBusy(false);
+                      }
                     }}
-                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"
+                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50"
+                    title="Delete material"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -720,11 +804,25 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                   </div>
                   <button
                     type="button"
+                    disabled={busy}
                     onClick={async () => {
-                      await api.admin.deleteAnnouncement(a.id);
-                      await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+                      setBusy(true);
+                      setFeedback(null);
+                      try {
+                        await api.admin.deleteAnnouncement(a.id);
+                        setFeedback({ type: 'ok', text: 'Announcement deleted.' });
+                        await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+                      } catch (err) {
+                        setFeedback({
+                          type: 'err',
+                          text: err instanceof Error ? err.message : 'Failed to delete announcement.',
+                        });
+                      } finally {
+                        setBusy(false);
+                      }
                     }}
-                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg"
+                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50"
+                    title="Delete announcement"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -757,11 +855,27 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                   </span>
                   <button
                     type="button"
+                    disabled={busy}
                     onClick={async () => {
-                      await api.admin.updateUser(u.id, { isActive: !u.isActive });
-                      await loadAllAdminData();
+                      setBusy(true);
+                      setFeedback(null);
+                      try {
+                        await api.admin.updateUser(u.id, { isActive: !u.isActive });
+                        setFeedback({
+                          type: 'ok',
+                          text: `Updated ${u.fullName} to ${!u.isActive ? 'Active' : 'Disabled'}.`,
+                        });
+                        await loadAllAdminData();
+                      } catch (err) {
+                        setFeedback({
+                          type: 'err',
+                          text: err instanceof Error ? err.message : 'Failed to update user.',
+                        });
+                      } finally {
+                        setBusy(false);
+                      }
                     }}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold ${
+                    className={`px-3 py-1 rounded-lg text-xs font-bold disabled:opacity-50 ${
                       u.isActive
                         ? 'bg-emerald-100 text-emerald-800'
                         : 'bg-red-100 text-red-800'

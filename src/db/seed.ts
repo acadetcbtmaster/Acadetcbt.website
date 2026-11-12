@@ -391,18 +391,16 @@ export async function ensureBootstrapAdmin(): Promise<string | null> {
 
   if (existingByEmail.length > 0) {
     const existing = existingByEmail[0];
-    if (existing.role !== 'super_admin' || !existing.isActive) {
-      await db
-        .update(users)
-        .set({
-          role: 'super_admin',
-          isActive: true,
-          passwordHash,
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, existing.id));
-      console.log(`[Seed] Promoted ${adminEmail} to super_admin.`);
-    }
+    await db
+      .update(users)
+      .set({
+        role: 'super_admin',
+        isActive: true,
+        passwordHash,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, existing.id));
+    console.log(`[Seed] Synced super_admin credentials for ${adminEmail}.`);
     return existing.id;
   }
 

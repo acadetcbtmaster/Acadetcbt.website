@@ -24,6 +24,7 @@ interface WorkspaceSidebarProps {
   activeTab: WorkspaceTab;
   role: UserRole;
   mobileOpen: boolean;
+  mobileOnly?: boolean;
   onCloseMobile: () => void;
   onSelectTab: (tab: WorkspaceTab) => void;
   onOpenSettings: () => void;
@@ -34,6 +35,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   activeTab,
   role,
   mobileOpen,
+  mobileOnly = false,
   onCloseMobile,
   onSelectTab,
   onOpenSettings,
@@ -105,9 +107,11 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   return (
     <>
       {/* Desktop Persistent Sidebar */}
-      <aside className="hidden lg:flex w-56 shrink-0 bg-[#072661] text-white flex-col border-r border-white/10">
-        {renderLinks()}
-      </aside>
+      {!mobileOnly && (
+        <aside className="hidden lg:flex w-56 shrink-0 bg-[#072661] text-white flex-col border-r border-white/10">
+          {renderLinks()}
+        </aside>
+      )}
 
       {/* Mobile / Tablet Slide-Over Drawer */}
       {mobileOpen && (
