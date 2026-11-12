@@ -26,7 +26,7 @@ This repository is configured for deployment on **Render** using a **Render Web 
 2. **Create Web Service**:
    - Render Dashboard -> **New +** -> **Web Service** -> Connect your GitHub repo.
    - **Runtime**: `Node`
-   - **Build Command**: `npm ci --include=dev && npm run build`
+   - **Build Command**: `npm install --include=dev && npm run build`
    - **Start Command**: `npm run start`
    - **Health Check Path**: `/api/health`
 3. **Environment Variables**:

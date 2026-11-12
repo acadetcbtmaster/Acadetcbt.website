@@ -7,11 +7,10 @@ const router = Router();
 router.get('/', async (_req, res) => {
   const dbHealth = await checkDatabaseHealth();
   const objectStorageConfigured = isObjectStorageConfigured();
+  const status = dbHealth.configured && !dbHealth.connected ? 'degraded' : 'ok';
 
-  const statusCode = dbHealth.configured && !dbHealth.connected ? 503 : 200;
-
-  res.status(statusCode).json({
-    status: statusCode === 200 ? 'ok' : 'degraded',
+  res.status(200).json({
+    status,
     service: 'acadet-cbt-api',
     timestamp: new Date().toISOString(),
     database: dbHealth,

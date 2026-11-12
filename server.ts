@@ -76,27 +76,29 @@ export async function createApp(options?: { skipVite?: boolean }) {
 }
 
 async function bootstrap() {
-  if (isDatabaseConfigured()) {
-    try {
-      const migrationResult = await runMigrations();
-      console.log(
-        `[Acadet CBT] PostgreSQL migrations ready (applied: ${migrationResult.applied.length}, skipped: ${migrationResult.skipped.length})`
-      );
-      await seedDatabaseIfEmpty();
-    } catch (err) {
-      console.error('[Acadet CBT] PostgreSQL startup initialization warning:', err);
-    }
-  } else {
-    console.warn(
-      '[Acadet CBT] DATABASE_URL is not configured. Database-backed endpoints will return 503 until DATABASE_URL is set.'
-    );
-  }
-
   const port = Number(process.env.PORT || 3000);
   const app = await createApp();
 
   const server = app.listen(port, '0.0.0.0', () => {
     console.log(`[Acadet CBT] Server listening on http://0.0.0.0:${port}`);
+
+    if (isDatabaseConfigured()) {
+      void (async () => {
+        try {
+          const migrationResult = await runMigrations();
+          console.log(
+            `[Acadet CBT] PostgreSQL migrations ready (applied: ${migrationResult.applied.length}, skipped: ${migrationResult.skipped.length})`
+          );
+          await seedDatabaseIfEmpty();
+        } catch (err) {
+          console.error('[Acadet CBT] PostgreSQL startup initialization warning:', err);
+        }
+      })();
+    } else {
+      console.warn(
+        '[Acadet CBT] DATABASE_URL is not configured. Database-backed endpoints will return 503 until DATABASE_URL is set.'
+      );
+    }
   });
 
   const shutdown = async () => {
