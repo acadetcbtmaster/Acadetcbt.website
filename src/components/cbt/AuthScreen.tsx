@@ -23,7 +23,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [examTarget, setExamTarget] = useState('JAMB UTME Practice Exam');
+  const [examTarget, setExamTarget] = useState('Acadet CBT Examination');
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 

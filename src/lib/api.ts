@@ -2,29 +2,45 @@ import type {
   ActiveExamQuestion,
   ActiveExamSession,
   ActivitySummary,
+  AdminCourseItem,
   AdminOverview,
+  AdminPaymentRecord,
   AdminQuestionItem,
+  AdminRegistrationItem,
+  AdminStudentProfile,
   AnnouncementItem,
-  CourseSummary,
+  CourseCatalogueItem,
   DifficultyLevel,
   GradedExamQuestion,
   OptionLetter,
+  PaymentInitializeResponse,
+  PaymentStatus,
+  PaymentVerifyOutcome,
+  PublicationStatus,
+  RegisteredCourseItem,
   ResultsOverview,
   SafeUser,
+  StudentPaymentRecord,
   StudyMaterialItem,
-  SubjectSummary,
   UserPreferences,
 } from '../types/cbt';
 
 export class ApiError extends Error {
   public readonly status: number;
   public readonly code?: string;
+  public readonly data?: Record<string, unknown>;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    data?: Record<string, unknown>
+  ) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    this.data = data;
   }
 }
 
@@ -53,6 +69,10 @@ export function setClientAuthToken(token: string | null): void {
   } catch {
     // Ignore restricted sessionStorage
   }
+}
+
+export function getClientAuthToken(): string | null {
+  return inMemoryAuthToken;
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -91,7 +111,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
         ? parsed.error
         : `Request failed with status ${response.status}`;
     const code = typeof parsed.code === 'string' ? parsed.code : undefined;
-    throw new ApiError(message, response.status, code);
+    throw new ApiError(message, response.status, code, parsed);
   }
 
   return parsed as T;
@@ -103,6 +123,7 @@ export const api = {
       status: string;
       database: { configured: boolean; connected: boolean; error?: string };
       objectStorage: { configured: boolean };
+      paystack: { configured: boolean };
     }>('/api/health'),
 
   auth: {
@@ -154,18 +175,35 @@ export const api = {
   },
 
   catalog: {
-    getSubjects: () => request<{ subjects: SubjectSummary[] }>('/api/catalog/subjects'),
-    getCourses: (subjectId: string) =>
-      request<{ courses: CourseSummary[] }>(`/api/catalog/subjects/${subjectId}/courses`),
+    getCourses: () => request<{ courses: CourseCatalogueItem[] }>('/api/catalog/courses'),
+    getMyCourses: () =>
+      request<{ registeredCourses: RegisteredCourseItem[] }>('/api/catalog/my-courses'),
     getAnnouncements: () =>
       request<{ announcements: AnnouncementItem[] }>('/api/catalog/announcements'),
     getActivity: () => request<ActivitySummary>('/api/catalog/activity'),
   },
 
+  payments: {
+    getConfig: () =>
+      request<{ configured: boolean; publicKey: string | null }>('/api/payments/config'),
+
+    initialize: (courseId: string) =>
+      request<PaymentInitializeResponse>('/api/payments/initialize', {
+        method: 'POST',
+        body: JSON.stringify({ courseId }),
+      }),
+
+    verify: (reference: string) =>
+      request<PaymentVerifyOutcome>(
+        `/api/payments/verify/${encodeURIComponent(reference)}`
+      ),
+
+    myPayments: () => request<{ payments: StudentPaymentRecord[] }>('/api/payments/my'),
+  },
+
   exams: {
     start: (payload: {
-      subjectId: string;
-      courseId?: string | null;
+      courseId: string;
       difficulty: DifficultyLevel;
       questionCount: number;
       timeLimitMinutes?: number;
@@ -219,8 +257,8 @@ export const api = {
   },
 
   results: {
-    list: (subjectId?: string) => {
-      const qs = subjectId ? `?subjectId=${encodeURIComponent(subjectId)}` : '';
+    list: (courseId?: string) => {
+      const qs = courseId ? `?courseId=${encodeURIComponent(courseId)}` : '';
       return request<ResultsOverview>(`/api/results${qs}`);
     },
 
@@ -231,13 +269,13 @@ export const api = {
   },
 
   materials: {
-    list: (params?: { category?: string; subjectId?: string }) => {
+    list: (params?: { category?: string; courseId?: string }) => {
       const search = new URLSearchParams();
       if (params?.category && params.category !== 'All') {
         search.set('category', params.category);
       }
-      if (params?.subjectId) {
-        search.set('subjectId', params.subjectId);
+      if (params?.courseId) {
+        search.set('courseId', params.courseId);
       }
       const qs = search.toString();
       return request<{ materials: StudyMaterialItem[] }>(
@@ -254,28 +292,49 @@ export const api = {
 
   admin: {
     getOverview: () => request<{ overview: AdminOverview }>('/api/admin/overview'),
-    listSubjects: () => request<{ subjects: SubjectSummary[] }>('/api/admin/subjects'),
-    createSubject: (payload: {
-      name: string;
-      slug: string;
+
+    listCourses: () => request<{ courses: AdminCourseItem[] }>('/api/admin/courses'),
+    createCourse: (payload: {
       code: string;
-      examCategory?: string;
+      title: string;
+      level?: string;
       description?: string;
+      registrationFee: number;
+      currency?: string;
+      publicationStatus?: PublicationStatus;
+      examCategory?: string;
       defaultDurationMinutes?: number;
     }) =>
-      request<{ subject: SubjectSummary }>('/api/admin/subjects', {
+      request<{ course: AdminCourseItem }>('/api/admin/courses', {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
-    deleteSubject: (id: string) =>
-      request<{ deletedId: string }>(`/api/admin/subjects/${id}`, { method: 'DELETE' }),
+    updateCourse: (
+      id: string,
+      payload: Partial<{
+        code: string;
+        title: string;
+        level: string;
+        description: string;
+        registrationFee: number;
+        publicationStatus: PublicationStatus;
+        examCategory: string;
+        defaultDurationMinutes: number;
+      }>
+    ) =>
+      request<{ course: AdminCourseItem }>(`/api/admin/courses/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }),
+    deleteCourse: (id: string) =>
+      request<{ deletedId: string }>(`/api/admin/courses/${id}`, { method: 'DELETE' }),
 
-    listQuestions: (subjectId?: string) => {
-      const qs = subjectId ? `?subjectId=${encodeURIComponent(subjectId)}` : '';
+    listQuestions: (courseId?: string) => {
+      const qs = courseId ? `?courseId=${encodeURIComponent(courseId)}` : '';
       return request<{ questions: AdminQuestionItem[] }>(`/api/admin/questions${qs}`);
     },
     createQuestion: (payload: {
-      subjectId: string;
+      courseId: string;
       questionText: string;
       optionA: string;
       optionB: string;
@@ -292,7 +351,7 @@ export const api = {
         body: JSON.stringify(payload),
       }),
     generateQuestions: (payload: {
-      subjectId: string;
+      courseId: string;
       topic: string;
       difficulty: 'Easy' | 'Medium' | 'Hard';
       count: number;
@@ -329,7 +388,71 @@ export const api = {
         method: 'DELETE',
       }),
 
+    listRegistrations: (filters?: {
+      search?: string;
+      courseId?: string;
+      paymentStatus?: PaymentStatus | '';
+      dateFrom?: string;
+      dateTo?: string;
+    }) => {
+      const search = new URLSearchParams();
+      if (filters?.search) search.set('search', filters.search);
+      if (filters?.courseId) search.set('courseId', filters.courseId);
+      if (filters?.paymentStatus) search.set('paymentStatus', filters.paymentStatus);
+      if (filters?.dateFrom) search.set('dateFrom', filters.dateFrom);
+      if (filters?.dateTo) search.set('dateTo', filters.dateTo);
+      const qs = search.toString();
+      return request<{ registrations: AdminRegistrationItem[] }>(
+        `/api/admin/registrations${qs ? `?${qs}` : ''}`
+      );
+    },
+
+    getRegistrationsExportUrl: (filters?: {
+      search?: string;
+      courseId?: string;
+      paymentStatus?: PaymentStatus | '';
+      dateFrom?: string;
+      dateTo?: string;
+    }) => {
+      const search = new URLSearchParams();
+      if (filters?.search) search.set('search', filters.search);
+      if (filters?.courseId) search.set('courseId', filters.courseId);
+      if (filters?.paymentStatus) search.set('paymentStatus', filters.paymentStatus);
+      if (filters?.dateFrom) search.set('dateFrom', filters.dateFrom);
+      if (filters?.dateTo) search.set('dateTo', filters.dateTo);
+      const qs = search.toString();
+      return `/api/admin/registrations/export${qs ? `?${qs}` : ''}`;
+    },
+
+    listPayments: (filters?: {
+      status?: PaymentStatus | '';
+      courseId?: string;
+      studentId?: string;
+      search?: string;
+      dateFrom?: string;
+      dateTo?: string;
+    }) => {
+      const search = new URLSearchParams();
+      if (filters?.status) search.set('status', filters.status);
+      if (filters?.courseId) search.set('courseId', filters.courseId);
+      if (filters?.studentId) search.set('studentId', filters.studentId);
+      if (filters?.search) search.set('search', filters.search);
+      if (filters?.dateFrom) search.set('dateFrom', filters.dateFrom);
+      if (filters?.dateTo) search.set('dateTo', filters.dateTo);
+      const qs = search.toString();
+      return request<{ payments: AdminPaymentRecord[] }>(
+        `/api/admin/payments${qs ? `?${qs}` : ''}`
+      );
+    },
+
+    reverifyPayment: (paymentId: string) =>
+      request<PaymentVerifyOutcome>(`/api/admin/payments/${paymentId}/reverify`, {
+        method: 'POST',
+      }),
+
     listUsers: () => request<{ users: SafeUser[] }>('/api/admin/users'),
+    getStudentProfile: (studentId: string) =>
+      request<AdminStudentProfile>(`/api/admin/users/${studentId}/profile`),
     updateUser: (
       id: string,
       payload: { isActive?: boolean; role?: SafeUser['role']; examTarget?: string }
@@ -346,7 +469,8 @@ export const api = {
           userId: string;
           studentName: string;
           studentEmail: string;
-          subjectName: string;
+          courseCode: string | null;
+          courseTitle: string | null;
           scorePercentage: number | null;
           correctCount: number | null;
           totalQuestions: number;

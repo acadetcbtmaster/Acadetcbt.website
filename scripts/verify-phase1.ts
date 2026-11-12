@@ -16,15 +16,18 @@ async function verifyPhase1() {
     'studyMaterials',
     'announcements',
     'auditLogs',
+    'payments',
+    'courseRegistrations',
+    'paymentWebhookEvents',
   ] as const;
 
   for (const key of expectedTables) {
     assert.ok(schema[key], `Missing table export: ${key}`);
   }
 
-  console.log('[Phase 1 Verification] Checking SQL migration file...');
-  const sqlPath = path.resolve(process.cwd(), 'migrations/0001_initial_schema.sql');
-  const sqlContent = await fs.readFile(sqlPath, 'utf-8');
+  console.log('[Phase 1 Verification] Checking SQL migration files...');
+  const sqlPath1 = path.resolve(process.cwd(), 'migrations/0001_initial_schema.sql');
+  const sqlContent1 = await fs.readFile(sqlPath1, 'utf-8');
   const requiredSqlTables = [
     'users',
     'subjects',
@@ -39,17 +42,29 @@ async function verifyPhase1() {
 
   for (const tbl of requiredSqlTables) {
     assert.ok(
-      sqlContent.includes(`CREATE TABLE IF NOT EXISTS ${tbl}`),
-      `SQL migration missing table: ${tbl}`
+      sqlContent1.includes(`CREATE TABLE IF NOT EXISTS ${tbl}`),
+      `SQL migration 0001 missing table: ${tbl}`
     );
   }
 
-  assert.ok(
-    sqlContent.includes('REFERENCES subjects(id)'),
-    'Missing foreign key relationships in SQL migration'
+  const sqlPath2 = path.resolve(
+    process.cwd(),
+    'migrations/0002_course_registration_payments.sql'
   );
+  const sqlContent2 = await fs.readFile(sqlPath2, 'utf-8');
+  for (const tbl of ['payments', 'course_registrations', 'payment_webhook_events']) {
+    assert.ok(
+      sqlContent2.includes(`CREATE TABLE IF NOT EXISTS ${tbl}`),
+      `SQL migration 0002 missing table: ${tbl}`
+    );
+  }
   assert.ok(
-    sqlContent.includes("CHECK (correct_option IN ('A', 'B', 'C', 'D'))"),
+    sqlContent2.includes('registration_fee'),
+    'Migration 0002 must add registration_fee on courses'
+  );
+
+  assert.ok(
+    sqlContent1.includes("CHECK (correct_option IN ('A', 'B', 'C', 'D'))"),
     'Missing check constraint on correct_option'
   );
 

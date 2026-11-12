@@ -13,13 +13,13 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import type {
   ActiveExamSession,
+  CourseCatalogueItem,
   GradedExamQuestion,
   ResultsOverview,
-  SubjectSummary,
 } from '../../types/cbt';
 
 interface ResultsViewProps {
-  subjects: SubjectSummary[];
+  courses: CourseCatalogueItem[];
   initialSessionResult?: {
     session: ActiveExamSession;
     questions: GradedExamQuestion[];
@@ -38,12 +38,12 @@ function formatTotalDuration(totalSeconds: number): string {
 }
 
 export const ResultsView: React.FC<ResultsViewProps> = ({
-  subjects,
+  courses,
   initialSessionResult = null,
   onClearInitialSessionResult,
   compact = false,
 }) => {
-  const [subjectFilter, setSubjectFilter] = useState<string>('');
+  const [courseFilter, setCourseFilter] = useState<string>('');
   const [data, setData] = useState<ResultsOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +64,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
     setLoading(true);
     setError(null);
     api.results
-      .list(subjectFilter || undefined)
+      .list(courseFilter || undefined)
       .then((res) => {
         if (active) setData(res);
       })
@@ -77,7 +77,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
     return () => {
       active = false;
     };
-  }, [subjectFilter, initialSessionResult]);
+  }, [courseFilter, initialSessionResult]);
 
   const openSessionDetail = async (sessionId: string) => {
     setLoadingDetail(true);
@@ -105,7 +105,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
       {/* Deep Navy Header Strip */}
       <div className="bg-[#0b337a] text-white px-5 py-3.5 flex items-center gap-2.5">
         <BarChart3 className="w-5 h-5 shrink-0" />
-        <h2 className="text-lg font-extrabold tracking-tight">View Results</h2>
+        <h2 className="text-lg font-extrabold tracking-tight">Course Results</h2>
       </div>
 
       <div className="p-4 sm:p-5 space-y-5 flex-1">
@@ -116,20 +116,20 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
               Your Performance Overview
             </div>
             <div className="text-xs text-slate-600 dark:text-slate-400">
-              Track your progress and check your scores.
+              Track your progress and check your course scores.
             </div>
           </div>
 
           <select
-            value={subjectFilter}
-            onChange={(e) => setSubjectFilter(e.target.value)}
-            aria-label="Filter results by subject"
+            value={courseFilter}
+            onChange={(e) => setCourseFilter(e.target.value)}
+            aria-label="Filter results by course"
             className="rounded-xl border border-[#c6daf7] dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-bold text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-[#0a58ed]"
           >
-            <option value="">All Exams</option>
-            {subjects.map((sub) => (
-              <option key={sub.id} value={sub.id}>
-                {sub.name}
+            <option value="">All Courses</option>
+            {courses.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.code} — {c.title}
               </option>
             ))}
           </select>
@@ -141,7 +141,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
           </div>
         )}
 
-        {/* 4 KPI Stat Cards (Matching Screenshot 2) */}
+        {/* 4 KPI Stat Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 bg-white dark:bg-slate-900 p-3.5 text-center shadow-xs">
             <div className="w-8 h-8 rounded-lg bg-[#0a58ed] text-white flex items-center justify-center mx-auto mb-2">
@@ -192,7 +192,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
           </div>
         </div>
 
-        {/* Performance Trend Chart (Matching Screenshot 2) */}
+        {/* Performance Trend Chart */}
         <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-3">
           <h3 className="text-sm sm:text-base font-extrabold text-[#082252] dark:text-white">
             Your Performance Trend
@@ -200,7 +200,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
 
           {trend.length === 0 ? (
             <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
-              Complete your first practice exam to generate your score trend chart.
+              Complete your first course examination to generate your score trend chart.
             </div>
           ) : (
             <div className="w-full overflow-x-auto">
@@ -222,11 +222,11 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
           )}
         </div>
 
-        {/* Recent Exam Attempts List (when not compact or when attempts exist) */}
+        {/* Recent Exam Attempts List */}
         {!compact && history.length > 0 && (
           <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 overflow-hidden">
             <div className="px-4 py-2.5 bg-slate-50 dark:bg-slate-800/70 border-b border-[#dce6f5] dark:border-slate-800 text-xs font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-              Completed Exam History
+              Completed Course Exam History
             </div>
             <div className="divide-y divide-slate-200 dark:divide-slate-800">
               {history.map((item) => (
@@ -236,7 +236,8 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                 >
                   <div>
                     <div className="font-bold text-sm text-slate-900 dark:text-white">
-                      {item.subjectName}{' '}
+                      {item.courseCode ? `${item.courseCode} — ` : ''}
+                      {item.courseTitle}{' '}
                       <span className="text-xs font-semibold text-slate-500">
                         ({item.difficultyFilter})
                       </span>
@@ -269,7 +270,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
         )}
       </div>
 
-      {/* Detailed Question-by-Question Review Modal (Only available after backend grading) */}
+      {/* Detailed Question-by-Question Review Modal */}
       {detailModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/60 backdrop-blur-[1px]">
           <div className="w-full max-w-3xl max-h-[90vh] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col overflow-hidden">
@@ -278,7 +279,10 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                 <Award className="w-5 h-5" />
                 <div>
                   <h3 className="font-extrabold text-base">
-                    {detailModal.session.subjectName} — Graded Result
+                    {detailModal.session.courseCode
+                      ? `${detailModal.session.courseCode} — `
+                      : ''}
+                    {detailModal.session.courseTitle} — Graded Result
                   </h3>
                   <p className="text-xs text-blue-100">
                     Score: {detailModal.session.scorePercentage ?? 0}% (
@@ -404,7 +408,7 @@ const PerformanceLineChart: React.FC<{
       viewBox={`0 0 ${width} ${height}`}
       className="w-full min-w-[320px] h-auto"
       role="img"
-      aria-label="Exam score trend chart"
+      aria-label="Course exam score trend chart"
     >
       <defs>
         <linearGradient id="acadetChartFill" x1="0" y1="0" x2="0" y2="1">

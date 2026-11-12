@@ -2,6 +2,7 @@ import { and, asc, desc, eq } from 'drizzle-orm';
 import { Router } from 'express';
 import { getDb } from '../../db/index.js';
 import {
+  courses,
   examSessionQuestions,
   examSessions,
   questions,
@@ -14,25 +15,27 @@ const router = Router();
 router.get('/', requireAuth, async (req, res) => {
   try {
     const db = getDb();
-    const subjectIdFilter =
-      typeof req.query.subjectId === 'string' && req.query.subjectId.trim()
-        ? req.query.subjectId.trim()
+    const courseIdFilter =
+      typeof req.query.courseId === 'string' && req.query.courseId.trim()
+        ? req.query.courseId.trim()
         : null;
 
     const conditions = [
       eq(examSessions.userId, req.user!.id),
       eq(examSessions.status, 'submitted'),
     ];
-    if (subjectIdFilter) {
-      conditions.push(eq(examSessions.subjectId, subjectIdFilter));
+    if (courseIdFilter) {
+      conditions.push(eq(examSessions.courseId, courseIdFilter));
     }
 
     const sessions = await db
       .select({
         id: examSessions.id,
-        subjectId: examSessions.subjectId,
-        subjectName: subjects.name,
-        subjectCode: subjects.code,
+        courseId: examSessions.courseId,
+        courseTitle: courses.title,
+        courseCode: courses.code,
+        legacySubjectName: subjects.name,
+        legacySubjectCode: subjects.code,
         examTitle: examSessions.examTitle,
         difficultyFilter: examSessions.difficultyFilter,
         totalQuestions: examSessions.totalQuestions,
@@ -45,31 +48,51 @@ router.get('/', requireAuth, async (req, res) => {
         submittedAt: examSessions.submittedAt,
       })
       .from(examSessions)
-      .innerJoin(subjects, eq(examSessions.subjectId, subjects.id))
+      .leftJoin(courses, eq(examSessions.courseId, courses.id))
+      .leftJoin(subjects, eq(examSessions.subjectId, subjects.id))
       .where(and(...conditions))
       .orderBy(desc(examSessions.submittedAt));
 
-    const examsTaken = sessions.length;
+    const normalizedHistory = sessions.map((s) => ({
+      id: s.id,
+      courseId: s.courseId || '',
+      courseTitle: s.courseTitle || s.legacySubjectName || 'Course Exam',
+      courseCode: s.courseCode || s.legacySubjectCode || '',
+      examTitle: s.examTitle,
+      difficultyFilter: s.difficultyFilter,
+      totalQuestions: s.totalQuestions,
+      correctCount: s.correctCount,
+      wrongCount: s.wrongCount,
+      unansweredCount: s.unansweredCount,
+      scorePercentage: s.scorePercentage,
+      timeSpentSeconds: s.timeSpentSeconds,
+      startedAt: s.startedAt,
+      submittedAt: s.submittedAt,
+    }));
+
+    const examsTaken = normalizedHistory.length;
     const averageScore =
       examsTaken > 0
         ? Math.round(
-            sessions.reduce((sum, s) => sum + (s.scorePercentage ?? 0), 0) / examsTaken
+            normalizedHistory.reduce((sum, s) => sum + (s.scorePercentage ?? 0), 0) /
+              examsTaken
           )
         : 0;
     const bestScore =
       examsTaken > 0
-        ? Math.max(...sessions.map((s) => s.scorePercentage ?? 0))
+        ? Math.max(...normalizedHistory.map((s) => s.scorePercentage ?? 0))
         : 0;
-    const totalTimeSeconds = sessions.reduce(
+    const totalTimeSeconds = normalizedHistory.reduce(
       (sum, s) => sum + (s.timeSpentSeconds ?? 0),
       0
     );
 
-    const chronological = [...sessions].reverse();
+    const chronological = [...normalizedHistory].reverse();
     const trend = chronological.map((s, idx) => ({
       label: `Exam ${idx + 1}`,
       sessionId: s.id,
-      subjectName: s.subjectName,
+      courseTitle: s.courseTitle,
+      courseCode: s.courseCode,
       scorePercentage: s.scorePercentage ?? 0,
       submittedAt: s.submittedAt,
     }));
@@ -82,10 +105,10 @@ router.get('/', requireAuth, async (req, res) => {
         totalTimeSeconds,
       },
       trend,
-      history: sessions,
+      history: normalizedHistory,
     });
   } catch (err) {
-    handleApiError(res, err, 'fetching exam results');
+    handleApiError(res, err, 'fetching course exam results');
   }
 });
 
@@ -94,13 +117,15 @@ router.get('/:sessionId', requireAuth, async (req, res) => {
     const db = getDb();
     const { sessionId } = req.params;
 
-    const [session] = await db
+    const [sessionRow] = await db
       .select({
         id: examSessions.id,
         userId: examSessions.userId,
-        subjectId: examSessions.subjectId,
-        subjectName: subjects.name,
-        subjectCode: subjects.code,
+        courseId: examSessions.courseId,
+        courseTitle: courses.title,
+        courseCode: courses.code,
+        legacySubjectName: subjects.name,
+        legacySubjectCode: subjects.code,
         examTitle: examSessions.examTitle,
         difficultyFilter: examSessions.difficultyFilter,
         totalQuestions: examSessions.totalQuestions,
@@ -115,22 +140,23 @@ router.get('/:sessionId', requireAuth, async (req, res) => {
         submittedAt: examSessions.submittedAt,
       })
       .from(examSessions)
-      .innerJoin(subjects, eq(examSessions.subjectId, subjects.id))
+      .leftJoin(courses, eq(examSessions.courseId, courses.id))
+      .leftJoin(subjects, eq(examSessions.subjectId, subjects.id))
       .where(eq(examSessions.id, sessionId))
       .limit(1);
 
-    if (!session) {
+    if (!sessionRow) {
       res.status(404).json({ error: 'Result session not found.' });
       return;
     }
 
     const isAdmin = req.user!.role === 'admin' || req.user!.role === 'super_admin';
-    if (session.userId !== req.user!.id && !isAdmin) {
+    if (sessionRow.userId !== req.user!.id && !isAdmin) {
       res.status(403).json({ error: 'You are not authorized to view this exam result.' });
       return;
     }
 
-    if (session.status !== 'submitted') {
+    if (sessionRow.status !== 'submitted') {
       res.status(409).json({
         error: 'This exam has not been submitted yet. Submit the exam before reviewing answers.',
       });
@@ -159,7 +185,14 @@ router.get('/:sessionId', requireAuth, async (req, res) => {
       .where(eq(examSessionQuestions.sessionId, sessionId))
       .orderBy(asc(examSessionQuestions.questionOrder));
 
-    res.json({ session, questions: items });
+    res.json({
+      session: {
+        ...sessionRow,
+        courseTitle: sessionRow.courseTitle || sessionRow.legacySubjectName || 'Course Exam',
+        courseCode: sessionRow.courseCode || sessionRow.legacySubjectCode || '',
+      },
+      questions: items,
+    });
   } catch (err) {
     handleApiError(res, err, 'fetching detailed result');
   }

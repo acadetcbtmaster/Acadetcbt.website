@@ -12,14 +12,14 @@ import {
   X,
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
-import type { DifficultyLevel, SubjectSummary, UserPreferences } from '../../types/cbt';
+import type { CourseCatalogueItem, DifficultyLevel, UserPreferences } from '../../types/cbt';
 
 interface SettingsDrawerProps {
   open: boolean;
   onClose: () => void;
   preferences: UserPreferences;
-  subjects: SubjectSummary[];
-  selectedSubjectId: string | null;
+  courses: CourseCatalogueItem[];
+  selectedCourseId: string | null;
   onSavePreferences: (nextPrefs: UserPreferences) => Promise<void>;
   saving?: boolean;
 }
@@ -30,7 +30,7 @@ const DEFAULT_RESET: UserPreferences = {
   soundNotifications: true,
   autoNextQuestion: false,
   showQuestionPalette: true,
-  defaultSubjectId: null,
+  defaultCourseId: null,
   defaultDifficulty: 'All Levels',
 };
 
@@ -38,8 +38,8 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
   open,
   onClose,
   preferences,
-  subjects,
-  selectedSubjectId,
+  courses,
+  selectedCourseId,
   onSavePreferences,
   saving = false,
 }) => {
@@ -49,10 +49,15 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
     if (open) {
       setDraft({
         ...preferences,
-        defaultSubjectId: preferences.defaultSubjectId || selectedSubjectId || subjects[0]?.id || null,
+        defaultCourseId:
+          preferences.defaultCourseId ||
+          preferences.defaultSubjectId ||
+          selectedCourseId ||
+          courses[0]?.id ||
+          null,
       });
     }
-  }, [open, preferences, selectedSubjectId, subjects]);
+  }, [open, preferences, selectedCourseId, courses]);
 
   if (!open) return null;
 
@@ -92,21 +97,21 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
             <div className="flex items-center justify-between gap-3">
               <label className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
                 <BookOpen className="w-4 h-4 text-[#0b337a] dark:text-blue-400" />
-                <span>Subject</span>
+                <span>Default Course</span>
               </label>
               <select
-                value={draft.defaultSubjectId || ''}
+                value={draft.defaultCourseId || ''}
                 onChange={(e) =>
                   setDraft((prev) => ({
                     ...prev,
-                    defaultSubjectId: e.target.value || null,
+                    defaultCourseId: e.target.value || null,
                   }))
                 }
-                className="w-44 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#0052cc]"
+                className="w-48 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#0052cc]"
               >
-                {subjects.map((sub) => (
-                  <option key={sub.id} value={sub.id}>
-                    {sub.name}
+                {courses.map((course) => (
+                  <option key={course.id} value={course.id}>
+                    {course.code} — {course.title}
                   </option>
                 ))}
               </select>
@@ -125,7 +130,7 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
                     defaultDifficulty: e.target.value as DifficultyLevel,
                   }))
                 }
-                className="w-44 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#0052cc]"
+                className="w-48 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#0052cc]"
               >
                 {difficulties.map((level) => (
                   <option key={level} value={level}>
@@ -263,7 +268,7 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
             onClick={() =>
               setDraft({
                 ...DEFAULT_RESET,
-                defaultSubjectId: subjects[0]?.id || null,
+                defaultCourseId: courses[0]?.id || null,
               })
             }
             className="flex-1 py-2.5 px-4 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-sm hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center gap-2 min-h-[44px]"

@@ -10,7 +10,7 @@ import { api } from '../../lib/api';
 import type { MaterialCategory, StudyMaterialItem } from '../../types/cbt';
 
 interface StudyMaterialsViewProps {
-  selectedSubjectId?: string | null;
+  selectedCourseId?: string | null;
   compact?: boolean;
   onExploreMore?: () => void;
 }
@@ -32,7 +32,7 @@ function formatBytes(bytes: number): string {
 }
 
 export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
-  selectedSubjectId,
+  selectedCourseId,
   compact = false,
   onExploreMore,
 }) => {
@@ -49,7 +49,7 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
     api.materials
       .list({
         category: activeCategory,
-        ...(selectedSubjectId && compact ? { subjectId: selectedSubjectId } : {}),
+        ...(selectedCourseId && compact ? { courseId: selectedCourseId } : {}),
       })
       .then((res) => {
         if (active) setMaterials(res.materials);
@@ -66,7 +66,7 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
     return () => {
       active = false;
     };
-  }, [activeCategory, selectedSubjectId, compact]);
+  }, [activeCategory, selectedCourseId, compact]);
 
   const handleDownload = async (item: StudyMaterialItem) => {
     setDownloadingId(item.id);
@@ -162,6 +162,9 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
           ) : (
             visibleMaterials.map((item) => {
               const isDoc = item.fileType === 'DOC';
+              const courseLabel = item.courseCode
+                ? `${item.courseCode} — ${item.courseTitle}`
+                : item.courseTitle;
               return (
                 <div
                   key={item.id}
@@ -181,7 +184,8 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                         {item.title}
                       </div>
                       <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                        {item.description || `${item.category}${item.subjectName ? ` · ${item.subjectName}` : ''}`}
+                        {item.description ||
+                          `${item.category}${courseLabel ? ` · ${courseLabel}` : ''}`}
                       </div>
                     </div>
                   </div>

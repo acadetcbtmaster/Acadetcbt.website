@@ -13,48 +13,156 @@ import {
   users,
 } from './schema.js';
 
-interface SeedSubject {
-  slug: string;
-  name: string;
-  code: string;
-  description: string;
-  defaultDurationMinutes: number;
-  courses: Array<{ code: string; title: string; level: string; description: string }>;
-  questions: Array<{
-    questionText: string;
-    optionA: string;
-    optionB: string;
-    optionC: string;
-    optionD: string;
-    correctOption: 'A' | 'B' | 'C' | 'D';
-    explanation: string;
-    difficulty: 'Easy' | 'Medium' | 'Hard';
-    topic: string;
-    examYear?: number;
-  }>;
+interface SeedQuestion {
+  questionText: string;
+  optionA: string;
+  optionB: string;
+  optionC: string;
+  optionD: string;
+  correctOption: 'A' | 'B' | 'C' | 'D';
+  explanation: string;
+  difficulty: 'Easy' | 'Medium' | 'Hard';
+  topic: string;
+  examYear?: number;
 }
 
-const STARTER_SUBJECTS: SeedSubject[] = [
+interface SeedCourseEntry {
+  legacySubjectSlug: string;
+  legacySubjectName: string;
+  legacySubjectCode: string;
+  code: string;
+  title: string;
+  level: string;
+  description: string;
+  registrationFee: string;
+  defaultDurationMinutes: number;
+  questions: SeedQuestion[];
+}
+
+const STARTER_COURSES: SeedCourseEntry[] = [
   {
-    slug: 'mathematics',
-    name: 'Mathematics',
-    code: 'MTH',
-    description: 'Algebra, geometry, trigonometry, calculus, and statistics for UTME.',
-    defaultDurationMinutes: 90,
-    courses: [
+    legacySubjectSlug: 'computer-science',
+    legacySubjectName: 'Computer Science',
+    legacySubjectCode: 'CSC',
+    code: 'CSC 101',
+    title: 'Introduction to Computer Science',
+    level: '100 Level',
+    description:
+      'Computer architecture, binary arithmetic, operating systems, data representation, and algorithmic thinking.',
+    registrationFee: '2000.00',
+    defaultDurationMinutes: 60,
+    questions: [
       {
-        code: 'MTH 101',
-        title: 'Elementary Algebra & Number Theory',
-        level: 'UTME',
-        description: 'Linear equations, indices, logarithms, and surds.',
+        questionText: 'Which component of the CPU coordinates and directs all operations of the computer?',
+        optionA: 'Arithmetic Logic Unit (ALU)',
+        optionB: 'Control Unit (CU)',
+        optionC: 'Cache Memory',
+        optionD: 'Read-Only Memory (ROM)',
+        correctOption: 'B',
+        explanation:
+          'The Control Unit fetches, decodes, and coordinates execution of instructions across CPU subsystems.',
+        difficulty: 'Easy',
+        topic: 'Computer Architecture',
+        examYear: 2025,
       },
       {
-        code: 'MTH 102',
-        title: 'Geometry, Trigonometry & Calculus',
-        level: 'UTME',
-        description: 'Coordinate geometry, triangles, differentiation, and integration.',
+        questionText: 'What is the binary equivalent of the decimal number 25?',
+        optionA: '10101',
+        optionB: '11001',
+        optionC: '11011',
+        optionD: '10011',
+        correctOption: 'B',
+        explanation: '25 = 16 + 8 + 1 = 1*2^4 + 1*2^3 + 0*2^2 + 0*2^1 + 1*2^0 = 11001 in binary.',
+        difficulty: 'Easy',
+        topic: 'Number Systems',
+        examYear: 2025,
+      },
+      {
+        questionText: 'Which data structure operates strictly on a Last-In, First-Out (LIFO) principle?',
+        optionA: 'Queue',
+        optionB: 'Linked List',
+        optionC: 'Stack',
+        optionD: 'Hash Table',
+        correctOption: 'C',
+        explanation: 'A stack pushes and pops elements from the top, enforcing Last-In, First-Out ordering.',
+        difficulty: 'Medium',
+        topic: 'Data Structures',
+        examYear: 2025,
+      },
+      {
+        questionText: 'In relational databases, what ensures each row in a table is uniquely identifiable?',
+        optionA: 'Foreign Key',
+        optionB: 'Primary Key',
+        optionC: 'Check Constraint',
+        optionD: 'View Index',
+        correctOption: 'B',
+        explanation: 'A Primary Key enforces uniqueness and non-null identity for every record in a table.',
+        difficulty: 'Medium',
+        topic: 'Database Systems',
+        examYear: 2025,
       },
     ],
+  },
+  {
+    legacySubjectSlug: 'biology',
+    legacySubjectName: 'Biology',
+    legacySubjectCode: 'BIO',
+    code: 'BIO 101',
+    title: 'Introduction to Biology',
+    level: '100 Level',
+    description: 'Cell biology, genetics, ecology, plant physiology, and human anatomy.',
+    registrationFee: '2000.00',
+    defaultDurationMinutes: 60,
+    questions: [
+      {
+        questionText: 'Which organelle is responsible for cellular respiration and ATP production?',
+        optionA: 'Ribosome',
+        optionB: 'Mitochondrion',
+        optionC: 'Golgi apparatus',
+        optionD: 'Lysosome',
+        correctOption: 'B',
+        explanation: 'The mitochondrion is the site of aerobic respiration where ATP is generated.',
+        difficulty: 'Easy',
+        topic: 'Cell Structure',
+        examYear: 2024,
+      },
+      {
+        questionText:
+          'Which blood vessel carries oxygenated blood from the lungs to the left atrium of the heart?',
+        optionA: 'Pulmonary artery',
+        optionB: 'Pulmonary vein',
+        optionC: 'Vena cava',
+        optionD: 'Aorta',
+        correctOption: 'B',
+        explanation: 'The pulmonary vein returns oxygenated blood from the lungs to the left atrium.',
+        difficulty: 'Medium',
+        topic: 'Transport System',
+        examYear: 2023,
+      },
+      {
+        questionText: 'In plants, the process by which water vapour is lost through stomata is called:',
+        optionA: 'Translocation',
+        optionB: 'Transpiration',
+        optionC: 'Respiration',
+        optionD: 'Germination',
+        correctOption: 'B',
+        explanation: 'Transpiration is the evaporation and loss of water vapour primarily through stomata.',
+        difficulty: 'Easy',
+        topic: 'Plant Physiology',
+        examYear: 2022,
+      },
+    ],
+  },
+  {
+    legacySubjectSlug: 'mathematics',
+    legacySubjectName: 'Mathematics',
+    legacySubjectCode: 'MTH',
+    code: 'MTH 101',
+    title: 'Introduction to Mathematics',
+    level: '100 Level',
+    description: 'Algebra, indices, logarithms, geometry, trigonometry, and introductory calculus.',
+    registrationFee: '2000.00',
+    defaultDurationMinutes: 90,
     questions: [
       {
         questionText: 'If 3x + 5 = 14, what is the value of x?',
@@ -131,30 +239,28 @@ const STARTER_SUBJECTS: SeedSubject[] = [
     ],
   },
   {
-    slug: 'use-of-english',
-    name: 'Use of English',
-    code: 'ENG',
-    description: 'Lexis, structure, comprehension, oral forms, and sentence interpretation.',
+    legacySubjectSlug: 'use-of-english',
+    legacySubjectName: 'Use of English',
+    legacySubjectCode: 'ENG',
+    code: 'ENG 101',
+    title: 'Use of English & Communication',
+    level: '100 Level',
+    description: 'Lexis, structure, comprehension, oral forms, and academic sentence interpretation.',
+    registrationFee: '2000.00',
     defaultDurationMinutes: 60,
-    courses: [
-      {
-        code: 'ENG 101',
-        title: 'Lexis & Structure Mastery',
-        level: 'UTME',
-        description: 'Concord, idioms, synonyms, antonyms, and grammatical usage.',
-      },
-    ],
     questions: [
       {
-        questionText: 'Choose the option that best completes the sentence: Neither the teacher nor the students ____ aware of the timetable change.',
+        questionText:
+          'Choose the option that best completes the sentence: Neither the teacher nor the students ____ aware of the timetable change.',
         optionA: 'was',
         optionB: 'were',
         optionC: 'is',
         optionD: 'has been',
         correctOption: 'B',
-        explanation: 'With "neither ... nor", the verb agrees with the nearer subject ("students", plural), so "were" is correct.',
+        explanation:
+          'With "neither ... nor", the verb agrees with the nearer subject ("students", plural), so "were" is correct.',
         difficulty: 'Medium',
-        topic: 'Subject-Verb Concord',
+        topic: 'Course Concord',
         examYear: 2024,
       },
       {
@@ -196,19 +302,15 @@ const STARTER_SUBJECTS: SeedSubject[] = [
     ],
   },
   {
-    slug: 'physics',
-    name: 'Physics',
-    code: 'PHY',
+    legacySubjectSlug: 'physics',
+    legacySubjectName: 'Physics',
+    legacySubjectCode: 'PHY',
+    code: 'PHY 101',
+    title: 'General Physics & Mechanics',
+    level: '100 Level',
     description: 'Mechanics, waves, optics, electricity, magnetism, and modern physics.',
+    registrationFee: '2000.00',
     defaultDurationMinutes: 60,
-    courses: [
-      {
-        code: 'PHY 101',
-        title: 'Mechanics & Properties of Matter',
-        level: 'UTME',
-        description: 'Motion, forces, energy, momentum, and gravitation.',
-      },
-    ],
     questions: [
       {
         questionText: 'Which of the following is a vector quantity?',
@@ -229,7 +331,7 @@ const STARTER_SUBJECTS: SeedSubject[] = [
         optionC: '20 N',
         optionD: '40 N',
         correctOption: 'C',
-        explanation: 'By Newton\'s Second Law, F = m * a = 5 kg * 4 m/s^2 = 20 N.',
+        explanation: "By Newton's Second Law, F = m * a = 5 kg * 4 m/s^2 = 20 N.",
         difficulty: 'Easy',
         topic: 'Newtonian Mechanics',
         examYear: 2023,
@@ -261,19 +363,15 @@ const STARTER_SUBJECTS: SeedSubject[] = [
     ],
   },
   {
-    slug: 'chemistry',
-    name: 'Chemistry',
-    code: 'CHM',
+    legacySubjectSlug: 'chemistry',
+    legacySubjectName: 'Chemistry',
+    legacySubjectCode: 'CHM',
+    code: 'CHM 101',
+    title: 'Foundations of Chemistry',
+    level: '100 Level',
     description: 'Atomic structure, stoichiometry, chemical bonding, kinetics, and organic chemistry.',
+    registrationFee: '2000.00',
     defaultDurationMinutes: 60,
-    courses: [
-      {
-        code: 'CHM 101',
-        title: 'Foundations of Inorganic & Organic Chemistry',
-        level: 'UTME',
-        description: 'Periodic trends, mole concept, acids/bases, and hydrocarbons.',
-      },
-    ],
     questions: [
       {
         questionText: 'What is the pH of a neutral aqueous solution at 25 degrees Celsius?',
@@ -294,7 +392,8 @@ const STARTER_SUBJECTS: SeedSubject[] = [
         optionC: 'Carbon (IV) oxide',
         optionD: 'Hydrogen',
         correctOption: 'C',
-        explanation: 'CO2 reacts with Ca(OH)2 to form insoluble CaCO3 precipitate, turning lime water milky.',
+        explanation:
+          'CO2 reacts with Ca(OH)2 to form insoluble CaCO3 precipitate, turning lime water milky.',
         difficulty: 'Easy',
         topic: 'Non-Metals',
         examYear: 2023,
@@ -310,59 +409,6 @@ const STARTER_SUBJECTS: SeedSubject[] = [
         difficulty: 'Medium',
         topic: 'Organic Chemistry',
         examYear: 2024,
-      },
-    ],
-  },
-  {
-    slug: 'biology',
-    name: 'Biology',
-    code: 'BIO',
-    description: 'Cell biology, genetics, ecology, plant physiology, and human anatomy.',
-    defaultDurationMinutes: 60,
-    courses: [
-      {
-        code: 'BIO 101',
-        title: 'Cell Biology & Genetics',
-        level: 'UTME',
-        description: 'Cell organelles, mitosis, meiosis, and Mendelian inheritance.',
-      },
-    ],
-    questions: [
-      {
-        questionText: 'Which organelle is responsible for cellular respiration and ATP production?',
-        optionA: 'Ribosome',
-        optionB: 'Mitochondrion',
-        optionC: 'Golgi apparatus',
-        optionD: 'Lysosome',
-        correctOption: 'B',
-        explanation: 'The mitochondrion is the powerhouse of the cell where aerobic respiration produces ATP.',
-        difficulty: 'Easy',
-        topic: 'Cell Structure',
-        examYear: 2024,
-      },
-      {
-        questionText: 'Which blood vessel carries oxygenated blood from the lungs to the left atrium of the heart?',
-        optionA: 'Pulmonary artery',
-        optionB: 'Pulmonary vein',
-        optionC: 'Vena cava',
-        optionD: 'Aorta',
-        correctOption: 'B',
-        explanation: 'The pulmonary vein carries oxygenated blood from the lungs back to the left atrium.',
-        difficulty: 'Medium',
-        topic: 'Transport System',
-        examYear: 2023,
-      },
-      {
-        questionText: 'In plants, the process by which water vapour is lost through stomata is called:',
-        optionA: 'Translocation',
-        optionB: 'Transpiration',
-        optionC: 'Respiration',
-        optionD: 'Germination',
-        correctOption: 'B',
-        explanation: 'Transpiration is the evaporation and loss of water vapour primarily through leaf stomata.',
-        difficulty: 'Easy',
-        topic: 'Plant Physiology',
-        examYear: 2022,
       },
     ],
   },
@@ -423,7 +469,7 @@ export async function ensureBootstrapAdmin(): Promise<string | null> {
       username: finalUsername,
       passwordHash,
       role: 'super_admin',
-      examTarget: 'JAMB UTME Practice Exam',
+      examTarget: 'Acadet CBT Examination',
       isActive: true,
       preferences: DEFAULT_USER_PREFERENCES,
     })
@@ -446,11 +492,11 @@ export async function runSeed(): Promise<void> {
     console.log('[Seed] ADMIN_EMAIL / ADMIN_PASSWORD not set; skipping bootstrap admin user.');
   }
 
-  for (const subjectData of STARTER_SUBJECTS) {
+  for (const entry of STARTER_COURSES) {
     const existingSubject = await db
       .select()
       .from(subjects)
-      .where(eq(subjects.slug, subjectData.slug))
+      .where(eq(subjects.slug, entry.legacySubjectSlug))
       .limit(1);
 
     let subjectId: string;
@@ -460,56 +506,59 @@ export async function runSeed(): Promise<void> {
       const [insertedSubject] = await db
         .insert(subjects)
         .values({
-          slug: subjectData.slug,
-          name: subjectData.name,
-          code: subjectData.code,
-          examCategory: 'JAMB UTME Practice Exam',
-          description: subjectData.description,
-          defaultDurationMinutes: subjectData.defaultDurationMinutes,
+          slug: entry.legacySubjectSlug,
+          name: entry.legacySubjectName,
+          code: entry.legacySubjectCode,
+          examCategory: 'Acadet CBT Examination',
+          description: entry.description,
+          defaultDurationMinutes: entry.defaultDurationMinutes,
           isActive: true,
         })
         .returning({ id: subjects.id });
       subjectId = insertedSubject.id;
-      console.log(`[Seed] Created subject: ${subjectData.name}`);
     }
 
-    let firstCourseId: string | null = null;
-    for (const c of subjectData.courses) {
-      const existingCourses = await db
-        .select()
-        .from(courses)
-        .where(eq(courses.code, c.code))
-        .limit(1);
+    const existingCourse = await db
+      .select()
+      .from(courses)
+      .where(sql`LOWER(${courses.code}) = ${entry.code.toLowerCase()}`)
+      .limit(1);
 
-      if (existingCourses.length > 0) {
-        if (!firstCourseId) firstCourseId = existingCourses[0].id;
-      } else {
-        const [insertedCourse] = await db
-          .insert(courses)
-          .values({
-            subjectId,
-            code: c.code,
-            title: c.title,
-            level: c.level,
-            description: c.description,
-            isActive: true,
-          })
-          .returning({ id: courses.id });
-        if (!firstCourseId) firstCourseId = insertedCourse.id;
-      }
+    let courseId: string;
+    if (existingCourse.length > 0) {
+      courseId = existingCourse[0].id;
+    } else {
+      const [insertedCourse] = await db
+        .insert(courses)
+        .values({
+          subjectId,
+          code: entry.code,
+          title: entry.title,
+          level: entry.level,
+          description: entry.description,
+          registrationFee: entry.registrationFee,
+          currency: 'NGN',
+          publicationStatus: 'published',
+          examCategory: 'Acadet CBT Examination',
+          defaultDurationMinutes: entry.defaultDurationMinutes,
+          isActive: true,
+        })
+        .returning({ id: courses.id });
+      courseId = insertedCourse.id;
+      console.log(`[Seed] Created course: ${entry.code} — ${entry.title}`);
     }
 
     const existingQuestions = await db
       .select({ id: questions.id })
       .from(questions)
-      .where(eq(questions.subjectId, subjectId))
+      .where(eq(questions.courseId, courseId))
       .limit(1);
 
     if (existingQuestions.length === 0) {
       await db.insert(questions).values(
-        subjectData.questions.map((q) => ({
+        entry.questions.map((q) => ({
           subjectId,
-          courseId: firstCourseId,
+          courseId,
           questionText: q.questionText,
           optionA: q.optionA,
           optionB: q.optionB,
@@ -524,9 +573,7 @@ export async function runSeed(): Promise<void> {
           createdBy: adminId,
         }))
       );
-      console.log(
-        `[Seed] Added ${subjectData.questions.length} starter questions for ${subjectData.name}`
-      );
+      console.log(`[Seed] Added ${entry.questions.length} starter questions for ${entry.code}`);
     }
   }
 
@@ -534,7 +581,7 @@ export async function runSeed(): Promise<void> {
   if (existingAnnouncements.length === 0) {
     await db.insert(announcements).values({
       title: 'Welcome to the Acadet CBT Practice Platform!',
-      body: 'Practice regularly to build confidence for your JAMB exam. All exam sessions, timing, and results are securely stored in PostgreSQL.',
+      body: 'Browse available courses in Course Registration, complete payment to unlock CBT examinations, and track every graded attempt in your dashboard.',
       isPinned: true,
       isActive: true,
       createdBy: adminId,
@@ -547,9 +594,15 @@ export async function seedDatabaseIfEmpty(): Promise<void> {
   if (!isDatabaseConfigured()) return;
   await ensureBootstrapAdmin();
   const db = getDb();
-  const existing = await db.select({ id: subjects.id }).from(subjects).limit(1);
-  if (existing.length === 0) {
-    console.log('[Seed] Empty catalog detected; running initial starter curriculum seed...');
+  const existing = await db.select({ id: courses.id }).from(courses).limit(1);
+  const hasCsc = await db
+    .select({ id: courses.id })
+    .from(courses)
+    .where(sql`LOWER(${courses.code}) = 'csc 101'`)
+    .limit(1);
+
+  if (existing.length === 0 || hasCsc.length === 0) {
+    console.log('[Seed] Ensuring starter course catalogue is seeded...');
     await runSeed();
   }
 }

@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { Router } from 'express';
 import { getDb } from '../../db/index.js';
-import { studyMaterials, subjects } from '../../db/schema.js';
+import { courses, studyMaterials } from '../../db/schema.js';
 import {
   getMaterialDownloadUrl,
   ObjectStorageNotConfiguredError,
@@ -17,24 +17,25 @@ router.get('/', requireDb, async (req, res) => {
       typeof req.query.category === 'string' && req.query.category !== 'All'
         ? req.query.category.trim()
         : null;
-    const subjectId =
-      typeof req.query.subjectId === 'string' && req.query.subjectId.trim()
-        ? req.query.subjectId.trim()
+    const courseId =
+      typeof req.query.courseId === 'string' && req.query.courseId.trim()
+        ? req.query.courseId.trim()
         : null;
 
     const conditions = [eq(studyMaterials.isActive, true)];
     if (category) {
       conditions.push(eq(studyMaterials.category, category));
     }
-    if (subjectId) {
-      conditions.push(eq(studyMaterials.subjectId, subjectId));
+    if (courseId) {
+      conditions.push(eq(studyMaterials.courseId, courseId));
     }
 
     const items = await db
       .select({
         id: studyMaterials.id,
-        subjectId: studyMaterials.subjectId,
-        subjectName: subjects.name,
+        courseId: studyMaterials.courseId,
+        courseTitle: courses.title,
+        courseCode: courses.code,
         title: studyMaterials.title,
         description: studyMaterials.description,
         category: studyMaterials.category,
@@ -45,7 +46,7 @@ router.get('/', requireDb, async (req, res) => {
         createdAt: studyMaterials.createdAt,
       })
       .from(studyMaterials)
-      .leftJoin(subjects, eq(studyMaterials.subjectId, subjects.id))
+      .leftJoin(courses, eq(studyMaterials.courseId, courses.id))
       .where(and(...conditions))
       .orderBy(desc(studyMaterials.createdAt));
 

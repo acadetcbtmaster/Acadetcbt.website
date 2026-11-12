@@ -1,10 +1,13 @@
 import {
   BarChart3,
+  BookCheck,
   BookOpen,
   Calendar,
   ChevronRight,
+  CreditCard,
   FileEdit,
   History,
+  Lock,
   Megaphone,
   Play,
   Settings,
@@ -15,23 +18,27 @@ import React, { useState } from 'react';
 import type {
   ActivitySummary,
   AnnouncementItem,
+  CourseCatalogueItem,
   DifficultyLevel,
-  SubjectSummary,
 } from '../../types/cbt';
 import { HeroStudyGraphic } from './AcadetLogo';
+import { formatCurrency } from './CourseRegistrationView';
 
 interface HomeDashboardProps {
-  subjects: SubjectSummary[];
-  selectedSubjectId: string | null;
+  courses: CourseCatalogueItem[];
+  selectedCourseId: string | null;
   defaultDifficulty: DifficultyLevel;
   announcements: AnnouncementItem[];
   activity: ActivitySummary | null;
-  onSelectSubject: (subjectId: string) => void;
+  onSelectCourse: (courseId: string) => void;
   onStartExam: (params: {
-    subjectId: string;
+    courseId: string;
     difficulty: DifficultyLevel;
     questionCount: number;
   }) => Promise<void>;
+  onRequireRegistration: (course: CourseCatalogueItem) => void;
+  onNavigateCourseRegistration: () => void;
+  onNavigateMyCourses: () => void;
   onNavigateViewResults: () => void;
   onNavigateStudyMaterials: () => void;
   onOpenSettings: () => void;
@@ -39,32 +46,40 @@ interface HomeDashboardProps {
 }
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
-  subjects,
-  selectedSubjectId,
+  courses,
+  selectedCourseId,
   defaultDifficulty,
   announcements,
   activity,
-  onSelectSubject,
+  onSelectCourse,
   onStartExam,
+  onRequireRegistration,
+  onNavigateCourseRegistration,
+  onNavigateMyCourses,
   onNavigateViewResults,
   onNavigateStudyMaterials,
   onOpenSettings,
   startingExam,
 }) => {
   const [showStartModal, setShowStartModal] = useState(false);
-  const [modalSubjectId, setModalSubjectId] = useState<string>(
-    selectedSubjectId || subjects[0]?.id || ''
+  const [modalCourseId, setModalCourseId] = useState<string>(
+    selectedCourseId || courses[0]?.id || ''
   );
   const [modalDifficulty, setModalDifficulty] =
     useState<DifficultyLevel>(defaultDifficulty);
   const [questionCount, setQuestionCount] = useState<number>(20);
   const [startError, setStartError] = useState<string | null>(null);
 
-  const activeSubjectId = selectedSubjectId || subjects[0]?.id || '';
+  const activeCourseId = selectedCourseId || courses[0]?.id || '';
   const pinnedAnnouncement = announcements[0] || null;
+  const registeredCount = courses.filter((c) => c.isRegistered).length;
+  const selectedModalCourse = courses.find((c) => c.id === modalCourseId) || null;
 
   const openExamModal = () => {
-    setModalSubjectId(activeSubjectId || subjects[0]?.id || '');
+    const firstRegistered = courses.find((c) => c.isRegistered);
+    const defaultPick =
+      courses.find((c) => c.id === activeCourseId) || firstRegistered || courses[0];
+    setModalCourseId(defaultPick?.id || '');
     setModalDifficulty(defaultDifficulty);
     setStartError(null);
     setShowStartModal(true);
@@ -72,15 +87,21 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
   const handleLaunchExam = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!modalSubjectId) {
-      setStartError('Please select a subject before starting.');
+    if (!modalCourseId || !selectedModalCourse) {
+      setStartError('Please select a course before starting.');
       return;
     }
+    if (!selectedModalCourse.isRegistered) {
+      setShowStartModal(false);
+      onRequireRegistration(selectedModalCourse);
+      return;
+    }
+
     setStartError(null);
     try {
-      onSelectSubject(modalSubjectId);
+      onSelectCourse(modalCourseId);
       await onStartExam({
-        subjectId: modalSubjectId,
+        courseId: modalCourseId,
         difficulty: modalDifficulty,
         questionCount,
       });
@@ -92,16 +113,35 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
   return (
     <div className="max-w-6xl mx-auto w-full px-3 sm:px-6 py-5 sm:py-7 space-y-6">
-      {/* Hero Banner (Matching Screenshot 1) */}
+      {/* Hero Banner */}
       <section className="rounded-2xl border border-[#c6daf7] dark:border-slate-700 bg-gradient-to-r from-[#eff5ff] via-[#e1ecfe] to-[#cce0ff] dark:from-slate-900 dark:via-slate-800 dark:to-blue-950/70 px-6 py-6 sm:px-9 sm:py-7 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
-        <div className="space-y-2.5 text-center md:text-left">
+        <div className="space-y-3 text-center md:text-left">
           <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-[#082252] dark:text-white">
             Welcome to Acadet CBT
           </h1>
           <p className="text-base sm:text-xl font-semibold text-[#1e3a6e] dark:text-blue-200">
             Prepare smart. Practice well. Score higher.
           </p>
-          <div className="w-20 h-1.5 rounded-full bg-[#0a58ed] mx-auto md:mx-0 mt-3" />
+          <div className="w-20 h-1.5 rounded-full bg-[#0a58ed] mx-auto md:mx-0" />
+
+          <div className="pt-2 flex flex-wrap items-center justify-center md:justify-start gap-2.5">
+            <button
+              type="button"
+              onClick={onNavigateCourseRegistration}
+              className="px-4 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold shadow-xs inline-flex items-center gap-2 min-h-[40px] transition-colors"
+            >
+              <CreditCard className="w-4 h-4" />
+              <span>Course Registration</span>
+            </button>
+            <button
+              type="button"
+              onClick={onNavigateMyCourses}
+              className="px-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-[#9dc0f5] dark:border-slate-700 text-[#082252] dark:text-blue-200 hover:bg-blue-50 dark:hover:bg-slate-800 text-xs sm:text-sm font-extrabold inline-flex items-center gap-2 min-h-[40px] transition-colors tabular-nums"
+            >
+              <BookCheck className="w-4 h-4 text-[#0a58ed]" />
+              <span>My Courses ({registeredCount})</span>
+            </button>
+          </div>
         </div>
 
         <div className="shrink-0">
@@ -109,9 +149,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         </div>
       </section>
 
-      {/* 4 Horizontal Action Cards (Matching Screenshot 1) */}
+      {/* 4 Horizontal Action Cards */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Start Exam (Featured Vibrant Blue Card) */}
+        {/* Start Exam */}
         <button
           type="button"
           onClick={openExamModal}
@@ -122,14 +162,14 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           </div>
           <div className="my-3">
             <div className="text-xl font-extrabold tracking-tight">Start Exam</div>
-            <div className="text-sm text-blue-100 mt-0.5">Begin a practice test</div>
+            <div className="text-sm text-blue-100 mt-0.5">Begin a course CBT test</div>
           </div>
           <span className="w-8 h-8 rounded-full bg-white text-[#0041b5] flex items-center justify-center shadow-sm group-hover:translate-x-0.5 transition-transform">
             <ChevronRight className="w-5 h-5" />
           </span>
         </button>
 
-        {/* View Results */}
+        {/* Course Results */}
         <button
           type="button"
           onClick={onNavigateViewResults}
@@ -140,7 +180,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           </div>
           <div className="my-3">
             <div className="text-xl font-extrabold tracking-tight text-[#082252] dark:text-white">
-              View Results
+              Course Results
             </div>
             <div className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
               Check your performance
@@ -165,7 +205,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               Study Materials
             </div>
             <div className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-              Access tutorials & notes
+              Access course tutorials & notes
             </div>
           </div>
           <span className="w-8 h-8 rounded-full bg-[#0b337a] text-white flex items-center justify-center group-hover:translate-x-0.5 transition-transform">
@@ -220,7 +260,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                   Welcome to the Acadet CBT Practice Platform!
                 </h3>
                 <p className="text-sm text-slate-600 dark:text-slate-300 mt-1">
-                  Select any active subject above to begin a timed practice test.
+                  Register for any course under Course Registration to unlock timed CBT practice examinations.
                 </p>
               </div>
             )}
@@ -244,7 +284,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 </div>
                 <div className="text-sm font-extrabold text-[#0052cc] dark:text-blue-400 truncate mt-0.5">
                   {activity?.lastAttempt
-                    ? `${activity.lastAttempt.subjectName} (${activity.lastAttempt.scorePercentage ?? 0}%)`
+                    ? `${activity.lastAttempt.courseCode} (${activity.lastAttempt.scorePercentage ?? 0}%)`
                     : 'Not yet taken'}
                 </div>
               </div>
@@ -276,7 +316,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <div className="bg-[#0b337a] text-white px-5 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <Play className="w-5 h-5" />
-                <h2 className="text-base font-extrabold">Configure Practice Exam</h2>
+                <h2 className="text-base font-extrabold">Configure Course Examination</h2>
               </div>
               <button
                 type="button"
@@ -296,24 +336,43 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-1.5">
-                  Subject
+                  Select Course
                 </label>
                 <select
-                  value={modalSubjectId}
-                  onChange={(e) => setModalSubjectId(e.target.value)}
+                  value={modalCourseId}
+                  onChange={(e) => setModalCourseId(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3.5 py-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-[#0052cc]"
                 >
-                  {subjects.length === 0 ? (
-                    <option value="">No subjects available</option>
+                  {courses.length === 0 ? (
+                    <option value="">No courses available</option>
                   ) : (
-                    subjects.map((sub) => (
-                      <option key={sub.id} value={sub.id}>
-                        {sub.name} ({sub.questionCount} questions available)
+                    courses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code} — {c.title} ({c.isRegistered ? 'Registered ✓' : 'Not Registered'})
                       </option>
                     ))
                   )}
                 </select>
               </div>
+
+              {selectedModalCourse && !selectedModalCourse.isRegistered && (
+                <div className="rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-3 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
+                  <Lock className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+                  <div>
+                    <div className="font-extrabold">Course Registration Required</div>
+                    <div className="mt-0.5">
+                      Registration fee:{' '}
+                      <span className="font-extrabold tabular-nums">
+                        {formatCurrency(
+                          selectedModalCourse.registrationFee,
+                          selectedModalCourse.currency
+                        )}
+                      </span>
+                      . Complete Paystack registration to unlock this exam.
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -357,16 +416,20 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowStartModal(false)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 min-h-[44px]"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={startingExam || subjects.length === 0}
-                  className="px-5 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-sm font-extrabold shadow-sm disabled:opacity-60"
+                  disabled={startingExam || courses.length === 0}
+                  className="px-5 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-sm font-extrabold shadow-sm disabled:opacity-60 min-h-[44px]"
                 >
-                  {startingExam ? 'Preparing Exam...' : 'Start Exam Now'}
+                  {startingExam
+                    ? 'Preparing Exam...'
+                    : selectedModalCourse && !selectedModalCourse.isRegistered
+                      ? 'Register to Unlock'
+                      : 'Start Exam Now'}
                 </button>
               </div>
             </form>

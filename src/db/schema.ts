@@ -5,6 +5,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -18,7 +19,8 @@ export interface UserPreferences {
   soundNotifications: boolean;
   autoNextQuestion: boolean;
   showQuestionPalette: boolean;
-  defaultSubjectId: string | null;
+  defaultCourseId?: string | null;
+  defaultSubjectId?: string | null;
   defaultDifficulty: 'All Levels' | 'Easy' | 'Medium' | 'Hard';
 }
 
@@ -28,6 +30,7 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   soundNotifications: true,
   autoNextQuestion: false,
   showQuestionPalette: true,
+  defaultCourseId: null,
   defaultSubjectId: null,
   defaultDifficulty: 'All Levels',
 };
@@ -41,7 +44,7 @@ export const users = pgTable(
     username: text('username').notNull(),
     passwordHash: text('password_hash').notNull(),
     role: text('role').notNull().default('student'),
-    examTarget: text('exam_target').notNull().default('JAMB UTME Practice Exam'),
+    examTarget: text('exam_target').notNull().default('Acadet CBT Examination'),
     isActive: boolean('is_active').notNull().default(true),
     preferences: jsonb('preferences')
       .$type<UserPreferences>()
@@ -58,6 +61,7 @@ export const users = pgTable(
   ]
 );
 
+// Legacy table kept for safe relational compatibility
 export const subjects = pgTable(
   'subjects',
   {
@@ -65,7 +69,7 @@ export const subjects = pgTable(
     slug: text('slug').notNull(),
     name: text('name').notNull(),
     code: text('code').notNull(),
-    examCategory: text('exam_category').notNull().default('JAMB UTME Practice Exam'),
+    examCategory: text('exam_category').notNull().default('Acadet CBT Examination'),
     description: text('description').notNull().default(''),
     defaultDurationMinutes: integer('default_duration_minutes').notNull().default(90),
     isActive: boolean('is_active').notNull().default(true),
@@ -83,20 +87,31 @@ export const courses = pgTable(
   'courses',
   {
     id: uuid('id').defaultRandom().primaryKey(),
-    subjectId: uuid('subject_id')
-      .notNull()
-      .references(() => subjects.id, { onDelete: 'cascade' }),
+    subjectId: uuid('subject_id').references(() => subjects.id, { onDelete: 'set null' }),
     code: text('code').notNull(),
     title: text('title').notNull(),
-    level: text('level').notNull().default('UTME'),
+    level: text('level').notNull().default('100 Level'),
     description: text('description').notNull().default(''),
+    registrationFee: numeric('registration_fee', { precision: 12, scale: 2 })
+      .notNull()
+      .default('2000.00'),
+    currency: text('currency').notNull().default('NGN'),
+    publicationStatus: text('publication_status').notNull().default('published'),
+    examCategory: text('exam_category').notNull().default('Acadet CBT Examination'),
+    defaultDurationMinutes: integer('default_duration_minutes').notNull().default(60),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex('courses_subject_code_unique_idx').on(table.subjectId, table.code),
+    uniqueIndex('courses_code_unique_idx').on(sql`LOWER(${table.code})`),
     index('courses_subject_idx').on(table.subjectId),
+    index('courses_publication_status_idx').on(table.publicationStatus, table.isActive),
+    check(
+      'courses_publication_status_check',
+      sql`${table.publicationStatus} IN ('draft', 'published', 'archived')`
+    ),
+    check('courses_registration_fee_check', sql`${table.registrationFee} >= 0`),
   ]
 );
 
@@ -104,10 +119,8 @@ export const questions = pgTable(
   'questions',
   {
     id: uuid('id').defaultRandom().primaryKey(),
-    subjectId: uuid('subject_id')
-      .notNull()
-      .references(() => subjects.id, { onDelete: 'cascade' }),
-    courseId: uuid('course_id').references(() => courses.id, { onDelete: 'set null' }),
+    subjectId: uuid('subject_id').references(() => subjects.id, { onDelete: 'set null' }),
+    courseId: uuid('course_id').references(() => courses.id, { onDelete: 'cascade' }),
     questionText: text('question_text').notNull(),
     optionA: text('option_a').notNull(),
     optionB: text('option_b').notNull(),
@@ -138,11 +151,9 @@ export const examSessions = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    subjectId: uuid('subject_id')
-      .notNull()
-      .references(() => subjects.id, { onDelete: 'restrict' }),
-    courseId: uuid('course_id').references(() => courses.id, { onDelete: 'set null' }),
-    examTitle: text('exam_title').notNull().default('JAMB UTME Practice Exam'),
+    subjectId: uuid('subject_id').references(() => subjects.id, { onDelete: 'set null' }),
+    courseId: uuid('course_id').references(() => courses.id, { onDelete: 'restrict' }),
+    examTitle: text('exam_title').notNull().default('Acadet CBT Examination'),
     difficultyFilter: text('difficulty_filter').notNull().default('All Levels'),
     totalQuestions: integer('total_questions').notNull(),
     timeLimitSeconds: integer('time_limit_seconds').notNull(),
@@ -158,6 +169,7 @@ export const examSessions = pgTable(
   (table) => [
     index('exam_sessions_user_status_idx').on(table.userId, table.status, table.startedAt),
     index('exam_sessions_subject_idx').on(table.subjectId),
+    index('exam_sessions_course_idx').on(table.courseId),
     check(
       'exam_sessions_status_check',
       sql`${table.status} IN ('in_progress', 'submitted', 'abandoned')`
@@ -200,6 +212,7 @@ export const studyMaterials = pgTable(
   {
     id: uuid('id').defaultRandom().primaryKey(),
     subjectId: uuid('subject_id').references(() => subjects.id, { onDelete: 'set null' }),
+    courseId: uuid('course_id').references(() => courses.id, { onDelete: 'set null' }),
     title: text('title').notNull(),
     description: text('description').notNull().default(''),
     category: text('category').notNull().default('Notes'),
@@ -215,9 +228,103 @@ export const studyMaterials = pgTable(
   },
   (table) => [
     index('study_materials_subject_cat_idx').on(table.subjectId, table.category, table.isActive),
+    index('study_materials_course_cat_idx').on(table.courseId, table.category, table.isActive),
     check(
       'study_materials_category_check',
       sql`${table.category} IN ('Tutorials', 'Notes', 'Past Questions', 'Guides')`
+    ),
+  ]
+);
+
+export const payments = pgTable(
+  'payments',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id, { onDelete: 'restrict' }),
+    paymentReference: text('payment_reference').notNull(),
+    gateway: text('gateway').notNull().default('paystack'),
+    amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+    currency: text('currency').notNull().default('NGN'),
+    paymentStatus: text('payment_status').notNull().default('pending'),
+    gatewayTransactionId: text('gateway_transaction_id'),
+    gatewayResponse: jsonb('gateway_response')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    authorizationUrl: text('authorization_url'),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('payments_reference_unique_idx').on(table.paymentReference),
+    index('payments_student_created_idx').on(table.studentId, table.createdAt),
+    index('payments_course_status_idx').on(table.courseId, table.paymentStatus),
+    index('payments_status_created_idx').on(table.paymentStatus, table.createdAt),
+    check(
+      'payments_status_check',
+      sql`${table.paymentStatus} IN ('pending', 'successful', 'failed', 'refunded')`
+    ),
+    check('payments_amount_check', sql`${table.amount} >= 0`),
+  ]
+);
+
+export const courseRegistrations = pgTable(
+  'course_registrations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id, { onDelete: 'restrict' }),
+    paymentId: uuid('payment_id')
+      .notNull()
+      .references(() => payments.id, { onDelete: 'restrict' }),
+    registrationStatus: text('registration_status').notNull().default('active'),
+    registeredAt: timestamp('registered_at', { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('course_registrations_payment_unique_idx').on(table.paymentId),
+    uniqueIndex('course_registrations_active_student_course_idx')
+      .on(table.studentId, table.courseId)
+      .where(sql`${table.registrationStatus} = 'active'`),
+    index('course_registrations_student_idx').on(table.studentId, table.registeredAt),
+    index('course_registrations_course_idx').on(table.courseId, table.registeredAt),
+    check(
+      'course_registrations_status_check',
+      sql`${table.registrationStatus} IN ('active', 'pending', 'revoked', 'expired')`
+    ),
+  ]
+);
+
+export const paymentWebhookEvents = pgTable(
+  'payment_webhook_events',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    eventReference: text('event_reference').notNull(),
+    eventType: text('event_type').notNull(),
+    paymentReference: text('payment_reference'),
+    processingStatus: text('processing_status').notNull().default('received'),
+    payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default({}),
+    errorMessage: text('error_message'),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('payment_webhook_events_ref_unique_idx').on(table.eventReference),
+    index('payment_webhook_events_received_idx').on(table.receivedAt),
+    check(
+      'payment_webhook_events_status_check',
+      sql`${table.processingStatus} IN ('received', 'processed', 'ignored', 'failed')`
     ),
   ]
 );

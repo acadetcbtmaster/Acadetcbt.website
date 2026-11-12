@@ -1,16 +1,25 @@
-import { CheckCircle2, Database, HardDrive, HelpCircle, ShieldCheck } from 'lucide-react';
+import {
+  CheckCircle2,
+  CreditCard,
+  Database,
+  HardDrive,
+  HelpCircle,
+  ShieldCheck,
+} from 'lucide-react';
 import React from 'react';
 
 interface HelpSupportViewProps {
   dbConfigured: boolean;
   dbConnected: boolean;
   objectStorageConfigured: boolean;
+  paystackConfigured: boolean;
 }
 
 export const HelpSupportView: React.FC<HelpSupportViewProps> = ({
   dbConfigured,
   dbConnected,
   objectStorageConfigured,
+  paystackConfigured,
 }) => (
   <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-sm overflow-hidden">
     <div className="bg-[#0b337a] text-white px-5 py-3.5 flex items-center gap-2.5">
@@ -22,15 +31,25 @@ export const HelpSupportView: React.FC<HelpSupportViewProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-4 space-y-2">
           <div className="flex items-center gap-2 font-extrabold text-sm text-[#082252] dark:text-white">
-            <ShieldCheck className="w-4 h-4 text-[#0a58ed]" />
-            <span>How CBT Grading Works</span>
+            <CreditCard className="w-4 h-4 text-[#0a58ed]" />
+            <span>Course Registration & Paystack Verification</span>
           </div>
           <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-            Every option you select during an exam is saved directly to PostgreSQL. Correct answers are never sent to your browser during an active session; all scoring and explanations are evaluated securely on the backend when you submit.
+            Browse all published courses in Course Registration and pay safely via Paystack. Course CBT examinations unlock strictly after the backend independently verifies your transaction reference, amount, and currency with Paystack.
           </p>
         </div>
 
         <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-4 space-y-2">
+          <div className="flex items-center gap-2 font-extrabold text-sm text-[#082252] dark:text-white">
+            <ShieldCheck className="w-4 h-4 text-[#0a58ed]" />
+            <span>How CBT Grading Works</span>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+            Every option you select during an examination is saved directly to PostgreSQL. Correct answers are never sent to your browser during an active session; all scoring and explanations are evaluated securely on the backend when you submit.
+          </p>
+        </div>
+
+        <div className="md:col-span-2 rounded-xl border border-[#dce6f5] dark:border-slate-800 p-4 space-y-2">
           <div className="flex items-center gap-2 font-extrabold text-sm text-[#082252] dark:text-white">
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             <span>Exam Navigation & Palette Legend</span>
@@ -45,7 +64,7 @@ export const HelpSupportView: React.FC<HelpSupportViewProps> = ({
         <h3 className="text-sm font-extrabold text-[#082252] dark:text-white">
           Backend Infrastructure Status
         </h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs sm:text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs sm:text-sm">
           <div className="flex items-center justify-between rounded-lg bg-white dark:bg-slate-900 px-3.5 py-2.5 border border-slate-200 dark:border-slate-700">
             <span className="flex items-center gap-2 font-semibold">
               <Database className="w-4 h-4 text-[#0b337a] dark:text-blue-400" />
@@ -68,8 +87,24 @@ export const HelpSupportView: React.FC<HelpSupportViewProps> = ({
 
           <div className="flex items-center justify-between rounded-lg bg-white dark:bg-slate-900 px-3.5 py-2.5 border border-slate-200 dark:border-slate-700">
             <span className="flex items-center gap-2 font-semibold">
+              <CreditCard className="w-4 h-4 text-[#0b337a] dark:text-blue-400" />
+              Paystack Gateway
+            </span>
+            <span
+              className={`font-extrabold ${
+                paystackConfigured
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : 'text-amber-600 dark:text-amber-400'
+              }`}
+            >
+              {paystackConfigured ? 'Configured' : 'Not Configured'}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg bg-white dark:bg-slate-900 px-3.5 py-2.5 border border-slate-200 dark:border-slate-700">
+            <span className="flex items-center gap-2 font-semibold">
               <HardDrive className="w-4 h-4 text-[#0b337a] dark:text-blue-400" />
-              External Object Storage
+              Object Storage
             </span>
             <span
               className={`font-extrabold ${

@@ -13,7 +13,9 @@ import catalogRoutes from './src/server/routes/catalog.js';
 import examRoutes from './src/server/routes/exams.js';
 import healthRoutes from './src/server/routes/health.js';
 import materialRoutes from './src/server/routes/materials.js';
+import paymentRoutes from './src/server/routes/payments.js';
 import resultRoutes from './src/server/routes/results.js';
+import webhookRoutes from './src/server/routes/webhooks.js';
 
 export async function createApp(options?: { skipVite?: boolean }) {
   const app = express();
@@ -26,6 +28,10 @@ export async function createApp(options?: { skipVite?: boolean }) {
       frameguard: false,
     })
   );
+
+  // Paystack webhook requires raw bytes for HMAC-SHA512 signature verification
+  app.use('/api/webhooks', express.raw({ type: 'application/json' }), webhookRoutes);
+
   app.use(express.json({ limit: '5mb' }));
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
@@ -34,6 +40,7 @@ export async function createApp(options?: { skipVite?: boolean }) {
   app.use('/api/health', healthRoutes);
   app.use('/api/auth', authRoutes);
   app.use('/api/catalog', catalogRoutes);
+  app.use('/api/payments', paymentRoutes);
   app.use('/api/exams', examRoutes);
   app.use('/api/results', resultRoutes);
   app.use('/api/materials', materialRoutes);

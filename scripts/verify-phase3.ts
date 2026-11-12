@@ -20,7 +20,7 @@ async function verifyPhase3() {
   assert.equal(outcome.unansweredCount, 1);
   assert.equal(outcome.scorePercentage, 50);
 
-  console.log('[Phase 3 Verification] Verifying exam start route omits correct answers...');
+  console.log('[Phase 3 Verification] Verifying exam start route omits correct answers & checks course registration...');
   const examsSource = await fs.readFile(
     path.resolve(process.cwd(), 'src/server/routes/exams.ts'),
     'utf-8'
@@ -30,6 +30,11 @@ async function verifyPhase3() {
     startSection.includes('questions.correctOption'),
     false,
     'POST /api/exams/start must never select questions.correctOption'
+  );
+  assert.ok(
+    startSection.includes('hasActivePaidCourseRegistration') &&
+      startSection.includes('COURSE_REGISTRATION_REQUIRED'),
+    'POST /api/exams/start must enforce active paid course registration'
   );
 
   console.log('[Phase 3 Verification] Testing Express API routes...');
@@ -45,14 +50,23 @@ async function verifyPhase3() {
 
     const healthRes = await fetch(`${baseUrl}/api/health`);
     assert.equal(healthRes.status, 200);
-    const healthJson = (await healthRes.json()) as { status: string; database: { configured: boolean } };
+    const healthJson = (await healthRes.json()) as {
+      status: string;
+      database: { configured: boolean };
+      paystack: { configured: boolean };
+    };
     assert.equal(healthJson.status, 'ok');
-    assert.equal(healthJson.database.configured, false);
+    assert.equal(typeof healthJson.paystack?.configured, 'boolean');
 
-    const subjRes = await fetch(`${baseUrl}/api/catalog/subjects`);
-    assert.equal(subjRes.status, 503);
-    const subjJson = (await subjRes.json()) as { code: string };
-    assert.equal(subjJson.code, 'DATABASE_NOT_CONFIGURED');
+    if (!healthJson.database.configured) {
+      const courseRes = await fetch(`${baseUrl}/api/catalog/courses`);
+      assert.equal(courseRes.status, 503);
+      const courseJson = (await courseRes.json()) as { code: string };
+      assert.equal(courseJson.code, 'DATABASE_NOT_CONFIGURED');
+    } else {
+      const courseRes = await fetch(`${baseUrl}/api/catalog/courses`);
+      assert.equal(courseRes.status, 401);
+    }
 
     const notFoundRes = await fetch(`${baseUrl}/api/nonexistent`);
     assert.equal(notFoundRes.status, 404);

@@ -1,12 +1,14 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
 import { getDb } from '../../db/index.js';
 import {
+  courseRegistrations,
+  courses,
   examSessionQuestions,
   examSessions,
+  payments,
   questions,
-  subjects,
 } from '../../db/schema.js';
 import { writeAuditLog } from '../lib/audit.js';
 import { gradeExamAnswers, type OptionLetter } from '../lib/examGrader.js';
@@ -15,8 +17,7 @@ import { handleApiError, requireAuth } from '../middleware/auth.js';
 const router = Router();
 
 const startExamSchema = z.object({
-  subjectId: z.string().uuid('Valid subjectId is required'),
-  courseId: z.string().uuid().nullable().optional(),
+  courseId: z.string().uuid('Valid courseId is required'),
   difficulty: z.enum(['All Levels', 'Easy', 'Medium', 'Hard']).default('All Levels'),
   questionCount: z.number().int().min(1).max(60).default(20),
   timeLimitMinutes: z.number().int().min(1).max(240).optional(),
@@ -42,30 +43,77 @@ const submitExamSchema = z.object({
     .optional(),
 });
 
+async function hasActivePaidCourseRegistration(
+  studentId: string,
+  courseId: string
+): Promise<boolean> {
+  const db = getDb();
+  const rows = await db
+    .select({ id: courseRegistrations.id })
+    .from(courseRegistrations)
+    .innerJoin(payments, eq(courseRegistrations.paymentId, payments.id))
+    .where(
+      and(
+        eq(courseRegistrations.studentId, studentId),
+        eq(courseRegistrations.courseId, courseId),
+        eq(courseRegistrations.registrationStatus, 'active'),
+        eq(payments.paymentStatus, 'successful')
+      )
+    )
+    .limit(1);
+
+  return rows.length > 0;
+}
+
 router.post('/start', requireAuth, async (req, res) => {
   try {
     const parsed = startExamSchema.parse(req.body);
     const db = getDb();
 
-    const [subject] = await db
+    const [course] = await db
       .select()
-      .from(subjects)
-      .where(and(eq(subjects.id, parsed.subjectId), eq(subjects.isActive, true)))
+      .from(courses)
+      .where(
+        and(
+          eq(courses.id, parsed.courseId),
+          eq(courses.isActive, true),
+          eq(courses.publicationStatus, 'published')
+        )
+      )
       .limit(1);
 
-    if (!subject) {
-      res.status(404).json({ error: 'Selected subject was not found or is inactive.' });
+    if (!course) {
+      res.status(404).json({ error: 'Selected course was not found or is not published.' });
       return;
     }
 
-    const conditions = [
-      eq(questions.subjectId, subject.id),
-      eq(questions.isActive, true),
-    ];
-
-    if (parsed.courseId) {
-      conditions.push(eq(questions.courseId, parsed.courseId));
+    // Enforce course-specific paid registration access control
+    const isRegistered = await hasActivePaidCourseRegistration(req.user!.id, course.id);
+    if (!isRegistered) {
+      res.status(403).json({
+        error:
+          'You have not registered for this course. Please complete your course registration to access the CBT examination.',
+        code: 'COURSE_REGISTRATION_REQUIRED',
+        course: {
+          id: course.id,
+          code: course.code,
+          title: course.title,
+          level: course.level,
+          registrationFee: Number(course.registrationFee),
+          currency: course.currency,
+        },
+      });
+      return;
     }
+
+    const courseMatchCondition = course.subjectId
+      ? or(
+          eq(questions.courseId, course.id),
+          and(isNull(questions.courseId), eq(questions.subjectId, course.subjectId))
+        )
+      : eq(questions.courseId, course.id);
+
+    const conditions = [courseMatchCondition!, eq(questions.isActive, true)];
 
     if (parsed.difficulty !== 'All Levels') {
       conditions.push(eq(questions.difficulty, parsed.difficulty));
@@ -90,13 +138,13 @@ router.post('/start', requireAuth, async (req, res) => {
 
     if (pickedQuestions.length === 0) {
       res.status(404).json({
-        error: `No active questions found for ${subject.name} (${parsed.difficulty}).`,
+        error: `No active questions found for ${course.code} — ${course.title} (${parsed.difficulty}).`,
       });
       return;
     }
 
     const durationMinutes =
-      parsed.timeLimitMinutes ?? subject.defaultDurationMinutes ?? 90;
+      parsed.timeLimitMinutes ?? course.defaultDurationMinutes ?? 60;
     const timeLimitSeconds = durationMinutes * 60;
 
     const createdResult = await db.transaction(async (tx) => {
@@ -104,9 +152,9 @@ router.post('/start', requireAuth, async (req, res) => {
         .insert(examSessions)
         .values({
           userId: req.user!.id,
-          subjectId: subject.id,
-          courseId: parsed.courseId ?? null,
-          examTitle: subject.examCategory || 'JAMB UTME Practice Exam',
+          subjectId: course.subjectId ?? null,
+          courseId: course.id,
+          examTitle: course.examCategory || 'Acadet CBT Examination',
           difficultyFilter: parsed.difficulty,
           totalQuestions: pickedQuestions.length,
           timeLimitSeconds,
@@ -129,8 +177,9 @@ router.post('/start', requireAuth, async (req, res) => {
       return {
         session: {
           ...session,
-          subjectName: subject.name,
-          subjectCode: subject.code,
+          courseId: course.id,
+          courseTitle: course.title,
+          courseCode: course.code,
         },
         questions: pickedQuestions.map((q, idx) => ({
           order: idx + 1,
@@ -154,7 +203,8 @@ router.post('/start', requireAuth, async (req, res) => {
       entityType: 'exam_session',
       entityId: createdResult.session.id,
       metadata: {
-        subjectId: subject.id,
+        courseId: course.id,
+        courseCode: course.code,
         difficulty: parsed.difficulty,
         totalQuestions: pickedQuestions.length,
       },
@@ -176,9 +226,9 @@ router.get('/:sessionId', requireAuth, async (req, res) => {
       .select({
         id: examSessions.id,
         userId: examSessions.userId,
-        subjectId: examSessions.subjectId,
-        subjectName: subjects.name,
-        subjectCode: subjects.code,
+        courseId: examSessions.courseId,
+        courseTitle: courses.title,
+        courseCode: courses.code,
         examTitle: examSessions.examTitle,
         difficultyFilter: examSessions.difficultyFilter,
         totalQuestions: examSessions.totalQuestions,
@@ -193,7 +243,7 @@ router.get('/:sessionId', requireAuth, async (req, res) => {
         submittedAt: examSessions.submittedAt,
       })
       .from(examSessions)
-      .innerJoin(subjects, eq(examSessions.subjectId, subjects.id))
+      .leftJoin(courses, eq(examSessions.courseId, courses.id))
       .where(eq(examSessions.id, sessionId))
       .limit(1);
 
@@ -209,6 +259,21 @@ router.get('/:sessionId', requireAuth, async (req, res) => {
     }
 
     if (sessionRow.status === 'in_progress') {
+      if (sessionRow.courseId && !isAdmin) {
+        const isRegistered = await hasActivePaidCourseRegistration(
+          req.user!.id,
+          sessionRow.courseId
+        );
+        if (!isRegistered) {
+          res.status(403).json({
+            error:
+              'You do not have an active registration for this course.',
+            code: 'COURSE_REGISTRATION_REQUIRED',
+          });
+          return;
+        }
+      }
+
       const items = await db
         .select({
           order: examSessionQuestions.questionOrder,
@@ -270,6 +335,7 @@ router.patch('/:sessionId/answer', requireAuth, async (req, res) => {
       .select({
         id: examSessions.id,
         userId: examSessions.userId,
+        courseId: examSessions.courseId,
         status: examSessions.status,
       })
       .from(examSessions)
@@ -282,7 +348,7 @@ router.patch('/:sessionId/answer', requireAuth, async (req, res) => {
     }
 
     if (session.userId !== req.user!.id) {
-      res.status(403).json({ error: 'You cannot modify another student\'s exam session.' });
+      res.status(403).json({ error: "You cannot modify another student's exam session." });
       return;
     }
 
@@ -344,16 +410,20 @@ router.post('/:sessionId/submit', requireAuth, async (req, res) => {
     }
 
     if (session.userId !== req.user!.id) {
-      res.status(403).json({ error: 'You cannot submit another student\'s exam session.' });
+      res.status(403).json({ error: "You cannot submit another student's exam session." });
       return;
     }
 
     if (session.status === 'submitted') {
-      const [subject] = await db
-        .select({ name: subjects.name, code: subjects.code })
-        .from(subjects)
-        .where(eq(subjects.id, session.subjectId))
-        .limit(1);
+      const courseRow = session.courseId
+        ? (
+            await db
+              .select({ title: courses.title, code: courses.code })
+              .from(courses)
+              .where(eq(courses.id, session.courseId))
+              .limit(1)
+          )[0]
+        : null;
 
       const gradedQuestions = await db
         .select({
@@ -380,8 +450,8 @@ router.post('/:sessionId/submit', requireAuth, async (req, res) => {
       res.json({
         session: {
           ...session,
-          subjectName: subject?.name || '',
-          subjectCode: subject?.code || '',
+          courseTitle: courseRow?.title || '',
+          courseCode: courseRow?.code || '',
         },
         questions: gradedQuestions,
       });
@@ -459,11 +529,15 @@ router.post('/:sessionId/submit', requireAuth, async (req, res) => {
         .where(eq(examSessions.id, sessionId))
         .returning();
 
-      const [subject] = await tx
-        .select({ name: subjects.name, code: subjects.code })
-        .from(subjects)
-        .where(eq(subjects.id, updatedSession.subjectId))
-        .limit(1);
+      const courseRow = updatedSession.courseId
+        ? (
+            await tx
+              .select({ title: courses.title, code: courses.code })
+              .from(courses)
+              .where(eq(courses.id, updatedSession.courseId))
+              .limit(1)
+          )[0]
+        : null;
 
       const gradedQuestions = await tx
         .select({
@@ -490,8 +564,8 @@ router.post('/:sessionId/submit', requireAuth, async (req, res) => {
       return {
         session: {
           ...updatedSession,
-          subjectName: subject?.name || '',
-          subjectCode: subject?.code || '',
+          courseTitle: courseRow?.title || '',
+          courseCode: courseRow?.code || '',
         },
         questions: gradedQuestions,
       };

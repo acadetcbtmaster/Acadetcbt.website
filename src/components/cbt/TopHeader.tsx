@@ -1,26 +1,29 @@
 import {
+  CheckCircle2,
   ChevronDown,
   Clock,
+  Lock,
   LogOut,
   Menu,
   Shield,
   User as UserIcon,
 } from 'lucide-react';
 import React, { useState } from 'react';
-import type { SafeUser, SubjectSummary } from '../../types/cbt';
+import type { CourseCatalogueItem, SafeUser } from '../../types/cbt';
 import { AcadetCrest } from './AcadetLogo';
 
 interface TopHeaderProps {
   user: SafeUser;
-  subjects: SubjectSummary[];
-  selectedSubjectId: string | null;
-  onSelectSubject: (subjectId: string) => void;
+  courses: CourseCatalogueItem[];
+  selectedCourseId: string | null;
+  onSelectCourse: (courseId: string) => void;
   onNavigateHome: () => void;
   onOpenAdmin?: () => void;
   onLogout: () => void;
   onToggleMobileMenu?: () => void;
   examMode?: {
     remainingSeconds: number;
+    courseLabel?: string;
     onRequestEndExam: () => void;
   };
 }
@@ -35,20 +38,20 @@ function formatTimer(totalSeconds: number): string {
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
   user,
-  subjects,
-  selectedSubjectId,
-  onSelectSubject,
+  courses,
+  selectedCourseId,
+  onSelectCourse,
   onNavigateHome,
   onOpenAdmin,
   onLogout,
   onToggleMobileMenu,
   examMode,
 }) => {
-  const [subjectOpen, setSubjectOpen] = useState(false);
+  const [courseOpen, setCourseOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
-  const activeSubject =
-    subjects.find((s) => s.id === selectedSubjectId) || subjects[0] || null;
+  const activeCourse =
+    courses.find((c) => c.id === selectedCourseId) || courses[0] || null;
   const firstName = user.fullName.trim().split(/\s+/)[0] || 'Student';
   const isAdmin = user.role === 'admin' || user.role === 'super_admin';
 
@@ -84,52 +87,77 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             </div>
           </button>
 
-          {/* Center Subject Selector (Desktop & Tablet) */}
+          {/* Center Course Selector (Desktop & Tablet) */}
           <div className="hidden md:flex items-center pl-4 ml-2 border-l border-white/25 relative">
             <div>
               <div className="text-sm font-bold leading-tight text-white">
-                {user.examTarget || 'JAMB UTME Practice Exam'}
+                {user.examTarget || 'Acadet CBT Examination'}
               </div>
               <div className="relative">
                 <button
                   type="button"
-                  disabled={Boolean(examMode) || subjects.length === 0}
-                  onClick={() => setSubjectOpen((prev) => !prev)}
+                  disabled={Boolean(examMode) || courses.length === 0}
+                  onClick={() => setCourseOpen((prev) => !prev)}
                   className="text-xs italic text-blue-100 hover:text-white flex items-center gap-1 mt-0.5 disabled:opacity-90 disabled:cursor-default"
                 >
-                  <span>
-                    Subject: {activeSubject ? activeSubject.name : 'Select Subject'}
+                  <span className="truncate max-w-[260px]">
+                    Course:{' '}
+                    {examMode?.courseLabel
+                      ? examMode.courseLabel
+                      : activeCourse
+                        ? `${activeCourse.code} — ${activeCourse.title}`
+                        : 'Select Course'}
                   </span>
-                  {!examMode && subjects.length > 0 && (
-                    <ChevronDown className="w-3.5 h-3.5" />
+                  {!examMode && courses.length > 0 && (
+                    <ChevronDown className="w-3.5 h-3.5 shrink-0" />
                   )}
                 </button>
 
-                {subjectOpen && !examMode && subjects.length > 0 && (
+                {courseOpen && !examMode && courses.length > 0 && (
                   <>
                     <div
                       className="fixed inset-0 z-40"
-                      onClick={() => setSubjectOpen(false)}
+                      onClick={() => setCourseOpen(false)}
                     />
-                    <div className="absolute left-0 mt-2 w-60 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xl border border-slate-200 dark:border-slate-700 py-1.5 z-50">
-                      {subjects.map((sub) => (
+                    <div className="absolute left-0 mt-2 w-80 max-h-80 overflow-y-auto rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xl border border-slate-200 dark:border-slate-700 py-1.5 z-50">
+                      <div className="px-3.5 py-1.5 text-[11px] font-extrabold uppercase tracking-wider text-slate-400 border-b border-slate-100 dark:border-slate-800">
+                        Course Selection
+                      </div>
+                      {courses.map((course) => (
                         <button
-                          key={sub.id}
+                          key={course.id}
                           type="button"
                           onClick={() => {
-                            onSelectSubject(sub.id);
-                            setSubjectOpen(false);
+                            onSelectCourse(course.id);
+                            setCourseOpen(false);
                           }}
-                          className={`w-full text-left px-3.5 py-2 text-sm flex items-center justify-between hover:bg-blue-50 dark:hover:bg-slate-800 ${
-                            sub.id === activeSubject?.id
+                          className={`w-full text-left px-3.5 py-2.5 text-sm flex items-center justify-between gap-2 hover:bg-blue-50 dark:hover:bg-slate-800 ${
+                            course.id === activeCourse?.id
                               ? 'font-bold text-[#0052cc] dark:text-blue-400 bg-blue-50/70 dark:bg-slate-800/70'
                               : 'font-medium'
                           }`}
                         >
-                          <span>{sub.name}</span>
-                          <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums">
-                            {sub.questionCount} Qs
-                          </span>
+                          <div className="min-w-0">
+                            <div className="truncate">
+                              <span className="font-extrabold">{course.code}</span> ·{' '}
+                              {course.title}
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+                              {course.questionCount} Qs
+                            </div>
+                          </div>
+
+                          {course.isRegistered ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-emerald-600 dark:text-emerald-400 shrink-0">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Registered
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400 shrink-0">
+                              <Lock className="w-3 h-3" />
+                              Locked
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>

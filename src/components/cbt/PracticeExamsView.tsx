@@ -1,32 +1,39 @@
-import { BookOpen, Clock, FileText, Play } from 'lucide-react';
+import { CheckCircle2, Clock, FileText, Lock, Play } from 'lucide-react';
 import React, { useState } from 'react';
-import type { DifficultyLevel, SubjectSummary } from '../../types/cbt';
+import type { CourseCatalogueItem, DifficultyLevel } from '../../types/cbt';
+import { formatCurrency } from './CourseRegistrationView';
 
 interface PracticeExamsViewProps {
-  subjects: SubjectSummary[];
+  courses: CourseCatalogueItem[];
   defaultDifficulty: DifficultyLevel;
   onStartExam: (params: {
-    subjectId: string;
+    courseId: string;
     difficulty: DifficultyLevel;
     questionCount: number;
   }) => Promise<void>;
+  onRequireRegistration: (course: CourseCatalogueItem) => void;
   startingExam: boolean;
 }
 
 export const PracticeExamsView: React.FC<PracticeExamsViewProps> = ({
-  subjects,
+  courses,
   defaultDifficulty,
   onStartExam,
+  onRequireRegistration,
   startingExam,
 }) => {
   const [difficulty, setDifficulty] = useState<DifficultyLevel>(defaultDifficulty);
   const [questionCount, setQuestionCount] = useState<number>(20);
   const [error, setError] = useState<string | null>(null);
 
-  const handleLaunch = async (subjectId: string) => {
+  const handleLaunch = async (course: CourseCatalogueItem) => {
     setError(null);
+    if (!course.isRegistered) {
+      onRequireRegistration(course);
+      return;
+    }
     try {
-      await onStartExam({ subjectId, difficulty, questionCount });
+      await onStartExam({ courseId: course.id, difficulty, questionCount });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to start exam.');
     }
@@ -37,7 +44,14 @@ export const PracticeExamsView: React.FC<PracticeExamsViewProps> = ({
       <div className="bg-[#0b337a] text-white px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <FileText className="w-5 h-5" />
-          <h2 className="text-lg font-extrabold tracking-tight">Practice Exams</h2>
+          <div>
+            <h2 className="text-lg font-extrabold tracking-tight leading-tight">
+              Course Examinations
+            </h2>
+            <p className="text-xs text-blue-100">
+              Select a registered course to begin your timed CBT session.
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -74,54 +88,74 @@ export const PracticeExamsView: React.FC<PracticeExamsViewProps> = ({
           </div>
         )}
 
-        {subjects.length === 0 ? (
+        {courses.length === 0 ? (
           <div className="py-12 text-center text-sm text-slate-500 dark:text-slate-400">
-            No active subjects found in PostgreSQL. Seed subjects or add them in the Admin Console.
+            No published courses found in PostgreSQL yet.
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {subjects.map((sub) => (
+            {courses.map((course) => (
               <div
-                key={sub.id}
+                key={course.id}
                 className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-4 flex flex-col justify-between gap-4 hover:border-[#0a58ed]/50 transition-colors"
               >
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="px-2.5 py-0.5 rounded-md bg-[#eff5ff] dark:bg-blue-950/60 text-[#0b337a] dark:text-blue-300 font-extrabold text-xs">
-                      {sub.code}
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="font-extrabold text-[#0b337a] dark:text-blue-300">
+                      {course.code} · {course.level}
                     </span>
-                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums">
-                      {sub.questionCount} questions
+                    <span className="font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+                      {course.questionCount} questions
                     </span>
                   </div>
                   <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                    {sub.name}
+                    {course.title}
                   </h3>
                   <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2">
-                    {sub.description || sub.examCategory}
+                    {course.description || course.examCategory}
                   </p>
                 </div>
 
-                <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-                  <div className="flex items-center gap-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                    <span className="inline-flex items-center gap-1">
+                <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="inline-flex items-center gap-1 font-semibold text-slate-500 dark:text-slate-400">
                       <Clock className="w-3.5 h-3.5" />
-                      {sub.defaultDurationMinutes}m
+                      {course.defaultDurationMinutes} mins
                     </span>
-                    <span className="inline-flex items-center gap-1">
-                      <BookOpen className="w-3.5 h-3.5" />
-                      {sub.courseCount} courses
-                    </span>
+                    {course.isRegistered ? (
+                      <span className="inline-flex items-center gap-1 font-extrabold text-emerald-700 dark:text-emerald-400">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Registered ✓
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+                        <Lock className="w-3.5 h-3.5" />
+                        {formatCurrency(course.registrationFee, course.currency)}
+                      </span>
+                    )}
                   </div>
 
                   <button
                     type="button"
-                    disabled={startingExam || sub.questionCount === 0}
-                    onClick={() => handleLaunch(sub.id)}
-                    className="px-3.5 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 text-white text-xs font-bold flex items-center gap-1.5"
+                    disabled={startingExam || (course.isRegistered && course.questionCount === 0)}
+                    onClick={() => handleLaunch(course)}
+                    className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 min-h-[42px] transition-colors ${
+                      course.isRegistered
+                        ? 'bg-[#0a58ed] hover:bg-[#0044b8] disabled:bg-slate-300 dark:disabled:bg-slate-800 text-white'
+                        : 'bg-[#eff5ff] dark:bg-slate-800 hover:bg-blue-100 dark:hover:bg-slate-700 text-[#0b337a] dark:text-blue-300 border border-[#c6daf7] dark:border-slate-700'
+                    }`}
                   >
-                    <Play className="w-3.5 h-3.5" />
-                    <span>Start</span>
+                    {course.isRegistered ? (
+                      <>
+                        <Play className="w-3.5 h-3.5" />
+                        <span>{course.questionCount === 0 ? 'No Questions Yet' : 'Start CBT'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="w-3.5 h-3.5" />
+                        <span>Start CBT</span>
+                      </>
+                    )}
                   </button>
                 </div>
               </div>

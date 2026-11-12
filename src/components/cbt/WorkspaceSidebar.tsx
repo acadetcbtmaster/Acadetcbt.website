@@ -1,6 +1,8 @@
 import {
   BarChart3,
+  BookCheck,
   BookOpen,
+  CreditCard,
   FileText,
   HelpCircle,
   Home,
@@ -14,6 +16,8 @@ import type { UserRole } from '../../types/cbt';
 
 export type WorkspaceTab =
   | 'home'
+  | 'catalogue'
+  | 'my-courses'
   | 'results'
   | 'materials'
   | 'practice'
@@ -49,9 +53,11 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     icon: React.ComponentType<{ className?: string }>;
   }> = [
     { id: 'home', label: 'Home', icon: Home },
-    { id: 'results', label: 'View Results', icon: BarChart3 },
+    { id: 'catalogue', label: 'Course Registration', icon: CreditCard },
+    { id: 'my-courses', label: 'My Registered Courses', icon: BookCheck },
+    { id: 'practice', label: 'Course Examinations', icon: FileText },
+    { id: 'results', label: 'Course Results', icon: BarChart3 },
     { id: 'materials', label: 'Study Materials', icon: BookOpen },
-    { id: 'practice', label: 'Practice Exams', icon: FileText },
     { id: 'settings', label: 'Settings', icon: Settings },
     { id: 'help', label: 'Help & Support', icon: HelpCircle },
     ...(isAdmin ? [{ id: 'admin' as const, label: 'Admin Console', icon: Shield }] : []),
@@ -106,21 +112,19 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
 
   return (
     <>
-      {/* Desktop Persistent Sidebar */}
       {!mobileOnly && (
-        <aside className="hidden lg:flex w-56 shrink-0 bg-[#072661] text-white flex-col border-r border-white/10">
+        <aside className="hidden lg:flex w-60 shrink-0 bg-[#072661] text-white flex-col border-r border-white/10">
           {renderLinks()}
         </aside>
       )}
 
-      {/* Mobile / Tablet Slide-Over Drawer */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden flex">
           <div
             className="fixed inset-0 bg-slate-950/50 backdrop-blur-[1px]"
             onClick={onCloseMobile}
           />
-          <aside className="relative z-10 w-64 bg-[#072661] text-white flex flex-col h-full shadow-2xl">
+          <aside className="relative z-10 w-68 bg-[#072661] text-white flex flex-col h-full shadow-2xl">
             <div className="px-4 py-3.5 border-b border-white/15 flex items-center justify-between">
               <span className="font-extrabold text-base">Acadet Menu</span>
               <button
@@ -132,9 +136,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="flex-1 overflow-y-auto">
-              {renderLinks(onCloseMobile)}
-            </div>
+            <div className="flex-1 overflow-y-auto">{renderLinks(onCloseMobile)}</div>
           </aside>
         </div>
       )}

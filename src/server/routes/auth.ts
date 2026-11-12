@@ -45,6 +45,7 @@ const updatePreferencesSchema = z.object({
   soundNotifications: z.boolean().optional(),
   autoNextQuestion: z.boolean().optional(),
   showQuestionPalette: z.boolean().optional(),
+  defaultCourseId: z.string().uuid().nullable().optional(),
   defaultSubjectId: z.string().uuid().nullable().optional(),
   defaultDifficulty: z.enum(['All Levels', 'Easy', 'Medium', 'Hard']).optional(),
 });
@@ -103,7 +104,7 @@ router.post('/register', requireDb, async (req, res) => {
         username: normalizedUsername,
         passwordHash,
         role: 'student',
-        examTarget: parsed.examTarget || 'JAMB UTME Practice Exam',
+        examTarget: parsed.examTarget || 'Acadet CBT Examination',
         isActive: true,
         preferences: DEFAULT_USER_PREFERENCES,
       })
