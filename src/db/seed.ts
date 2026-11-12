@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import path from 'node:path';
 import { closePool, getDb, isDatabaseConfigured } from './index.js';
 import { runMigrations } from './migrate.js';
@@ -368,6 +368,73 @@ const STARTER_SUBJECTS: SeedSubject[] = [
   },
 ];
 
+export async function ensureBootstrapAdmin(): Promise<string | null> {
+  if (!isDatabaseConfigured()) return null;
+
+  const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
+  const adminPassword = process.env.ADMIN_PASSWORD?.trim();
+  const adminUsername = (process.env.ADMIN_USERNAME?.trim() || 'admin').toLowerCase();
+  const adminFullName = process.env.ADMIN_FULL_NAME?.trim() || 'Acadet Administrator';
+
+  if (!adminEmail || !adminPassword) {
+    return null;
+  }
+
+  const db = getDb();
+  const existingByEmail = await db
+    .select()
+    .from(users)
+    .where(sql`LOWER(${users.email}) = ${adminEmail}`)
+    .limit(1);
+
+  const passwordHash = await bcrypt.hash(adminPassword, 12);
+
+  if (existingByEmail.length > 0) {
+    const existing = existingByEmail[0];
+    if (existing.role !== 'super_admin' || !existing.isActive) {
+      await db
+        .update(users)
+        .set({
+          role: 'super_admin',
+          isActive: true,
+          passwordHash,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, existing.id));
+      console.log(`[Seed] Promoted ${adminEmail} to super_admin.`);
+    }
+    return existing.id;
+  }
+
+  const existingUsername = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(sql`LOWER(${users.username}) = ${adminUsername}`)
+    .limit(1);
+
+  const finalUsername =
+    existingUsername.length > 0
+      ? `${adminUsername}_${Date.now().toString().slice(-4)}`
+      : adminUsername;
+
+  const [insertedAdmin] = await db
+    .insert(users)
+    .values({
+      fullName: adminFullName,
+      email: adminEmail,
+      username: finalUsername,
+      passwordHash,
+      role: 'super_admin',
+      examTarget: 'JAMB UTME Practice Exam',
+      isActive: true,
+      preferences: DEFAULT_USER_PREFERENCES,
+    })
+    .returning({ id: users.id });
+
+  console.log(`[Seed] Created super_admin user (${adminEmail})`);
+  return insertedAdmin.id;
+}
+
 export async function runSeed(): Promise<void> {
   if (!isDatabaseConfigured()) {
     throw new Error('DATABASE_URL environment variable is required to seed the database.');
@@ -376,40 +443,8 @@ export async function runSeed(): Promise<void> {
   await runMigrations();
   const db = getDb();
 
-  let adminId: string | null = null;
-  const adminEmail = process.env.ADMIN_EMAIL?.trim();
-  const adminPassword = process.env.ADMIN_PASSWORD?.trim();
-  const adminUsername = process.env.ADMIN_USERNAME?.trim() || 'admin';
-  const adminFullName = process.env.ADMIN_FULL_NAME?.trim() || 'Acadet Administrator';
-
-  if (adminEmail && adminPassword) {
-    const existingAdmin = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, adminEmail.toLowerCase()))
-      .limit(1);
-
-    if (existingAdmin.length > 0) {
-      adminId = existingAdmin[0].id;
-    } else {
-      const passwordHash = await bcrypt.hash(adminPassword, 12);
-      const [insertedAdmin] = await db
-        .insert(users)
-        .values({
-          fullName: adminFullName,
-          email: adminEmail.toLowerCase(),
-          username: adminUsername.toLowerCase(),
-          passwordHash,
-          role: 'super_admin',
-          examTarget: 'JAMB UTME Practice Exam',
-          isActive: true,
-          preferences: DEFAULT_USER_PREFERENCES,
-        })
-        .returning({ id: users.id });
-      adminId = insertedAdmin.id;
-      console.log(`[Seed] Created super_admin user (${adminEmail.toLowerCase()})`);
-    }
-  } else {
+  const adminId = await ensureBootstrapAdmin();
+  if (!adminId) {
     console.log('[Seed] ADMIN_EMAIL / ADMIN_PASSWORD not set; skipping bootstrap admin user.');
   }
 
@@ -512,6 +547,7 @@ export async function runSeed(): Promise<void> {
 
 export async function seedDatabaseIfEmpty(): Promise<void> {
   if (!isDatabaseConfigured()) return;
+  await ensureBootstrapAdmin();
   const db = getDb();
   const existing = await db.select({ id: subjects.id }).from(subjects).limit(1);
   if (existing.length === 0) {
