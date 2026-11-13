@@ -242,13 +242,16 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                     </div>
 
                     <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-                      <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-start justify-between gap-2">
                         <div>
                           <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                            Registration Fee
+                            Total Payable
                           </div>
                           <div className="text-lg font-extrabold text-[#082252] dark:text-white tabular-nums">
-                            {formatCurrency(course.registrationFee, course.currency)}
+                            {formatCurrency(2350, course.currency)}
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
+                            Course value: {formatCurrency(course.courseValue ?? 2300, course.currency)} · Charges absorbed by Acadet CBT
                           </div>
                         </div>
 
@@ -396,9 +399,15 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                   </span>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <span className="text-slate-600 dark:text-slate-400">Registration Fee</span>
+                  <span className="text-slate-600 dark:text-slate-400">Course Registration Value</span>
                   <span className="font-bold text-slate-900 dark:text-white tabular-nums">
-                    {formatCurrency(confirmCourse.registrationFee, confirmCourse.currency)}
+                    {formatCurrency(confirmCourse.courseValue ?? 2300, confirmCourse.currency)}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-slate-600 dark:text-slate-400">Payment Processing Charges</span>
+                  <span className="font-bold text-emerald-700 dark:text-emerald-400 text-right">
+                    Absorbed by Acadet CBT
                   </span>
                 </div>
                 <div className="border-t border-[#d6e4fa] dark:border-slate-700 pt-2.5 flex justify-between items-center gap-3">
@@ -406,9 +415,12 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                     Total Amount Payable
                   </span>
                   <span className="text-xl font-extrabold text-[#0a58ed] dark:text-blue-400 tabular-nums">
-                    {formatCurrency(confirmCourse.registrationFee, confirmCourse.currency)}
+                    {formatCurrency(2350, confirmCourse.currency)}
                   </span>
                 </div>
+                <p className="text-[11px] text-slate-600 dark:text-slate-400 pt-1 leading-snug">
+                  Paystack processing fees are absorbed by Acadet CBT. You will be charged exactly ₦2,350.
+                </p>
               </div>
 
               <div>

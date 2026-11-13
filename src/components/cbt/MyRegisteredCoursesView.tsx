@@ -121,8 +121,14 @@ export const MyRegisteredCoursesView: React.FC<MyRegisteredCoursesViewProps> = (
                   <div className="text-xs text-slate-600 dark:text-slate-400 space-y-1 pt-1">
                     <div className="flex items-center justify-between">
                       <span>Payment Status:</span>
-                      <span className="font-extrabold text-emerald-700 dark:text-emerald-400 capitalize">
+                      <span className="font-extrabold text-emerald-700 dark:text-emerald-400 capitalize tabular-nums">
                         {item.paymentStatus} ({formatCurrency(item.amountPaid, item.currency)})
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span>Course Value:</span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200 tabular-nums">
+                        {formatCurrency(item.courseValue ?? 2300, item.currency)} (Fees absorbed)
                       </span>
                     </div>
                     <div className="flex items-center justify-between">

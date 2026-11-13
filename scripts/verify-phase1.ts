@@ -76,6 +76,27 @@ async function verifyPhase1() {
     );
   }
 
+  const sqlPath4 = path.resolve(
+    process.cwd(),
+    'migrations/0004_standardized_course_pricing.sql'
+  );
+  const sqlContent4 = await fs.readFile(sqlPath4, 'utf-8');
+  assert.ok(
+    sqlContent4.includes('course_value'),
+    'SQL migration 0004 must add course_value'
+  );
+  for (const col of [
+    'total_amount_charged',
+    'gateway_fee',
+    'net_settlement_amount',
+    'reconciliation_status',
+  ]) {
+    assert.ok(
+      sqlContent4.includes(col),
+      `SQL migration 0004 must add ${col} on payments`
+    );
+  }
+
   assert.ok(
     sqlContent1.includes("CHECK (correct_option IN ('A', 'B', 'C', 'D'))"),
     'Missing check constraint on correct_option'

@@ -32,6 +32,12 @@ import {
   verifyPaystackTransaction,
 } from '../lib/paystack.js';
 import {
+  COURSE_VALUE_NAIRA,
+  FEE_ABSORBER_LABEL,
+  STANDARD_CURRENCY,
+  TOTAL_STUDENT_PAYABLE_NAIRA,
+} from '../lib/pricing.js';
+import {
   handleApiError,
   requireAuth,
   requireRole,
@@ -50,8 +56,8 @@ const courseCreateSchema = z.object({
   title: z.string().trim().min(2).max(160),
   level: z.string().trim().min(2).max(40).default('100 Level'),
   description: z.string().trim().max(1000).default(''),
-  registrationFee: z.coerce.number().min(0).max(10000000).default(2000),
-  currency: z.string().trim().length(3).default('NGN'),
+  registrationFee: z.coerce.number().min(0).max(TOTAL_STUDENT_PAYABLE_NAIRA).default(TOTAL_STUDENT_PAYABLE_NAIRA),
+  currency: z.string().trim().length(3).default(STANDARD_CURRENCY),
   publicationStatus: z.enum(['draft', 'published', 'archived']).default('published'),
   examCategory: z.string().trim().min(2).max(120).default('Acadet CBT Examination'),
   defaultDurationMinutes: z.coerce.number().int().min(5).max(240).default(60),
@@ -99,6 +105,11 @@ router.get('/overview', async (_req, res) => {
       totalActiveRegistrations: number;
       totalSuccessfulPayments: number;
       totalRevenueNaira: string;
+      totalCourseValueNaira: string;
+      totalPaystackFeesNaira: string;
+      totalNetSettlementNaira: string;
+      totalReconciledPayments: number;
+      totalShortfallPayments: number;
     }>(`
       SELECT
         (SELECT COUNT(*)::int FROM users) AS "totalUsers",
@@ -108,7 +119,12 @@ router.get('/overview', async (_req, res) => {
         (SELECT COUNT(*)::int FROM exam_sessions WHERE status = 'submitted') AS "totalSubmittedExams",
         (SELECT COUNT(*)::int FROM course_registrations WHERE registration_status = 'active') AS "totalActiveRegistrations",
         (SELECT COUNT(*)::int FROM payments WHERE payment_status = 'successful') AS "totalSuccessfulPayments",
-        (SELECT COALESCE(SUM(amount), 0)::text FROM payments WHERE payment_status = 'successful') AS "totalRevenueNaira"
+        (SELECT COALESCE(SUM(total_amount_charged), 0)::text FROM payments WHERE payment_status = 'successful') AS "totalRevenueNaira",
+        (SELECT COALESCE(SUM(course_value), 0)::text FROM payments WHERE payment_status = 'successful') AS "totalCourseValueNaira",
+        (SELECT COALESCE(SUM(gateway_fee), 0)::text FROM payments WHERE payment_status = 'successful') AS "totalPaystackFeesNaira",
+        (SELECT COALESCE(SUM(net_settlement_amount), 0)::text FROM payments WHERE payment_status = 'successful') AS "totalNetSettlementNaira",
+        (SELECT COUNT(*)::int FROM payments WHERE payment_status = 'successful' AND reconciliation_status = 'reconciled') AS "totalReconciledPayments",
+        (SELECT COUNT(*)::int FROM payments WHERE payment_status = 'successful' AND reconciliation_status = 'shortfall') AS "totalShortfallPayments"
     `);
 
     const row = result.rows[0];
@@ -122,6 +138,11 @@ router.get('/overview', async (_req, res) => {
         totalActiveRegistrations: row?.totalActiveRegistrations ?? 0,
         totalSuccessfulPayments: row?.totalSuccessfulPayments ?? 0,
         totalRevenueNaira: Number(row?.totalRevenueNaira ?? 0),
+        totalCourseValueNaira: Number(row?.totalCourseValueNaira ?? 0),
+        totalPaystackFeesNaira: Number(row?.totalPaystackFeesNaira ?? 0),
+        totalNetSettlementNaira: Number(row?.totalNetSettlementNaira ?? 0),
+        totalReconciledPayments: row?.totalReconciledPayments ?? 0,
+        totalShortfallPayments: row?.totalShortfallPayments ?? 0,
       },
     });
   } catch (err) {
@@ -140,6 +161,7 @@ router.get('/courses', async (_req, res) => {
       title: string;
       level: string;
       description: string;
+      courseValue: string;
       registrationFee: string;
       currency: string;
       publicationStatus: 'draft' | 'published' | 'archived';
@@ -158,6 +180,7 @@ router.get('/courses', async (_req, res) => {
         c.title,
         c.level,
         c.description,
+        c.course_value::text AS "courseValue",
         c.registration_fee::text AS "registrationFee",
         c.currency,
         c.publication_status AS "publicationStatus",
@@ -175,7 +198,7 @@ router.get('/courses', async (_req, res) => {
           WHERE cr.course_id = c.id AND cr.registration_status = 'active'
         ) AS "totalRegistrations",
         (
-          SELECT COALESCE(SUM(p.amount), 0)::text FROM payments p
+          SELECT COALESCE(SUM(p.total_amount_charged), 0)::text FROM payments p
           WHERE p.course_id = c.id AND p.payment_status = 'successful'
         ) AS "totalRevenue"
       FROM courses c
@@ -185,7 +208,9 @@ router.get('/courses', async (_req, res) => {
     res.json({
       courses: result.rows.map((r) => ({
         ...r,
-        registrationFee: Number(r.registrationFee),
+        courseValue: COURSE_VALUE_NAIRA,
+        registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA,
+        currency: STANDARD_CURRENCY,
         totalRevenue: Number(r.totalRevenue),
       })),
     });
@@ -220,8 +245,9 @@ router.post('/courses', async (req, res) => {
         title: parsed.title,
         level: parsed.level,
         description: parsed.description,
-        registrationFee: parsed.registrationFee.toFixed(2),
-        currency: parsed.currency.toUpperCase(),
+        courseValue: COURSE_VALUE_NAIRA.toFixed(2),
+        registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA.toFixed(2),
+        currency: STANDARD_CURRENCY,
         publicationStatus: parsed.publicationStatus,
         examCategory: parsed.examCategory,
         defaultDurationMinutes: parsed.defaultDurationMinutes,
@@ -237,7 +263,9 @@ router.post('/courses', async (req, res) => {
       metadata: {
         code: created.code,
         title: created.title,
+        courseValue: created.courseValue,
         registrationFee: created.registrationFee,
+        feeAbsorbedBy: FEE_ABSORBER_LABEL,
         publicationStatus: created.publicationStatus,
       },
       ipAddress: req.ip,
@@ -246,7 +274,8 @@ router.post('/courses', async (req, res) => {
     res.status(201).json({
       course: {
         ...created,
-        registrationFee: Number(created.registrationFee),
+        courseValue: COURSE_VALUE_NAIRA,
+        registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA,
         questionCount: 0,
         totalRegistrations: 0,
         totalRevenue: 0,
@@ -262,17 +291,17 @@ router.patch('/courses/:id', async (req, res) => {
     const parsed = courseUpdateSchema.parse(req.body);
     const db = getDb();
 
+    // All courses use standardized platform pricing (₦2,300 course value, ₦2,350 student payable)
     const updateValues: Record<string, unknown> = {
+      courseValue: COURSE_VALUE_NAIRA.toFixed(2),
+      registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA.toFixed(2),
+      currency: STANDARD_CURRENCY,
       updatedAt: new Date(),
     };
     if (parsed.code !== undefined) updateValues.code = parsed.code.toUpperCase();
     if (parsed.title !== undefined) updateValues.title = parsed.title;
     if (parsed.level !== undefined) updateValues.level = parsed.level;
     if (parsed.description !== undefined) updateValues.description = parsed.description;
-    if (parsed.registrationFee !== undefined) {
-      updateValues.registrationFee = parsed.registrationFee.toFixed(2);
-    }
-    if (parsed.currency !== undefined) updateValues.currency = parsed.currency.toUpperCase();
     if (parsed.publicationStatus !== undefined) {
       updateValues.publicationStatus = parsed.publicationStatus;
       updateValues.isActive = parsed.publicationStatus === 'published';
@@ -305,7 +334,8 @@ router.patch('/courses/:id', async (req, res) => {
     res.json({
       course: {
         ...updated,
-        registrationFee: Number(updated.registrationFee),
+        courseValue: COURSE_VALUE_NAIRA,
+        registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA,
       },
     });
   } catch (err) {
@@ -772,8 +802,15 @@ async function queryAdminRegistrations(filters: {
     courseTitle: string;
     paymentId: string;
     paymentReference: string;
+    courseValue: string;
+    totalAmountCharged: string;
     amount: string;
     currency: string;
+    gatewayFee: string | null;
+    netSettlementAmount: string | null;
+    settlementVariance: string | null;
+    reconciliationStatus: string;
+    paymentChannel: string | null;
     paymentStatus: string;
     registrationStatus: string;
     gateway: string;
@@ -792,8 +829,15 @@ async function queryAdminRegistrations(filters: {
        c.title AS "courseTitle",
        p.id AS "paymentId",
        p.payment_reference AS "paymentReference",
+       p.course_value::text AS "courseValue",
+       p.total_amount_charged::text AS "totalAmountCharged",
        p.amount::text AS "amount",
        p.currency,
+       p.gateway_fee::text AS "gatewayFee",
+       p.net_settlement_amount::text AS "netSettlementAmount",
+       p.settlement_variance::text AS "settlementVariance",
+       p.reconciliation_status AS "reconciliationStatus",
+       p.payment_channel AS "paymentChannel",
        p.payment_status AS "paymentStatus",
        cr.registration_status AS "registrationStatus",
        p.gateway,
@@ -812,7 +856,12 @@ async function queryAdminRegistrations(filters: {
 
   return res.rows.map((r) => ({
     ...r,
+    courseValue: Number(r.courseValue),
+    totalAmountCharged: Number(r.totalAmountCharged),
     amount: Number(r.amount),
+    gatewayFee: r.gatewayFee !== null ? Number(r.gatewayFee) : null,
+    netSettlementAmount: r.netSettlementAmount !== null ? Number(r.netSettlementAmount) : null,
+    settlementVariance: r.settlementVariance !== null ? Number(r.settlementVariance) : null,
   }));
 }
 
@@ -855,7 +904,13 @@ router.get('/registrations/export', async (req, res) => {
       'WhatsApp Number',
       'Course Code',
       'Course Title',
-      'Amount',
+      'Course Value',
+      'Total Charged',
+      'Paystack Fee',
+      'Net Settlement',
+      'Settlement Variance',
+      'Reconciliation Status',
+      'Payment Channel',
       'Currency',
       'Payment Status',
       'Registration Status',
@@ -871,7 +926,13 @@ router.get('/registrations/export', async (req, res) => {
         escapeCsv(r.whatsappNumber || ''),
         escapeCsv(r.courseCode),
         escapeCsv(r.courseTitle),
-        escapeCsv(r.amount),
+        escapeCsv(r.courseValue),
+        escapeCsv(r.totalAmountCharged),
+        escapeCsv(r.gatewayFee ?? ''),
+        escapeCsv(r.netSettlementAmount ?? ''),
+        escapeCsv(r.settlementVariance ?? ''),
+        escapeCsv(r.reconciliationStatus),
+        escapeCsv(r.paymentChannel || ''),
         escapeCsv(r.currency),
         escapeCsv(r.paymentStatus),
         escapeCsv(r.registrationStatus),
@@ -945,8 +1006,17 @@ router.get('/payments', async (req, res) => {
       courseTitle: string;
       paymentReference: string;
       gateway: string;
+      courseValue: string;
+      totalAmountCharged: string;
       amount: string;
       currency: string;
+      gatewayFee: string | null;
+      gatewayFeeSource: string | null;
+      netSettlementAmount: string | null;
+      settlementVariance: string | null;
+      reconciliationStatus: string;
+      feeAbsorbedBy: string;
+      paymentChannel: string | null;
       paymentStatus: 'pending' | 'successful' | 'failed' | 'refunded';
       gatewayTransactionId: string | null;
       gatewayResponse: Record<string, unknown>;
@@ -966,8 +1036,17 @@ router.get('/payments', async (req, res) => {
          c.title AS "courseTitle",
          p.payment_reference AS "paymentReference",
          p.gateway,
+         p.course_value::text AS "courseValue",
+         p.total_amount_charged::text AS "totalAmountCharged",
          p.amount::text AS "amount",
          p.currency,
+         p.gateway_fee::text AS "gatewayFee",
+         p.gateway_fee_source AS "gatewayFeeSource",
+         p.net_settlement_amount::text AS "netSettlementAmount",
+         p.settlement_variance::text AS "settlementVariance",
+         p.reconciliation_status AS "reconciliationStatus",
+         p.fee_absorbed_by AS "feeAbsorbedBy",
+         p.payment_channel AS "paymentChannel",
          p.payment_status AS "paymentStatus",
          p.gateway_transaction_id AS "gatewayTransactionId",
          p.gateway_response AS "gatewayResponse",
@@ -988,7 +1067,14 @@ router.get('/payments', async (req, res) => {
     res.json({
       payments: resDb.rows.map((r) => ({
         ...r,
+        courseValue: Number(r.courseValue),
+        totalAmountCharged: Number(r.totalAmountCharged),
         amount: Number(r.amount),
+        gatewayFee: r.gatewayFee !== null ? Number(r.gatewayFee) : null,
+        netSettlementAmount:
+          r.netSettlementAmount !== null ? Number(r.netSettlementAmount) : null,
+        settlementVariance:
+          r.settlementVariance !== null ? Number(r.settlementVariance) : null,
       })),
     });
   } catch (err) {
@@ -1133,6 +1219,7 @@ router.get('/users/:id/profile', async (req, res) => {
       code: string;
       title: string;
       level: string;
+      courseValue: string;
       registrationFee: string;
       currency: string;
       registrationStatus: string | null;
@@ -1147,6 +1234,7 @@ router.get('/users/:id/profile', async (req, res) => {
          c.code,
          c.title,
          c.level,
+         c.course_value::text AS "courseValue",
          c.registration_fee::text AS "registrationFee",
          c.currency,
          cr.registration_status AS "registrationStatus",
@@ -1154,7 +1242,7 @@ router.get('/users/:id/profile', async (req, res) => {
          COALESCE(cr.whatsapp_number, p.whatsapp_number) AS "whatsappNumber",
          p.payment_status AS "paymentStatus",
          p.payment_reference AS "paymentReference",
-         p.amount::text AS "amountPaid"
+         p.total_amount_charged::text AS "amountPaid"
        FROM courses c
        LEFT JOIN course_registrations cr
          ON cr.course_id = c.id AND cr.student_id = $1 AND cr.registration_status = 'active'
@@ -1173,9 +1261,19 @@ router.get('/users/:id/profile', async (req, res) => {
       paymentReference: string;
       gateway: string;
       whatsappNumber: string | null;
+      courseValue: string;
+      totalAmountCharged: string;
       amount: string;
       currency: string;
+      gatewayFee: string | null;
+      gatewayFeeSource: string | null;
+      netSettlementAmount: string | null;
+      settlementVariance: string | null;
+      reconciliationStatus: string;
+      feeAbsorbedBy: string;
+      paymentChannel: string | null;
       paymentStatus: string;
+      gatewayTransactionId: string | null;
       paidAt: Date | null;
       createdAt: Date;
     }>(
@@ -1187,9 +1285,19 @@ router.get('/users/:id/profile', async (req, res) => {
          p.payment_reference AS "paymentReference",
          p.gateway,
          p.whatsapp_number AS "whatsappNumber",
+         p.course_value::text AS "courseValue",
+         p.total_amount_charged::text AS "totalAmountCharged",
          p.amount::text AS "amount",
          p.currency,
+         p.gateway_fee::text AS "gatewayFee",
+         p.gateway_fee_source AS "gatewayFeeSource",
+         p.net_settlement_amount::text AS "netSettlementAmount",
+         p.settlement_variance::text AS "settlementVariance",
+         p.reconciliation_status AS "reconciliationStatus",
+         p.fee_absorbed_by AS "feeAbsorbedBy",
+         p.payment_channel AS "paymentChannel",
          p.payment_status AS "paymentStatus",
+         p.gateway_transaction_id AS "gatewayTransactionId",
          p.paid_at AS "paidAt",
          p.created_at AS "createdAt"
        FROM payments p
@@ -1204,8 +1312,9 @@ router.get('/users/:id/profile', async (req, res) => {
       code: r.code,
       title: r.title,
       level: r.level,
-      registrationFee: Number(r.registrationFee),
-      currency: r.currency,
+      courseValue: COURSE_VALUE_NAIRA,
+      registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA,
+      currency: STANDARD_CURRENCY,
       isRegistered: r.registrationStatus === 'active' && r.paymentStatus === 'successful',
       registeredAt: r.registeredAt,
       whatsappNumber: r.whatsappNumber,
@@ -1216,7 +1325,14 @@ router.get('/users/:id/profile', async (req, res) => {
 
     const studentPayments = paymentsRes.rows.map((p) => ({
       ...p,
+      courseValue: Number(p.courseValue),
+      totalAmountCharged: Number(p.totalAmountCharged),
       amount: Number(p.amount),
+      gatewayFee: p.gatewayFee !== null ? Number(p.gatewayFee) : null,
+      netSettlementAmount:
+        p.netSettlementAmount !== null ? Number(p.netSettlementAmount) : null,
+      settlementVariance:
+        p.settlementVariance !== null ? Number(p.settlementVariance) : null,
     }));
 
     const successfulPayments = studentPayments.filter((p) => p.paymentStatus === 'successful');

@@ -77,8 +77,15 @@ router.post('/paystack', async (req, res) => {
         status: eventType === 'charge.success' ? 'success' : String(data.status || 'failed'),
         reference,
         amount: Number(data.amount ?? 0),
+        fees:
+          data.fees !== undefined && data.fees !== null && Number.isFinite(Number(data.fees))
+            ? Number(data.fees)
+            : null,
         currency: String(data.currency || 'NGN'),
         paid_at: typeof data.paid_at === 'string' ? data.paid_at : null,
+        channel: typeof data.channel === 'string' ? data.channel : null,
+        authorization:
+          (data.authorization as PaystackVerifyData['authorization']) || null,
         metadata: (data.metadata as Record<string, unknown> | undefined) || undefined,
       };
 

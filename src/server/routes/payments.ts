@@ -18,6 +18,14 @@ import {
   PaystackNotConfiguredError,
   verifyPaystackTransaction,
 } from '../lib/paystack.js';
+import {
+  COURSE_VALUE_KOBO,
+  COURSE_VALUE_NAIRA,
+  FEE_ABSORBER_LABEL,
+  STANDARD_CURRENCY,
+  TOTAL_STUDENT_PAYABLE_KOBO,
+  TOTAL_STUDENT_PAYABLE_NAIRA,
+} from '../lib/pricing.js';
 import { handleApiError, requireAuth } from '../middleware/auth.js';
 
 const router = Router();
@@ -67,6 +75,12 @@ router.get('/config', (_req, res) => {
   res.json({
     configured: isPaystackConfigured(),
     publicKey: getPaystackPublicKey(),
+    pricing: {
+      courseValue: COURSE_VALUE_NAIRA,
+      totalAmountPayable: TOTAL_STUDENT_PAYABLE_NAIRA,
+      currency: STANDARD_CURRENCY,
+      feeAbsorbedBy: FEE_ABSORBER_LABEL,
+    },
   });
 });
 
@@ -122,16 +136,18 @@ router.post('/initialize', requireAuth, async (req, res) => {
       return;
     }
 
-    const amountKobo = nairaToKobo(course.registrationFee);
-    if (amountKobo <= 0) {
+    // Authoritative standardized pricing structure:
+    // Course value = ₦2,300; Paystack processing fees absorbed by Acadet CBT; Total payable = ₦2,350.
+    const amountKobo = TOTAL_STUDENT_PAYABLE_KOBO;
+    if (amountKobo > TOTAL_STUDENT_PAYABLE_KOBO || amountKobo <= 0) {
       res.status(400).json({
-        error: 'This course does not have a valid payable registration fee configured.',
+        error: 'Configured student payable amount violates platform pricing cap.',
       });
       return;
     }
 
     const reference = generatePaymentReference();
-    const currency = (course.currency || 'NGN').toUpperCase();
+    const currency = STANDARD_CURRENCY;
     const callbackUrl = resolveCallbackUrl(req);
 
     // Save latest verified/entered WhatsApp number on student's profile for convenience
@@ -143,7 +159,7 @@ router.post('/initialize', requireAuth, async (req, res) => {
       })
       .where(eq(users.id, student.id));
 
-    // Create pending payment record first with the authoritative DB fee snapshot
+    // Create pending payment record first with the authoritative DB pricing snapshot
     const [pendingPayment] = await db
       .insert(payments)
       .values({
@@ -152,8 +168,12 @@ router.post('/initialize', requireAuth, async (req, res) => {
         paymentReference: reference,
         gateway: 'paystack',
         whatsappNumber: parsed.whatsappNumber,
-        amount: course.registrationFee,
+        courseValue: COURSE_VALUE_NAIRA.toFixed(2),
+        totalAmountCharged: TOTAL_STUDENT_PAYABLE_NAIRA.toFixed(2),
+        amount: TOTAL_STUDENT_PAYABLE_NAIRA.toFixed(2),
         currency,
+        reconciliationStatus: 'pending',
+        feeAbsorbedBy: FEE_ABSORBER_LABEL,
         paymentStatus: 'pending',
       })
       .returning();
@@ -173,8 +193,10 @@ router.post('/initialize', requireAuth, async (req, res) => {
           course_id: course.id,
           course_code: course.code,
           course_title: course.title,
+          course_value_kobo: COURSE_VALUE_KOBO,
           expected_amount_kobo: amountKobo,
           expected_currency: currency,
+          fee_absorbed_by: FEE_ABSORBER_LABEL,
         },
       });
     } catch (initErr) {
@@ -182,6 +204,7 @@ router.post('/initialize', requireAuth, async (req, res) => {
         .update(payments)
         .set({
           paymentStatus: 'failed',
+          reconciliationStatus: 'not_applicable',
           gatewayResponse: {
             initError: initErr instanceof Error ? initErr.message : 'Initialization failed',
           },
@@ -209,7 +232,9 @@ router.post('/initialize', requireAuth, async (req, res) => {
         courseId: course.id,
         courseCode: course.code,
         whatsappNumber: parsed.whatsappNumber,
-        amount: course.registrationFee,
+        courseValue: COURSE_VALUE_NAIRA,
+        totalAmountCharged: TOTAL_STUDENT_PAYABLE_NAIRA,
+        feeAbsorbedBy: FEE_ABSORBER_LABEL,
         currency,
       },
       ipAddress: req.ip,
@@ -220,7 +245,9 @@ router.post('/initialize', requireAuth, async (req, res) => {
       reference,
       authorizationUrl: paystackInit.authorization_url,
       accessCode: paystackInit.access_code,
-      amount: Number(course.registrationFee),
+      courseValue: COURSE_VALUE_NAIRA,
+      amount: TOTAL_STUDENT_PAYABLE_NAIRA,
+      feeAbsorbedBy: FEE_ABSORBER_LABEL,
       currency,
       course: {
         id: course.id,
@@ -271,6 +298,11 @@ async function handleVerifyRequest(req: Request, reference: string, res: import(
           status: 'success',
           reference: existingPayment.paymentReference,
           amount: nairaToKobo(existingPayment.amount),
+          fees:
+            existingPayment.gatewayFee !== null && existingPayment.gatewayFee !== undefined
+              ? nairaToKobo(existingPayment.gatewayFee)
+              : null,
+          channel: existingPayment.paymentChannel,
           currency: existingPayment.currency,
           paid_at: existingPayment.paidAt ? existingPayment.paidAt.toISOString() : null,
         },
@@ -338,8 +370,17 @@ router.get('/my', requireAuth, async (req, res) => {
         paymentReference: payments.paymentReference,
         gateway: payments.gateway,
         whatsappNumber: payments.whatsappNumber,
+        courseValue: payments.courseValue,
+        totalAmountCharged: payments.totalAmountCharged,
         amount: payments.amount,
         currency: payments.currency,
+        gatewayFee: payments.gatewayFee,
+        gatewayFeeSource: payments.gatewayFeeSource,
+        netSettlementAmount: payments.netSettlementAmount,
+        settlementVariance: payments.settlementVariance,
+        reconciliationStatus: payments.reconciliationStatus,
+        feeAbsorbedBy: payments.feeAbsorbedBy,
+        paymentChannel: payments.paymentChannel,
         paymentStatus: payments.paymentStatus,
         gatewayTransactionId: payments.gatewayTransactionId,
         paidAt: payments.paidAt,
@@ -354,7 +395,14 @@ router.get('/my', requireAuth, async (req, res) => {
     res.json({
       payments: rows.map((r) => ({
         ...r,
+        courseValue: Number(r.courseValue),
+        totalAmountCharged: Number(r.totalAmountCharged),
         amount: Number(r.amount),
+        gatewayFee: r.gatewayFee !== null ? Number(r.gatewayFee) : null,
+        netSettlementAmount:
+          r.netSettlementAmount !== null ? Number(r.netSettlementAmount) : null,
+        settlementVariance:
+          r.settlementVariance !== null ? Number(r.settlementVariance) : null,
       })),
     });
   } catch (err) {

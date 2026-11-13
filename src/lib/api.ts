@@ -189,7 +189,16 @@ export const api = {
 
   payments: {
     getConfig: () =>
-      request<{ configured: boolean; publicKey: string | null }>('/api/payments/config'),
+      request<{
+        configured: boolean;
+        publicKey: string | null;
+        pricing?: {
+          courseValue: number;
+          totalAmountPayable: number;
+          currency: string;
+          feeAbsorbedBy: string;
+        };
+      }>('/api/payments/config'),
 
     initialize: (courseId: string, whatsappNumber: string) =>
       request<PaymentInitializeResponse>('/api/payments/initialize', {

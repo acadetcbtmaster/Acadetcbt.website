@@ -9,10 +9,68 @@ import {
   nairaToKobo,
   verifyPaystackWebhookSignature,
 } from '../src/server/lib/paystack.js';
+import {
+  COURSE_VALUE_KOBO,
+  TOTAL_STUDENT_PAYABLE_KOBO,
+  computeApplicablePaystackFeeKobo,
+  reconcileCoursePayment,
+} from '../src/server/lib/pricing.js';
 
 async function verifyUpgrade() {
+  console.log('[Upgrade Verification] Checking standardized pricing & Paystack fee reconciliation...');
+  assert.equal(TOTAL_STUDENT_PAYABLE_KOBO, 235000);
+  assert.equal(COURSE_VALUE_KOBO, 230000);
+
+  // Local NGN ₦2,350 uses Paystack 1.5% (₦100 flat waived < ₦2,500) = 3525 kobo (₦35.25), not hardcoded ₦50
+  const localFee = computeApplicablePaystackFeeKobo({
+    amountKobo: TOTAL_STUDENT_PAYABLE_KOBO,
+    currency: 'NGN',
+    countryCode: 'NG',
+  });
+  assert.equal(localFee.paystackFeeKobo, 3525);
+  assert.equal(localFee.feeSource, 'schedule_computed');
+
+  const localRec = reconcileCoursePayment({
+    totalChargedKobo: TOTAL_STUDENT_PAYABLE_KOBO,
+    currency: 'NGN',
+    countryCode: 'NG',
+  });
+  assert.equal(localRec.netSettlementKobo, 231475);
+  assert.equal(localRec.coversCourseValue, true);
+  assert.equal(localRec.reconciliationStatus, 'reconciled');
+  assert.equal(localRec.settlementVarianceNaira, 14.75);
+
+  // Paystack actual reported fees take precedence
+  const actualRec = reconcileCoursePayment({
+    totalChargedKobo: TOTAL_STUDENT_PAYABLE_KOBO,
+    currency: 'NGN',
+    gatewayReportedFeesKobo: 3525,
+  });
+  assert.equal(actualRec.feeSource, 'paystack_actual');
+  assert.equal(actualRec.reconciliationStatus, 'reconciled');
+
+  // Higher gateway fee creating net settlement below ₦2,300 triggers shortfall
+  const shortfallActualRec = reconcileCoursePayment({
+    totalChargedKobo: TOTAL_STUDENT_PAYABLE_KOBO,
+    currency: 'NGN',
+    gatewayReportedFeesKobo: 6000,
+  });
+  assert.equal(shortfallActualRec.netSettlementKobo, 229000);
+  assert.equal(shortfallActualRec.coversCourseValue, false);
+  assert.equal(shortfallActualRec.reconciliationStatus, 'shortfall');
+
+  // International card fee schedule (3.9% + ₦100 = 19165 kobo) triggers shortfall
+  const intlRec = reconcileCoursePayment({
+    totalChargedKobo: TOTAL_STUDENT_PAYABLE_KOBO,
+    currency: 'NGN',
+    countryCode: 'US',
+  });
+  assert.equal(intlRec.paystackFeeKobo, 19165);
+  assert.equal(intlRec.coversCourseValue, false);
+  assert.equal(intlRec.reconciliationStatus, 'shortfall');
+
   console.log('[Upgrade Verification] Checking Paystack crypto & kobo helpers...');
-  assert.equal(nairaToKobo(2000), 200000);
+  assert.equal(nairaToKobo(2350), 235000);
   assert.equal(nairaToKobo('2500.50'), 250050);
   assert.throws(() => nairaToKobo(-100));
 
@@ -56,6 +114,10 @@ async function verifyUpgrade() {
   assert.ok(
     settlementSrc.includes('FOR UPDATE'),
     'Settlement must lock payment row with SELECT ... FOR UPDATE'
+  );
+  assert.ok(
+    settlementSrc.includes('actualKobo > TOTAL_STUDENT_PAYABLE_KOBO'),
+    'Settlement must reject charges above TOTAL_STUDENT_PAYABLE_KOBO (₦2,350)'
   );
   assert.ok(
     settlementSrc.includes('actualKobo !== expectedKobo'),

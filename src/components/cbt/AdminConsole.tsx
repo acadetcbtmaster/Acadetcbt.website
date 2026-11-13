@@ -38,6 +38,7 @@ import type {
   PaymentStatus,
   PublicationStatus,
   QuestionDifficulty,
+  ReconciliationStatus,
   SafeUser,
   StudyMaterialItem,
 } from '../../types/cbt';
@@ -89,6 +90,38 @@ function StatusBadge({ status }: { status: PaymentStatus }) {
   );
 }
 
+function ReconciliationBadge({ status }: { status?: ReconciliationStatus }) {
+  if (status === 'reconciled') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 text-xs font-extrabold">
+        <CheckCircle2 className="w-3.5 h-3.5" />
+        Reconciled
+      </span>
+    );
+  }
+  if (status === 'shortfall') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-100 dark:bg-red-950/50 text-red-800 dark:text-red-300 text-xs font-extrabold">
+        <AlertCircle className="w-3.5 h-3.5" />
+        Shortfall
+      </span>
+    );
+  }
+  if (status === 'pending') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 text-xs font-extrabold">
+        <Clock className="w-3.5 h-3.5" />
+        Pending
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold">
+      N/A
+    </span>
+  );
+}
+
 export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) => {
   const [section, setSection] = useState<AdminSection>('overview');
   const [overview, setOverview] = useState<AdminOverview | null>(null);
@@ -110,7 +143,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
   const [cCode, setCCode] = useState('');
   const [cTitle, setCTitle] = useState('');
   const [cLevel, setCLevel] = useState('100 Level');
-  const [cFee, setCFee] = useState('2000');
+  const [cFee, setCFee] = useState('2350');
   const [cPubStatus, setCPubStatus] = useState<PublicationStatus>('published');
   const [cDuration, setCDuration] = useState('60');
   const [cDesc, setCDesc] = useState('');
@@ -256,7 +289,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     setCCode('');
     setCTitle('');
     setCLevel('100 Level');
-    setCFee('2000');
+    setCFee('2350');
     setCPubStatus('published');
     setCDuration('60');
     setCDesc('');
@@ -267,7 +300,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     setCCode(c.code);
     setCTitle(c.title);
     setCLevel(c.level);
-    setCFee(String(c.registrationFee));
+    setCFee('2350');
     setCPubStatus(c.publicationStatus);
     setCDuration(String(c.defaultDurationMinutes));
     setCDesc(c.description);
@@ -279,7 +312,6 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     setBusy(true);
     setFeedback(null);
     try {
-      const feeNum = Number(cFee);
       const durNum = Number(cDuration) || 60;
       if (editingCourseId) {
         await api.admin.updateCourse(editingCourseId, {
@@ -287,7 +319,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
           title: cTitle.trim(),
           level: cLevel.trim(),
           description: cDesc.trim(),
-          registrationFee: Number.isFinite(feeNum) ? feeNum : 0,
+          registrationFee: 2350,
           publicationStatus: cPubStatus,
           defaultDurationMinutes: durNum,
         });
@@ -298,7 +330,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
           title: cTitle.trim(),
           level: cLevel.trim() || '100 Level',
           description: cDesc.trim(),
-          registrationFee: Number.isFinite(feeNum) ? feeNum : 2000,
+          registrationFee: 2350,
           currency: 'NGN',
           publicationStatus: cPubStatus,
           defaultDurationMinutes: durNum,
@@ -394,6 +426,31 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
               paymentStatus: outcome.paymentStatus,
               paidAt: outcome.payment.paidAt,
               gatewayTransactionId: outcome.payment.gatewayTransactionId,
+              courseValue: outcome.payment.courseValue
+                ? Number(outcome.payment.courseValue)
+                : prev.courseValue,
+              totalAmountCharged: outcome.payment.totalAmountCharged
+                ? Number(outcome.payment.totalAmountCharged)
+                : prev.totalAmountCharged,
+              gatewayFee:
+                outcome.payment.gatewayFee !== undefined && outcome.payment.gatewayFee !== null
+                  ? Number(outcome.payment.gatewayFee)
+                  : prev.gatewayFee,
+              gatewayFeeSource: outcome.payment.gatewayFeeSource ?? prev.gatewayFeeSource,
+              netSettlementAmount:
+                outcome.payment.netSettlementAmount !== undefined &&
+                outcome.payment.netSettlementAmount !== null
+                  ? Number(outcome.payment.netSettlementAmount)
+                  : prev.netSettlementAmount,
+              settlementVariance:
+                outcome.payment.settlementVariance !== undefined &&
+                outcome.payment.settlementVariance !== null
+                  ? Number(outcome.payment.settlementVariance)
+                  : prev.settlementVariance,
+              reconciliationStatus:
+                outcome.payment.reconciliationStatus ?? prev.reconciliationStatus,
+              feeAbsorbedBy: outcome.payment.feeAbsorbedBy ?? prev.feeAbsorbedBy,
+              paymentChannel: outcome.payment.paymentChannel ?? prev.paymentChannel,
             }
           : prev
       );
@@ -607,45 +664,97 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
 
         {/* OVERVIEW */}
         {section === 'overview' && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: 'Total Users', val: overview?.totalUsers ?? 0 },
-              { label: 'Courses', val: overview?.totalCourses ?? 0 },
-              { label: 'Active Registrations', val: overview?.totalActiveRegistrations ?? 0 },
-              {
-                label: 'Total Revenue',
-                val: formatCurrency(overview?.totalRevenueNaira ?? 0, 'NGN'),
-              },
-              { label: 'Successful Payments', val: overview?.totalSuccessfulPayments ?? 0 },
-              { label: 'CBT Questions', val: overview?.totalQuestions ?? 0 },
-              { label: 'Study Materials', val: overview?.totalMaterials ?? 0 },
-              { label: 'Submitted Exams', val: overview?.totalSubmittedExams ?? 0 },
-            ].map((stat) => (
-              <div
-                key={stat.label}
-                className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-4 text-center"
-              >
-                <div className="text-xl sm:text-2xl font-extrabold text-[#0b337a] dark:text-blue-400 tabular-nums">
-                  {stat.val}
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Total Users', val: overview?.totalUsers ?? 0 },
+                { label: 'Courses', val: overview?.totalCourses ?? 0 },
+                { label: 'Active Registrations', val: overview?.totalActiveRegistrations ?? 0 },
+                { label: 'Successful Payments', val: overview?.totalSuccessfulPayments ?? 0 },
+                { label: 'CBT Questions', val: overview?.totalQuestions ?? 0 },
+                { label: 'Study Materials', val: overview?.totalMaterials ?? 0 },
+                { label: 'Submitted Exams', val: overview?.totalSubmittedExams ?? 0 },
+                {
+                  label: 'Reconciled / Shortfalls',
+                  val: `${overview?.totalReconciledPayments ?? 0} / ${overview?.totalShortfallPayments ?? 0}`,
+                },
+              ].map((stat) => (
+                <div
+                  key={stat.label}
+                  className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-4 text-center"
+                >
+                  <div className="text-xl sm:text-2xl font-extrabold text-[#0b337a] dark:text-blue-400 tabular-nums">
+                    {stat.val}
+                  </div>
+                  <div className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1">
+                    {stat.label}
+                  </div>
                 </div>
-                <div className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1">
-                  {stat.label}
+              ))}
+            </div>
+
+            {/* Financial Reporting Summary */}
+            <div className="rounded-xl border border-[#d6e4fa] dark:border-slate-800 bg-[#eff5ff]/70 dark:bg-slate-800/40 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-extrabold text-[#082252] dark:text-white">
+                  Financial Settlement & Charge Reconciliation
+                </h3>
+                <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
+                  Standardized: ₦2,300 Course Value · Paystack Fees Absorbed by Acadet CBT · ₦2,350 Student Payable
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 p-3.5">
+                  <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                    Gross Collections
+                  </div>
+                  <div className="text-lg font-extrabold text-[#082252] dark:text-white tabular-nums mt-0.5">
+                    {formatCurrency(overview?.totalRevenueNaira ?? 0, 'NGN')}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 p-3.5">
+                  <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                    Course Value Total
+                  </div>
+                  <div className="text-lg font-extrabold text-[#0b337a] dark:text-blue-400 tabular-nums mt-0.5">
+                    {formatCurrency(overview?.totalCourseValueNaira ?? 0, 'NGN')}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 p-3.5">
+                  <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                    Paystack Fees Absorbed
+                  </div>
+                  <div className="text-lg font-extrabold text-amber-700 dark:text-amber-400 tabular-nums mt-0.5">
+                    {formatCurrency(overview?.totalPaystackFeesNaira ?? 0, 'NGN')}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 p-3.5">
+                  <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                    Net Settlement
+                  </div>
+                  <div className="text-lg font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums mt-0.5">
+                    {formatCurrency(overview?.totalNetSettlementNaira ?? 0, 'NGN')}
+                  </div>
                 </div>
               </div>
-            ))}
+            </div>
           </div>
         )}
 
         {/* COURSE MANAGEMENT */}
         {section === 'courses' && (
           <div className="space-y-5">
+            <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/70 border border-[#d6e4fa] dark:border-slate-700 px-4 py-3 text-xs font-semibold text-[#082252] dark:text-blue-200">
+              All courses use standardized pricing: ₦2,300 course value + processing fees absorbed by Acadet CBT = ₦2,350 total payable.
+            </div>
+
             <form
               onSubmit={handleSaveCourse}
               className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3"
             >
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-extrabold text-[#082252] dark:text-white">
-                  {editingCourseId ? 'Edit Course Details & Fee' : 'Create New Course'}
+                  {editingCourseId ? 'Edit Course Details' : 'Create New Course'}
                 </h3>
                 {editingCourseId && (
                   <button
@@ -686,17 +795,14 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                   onChange={(e) => setCLevel(e.target.value)}
                   className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
                 />
-                <div>
-                  <input
-                    type="number"
-                    required
-                    min={0}
-                    step="0.01"
-                    placeholder="Fee (₦)"
-                    value={cFee}
-                    onChange={(e) => setCFee(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-bold tabular-nums"
-                  />
+                <div
+                  title="Standardized pricing locked at ₦2,350 student payable (₦2,300 course value)"
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/80 px-3 py-2 text-sm font-extrabold text-[#082252] dark:text-blue-300 tabular-nums flex items-center justify-between"
+                >
+                  <span>₦{Number(cFee || 2350).toLocaleString()}</span>
+                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                    ₦2,300 value
+                  </span>
                 </div>
                 <select
                   value={cPubStatus}
@@ -743,7 +849,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                   <tr>
                     <th className="px-4 py-3">Course</th>
                     <th className="px-4 py-3">Level</th>
-                    <th className="px-4 py-3">Fee</th>
+                    <th className="px-4 py-3">Value / Payable</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Questions</th>
                     <th className="px-4 py-3">Registrations</th>
@@ -767,8 +873,13 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                       <td className="px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300">
                         {c.level}
                       </td>
-                      <td className="px-4 py-3 font-extrabold tabular-nums text-[#082252] dark:text-blue-300">
-                        {formatCurrency(c.registrationFee, c.currency)}
+                      <td className="px-4 py-3 tabular-nums">
+                        <div className="font-extrabold text-[#082252] dark:text-blue-300">
+                          {formatCurrency(2350, c.currency)}
+                        </div>
+                        <div className="text-[11px] text-slate-500">
+                          Value: {formatCurrency(c.courseValue ?? 2300, c.currency)}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <button
@@ -1061,17 +1172,20 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                     <th className="px-4 py-3">Student</th>
                     <th className="px-4 py-3">Course</th>
                     <th className="px-4 py-3">Reference</th>
-                    <th className="px-4 py-3">Amount</th>
-                    <th className="px-4 py-3">Gateway</th>
-                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3">Total Charged</th>
+                    <th className="px-4 py-3">Course Value</th>
+                    <th className="px-4 py-3">Paystack Fee</th>
+                    <th className="px-4 py-3">Net Settlement</th>
+                    <th className="px-4 py-3">Channel</th>
                     <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Reconciliation</th>
                     <th className="px-4 py-3 text-right">Details</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
                   {payments.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-10 text-center text-slate-500">
+                      <td colSpan={11} className="px-4 py-10 text-center text-slate-500">
                         No payment transactions match the selected filters.
                       </td>
                     </tr>
@@ -1094,14 +1208,38 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                         </td>
                         <td className="px-4 py-3 font-mono text-xs">{p.paymentReference}</td>
                         <td className="px-4 py-3 font-extrabold tabular-nums">
-                          {formatCurrency(p.amount, p.currency)}
+                          {formatCurrency(p.totalAmountCharged ?? p.amount, p.currency)}
                         </td>
-                        <td className="px-4 py-3 capitalize text-xs font-bold">{p.gateway}</td>
-                        <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
-                          {new Date(p.paidAt || p.createdAt).toLocaleString()}
+                        <td className="px-4 py-3 font-semibold tabular-nums text-slate-700 dark:text-slate-300">
+                          {formatCurrency(p.courseValue ?? 2300, p.currency)}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums">
+                          {p.gatewayFee !== null && p.gatewayFee !== undefined ? (
+                            <div>
+                              <div className="font-bold text-amber-700 dark:text-amber-400">
+                                {formatCurrency(p.gatewayFee, p.currency)}
+                              </div>
+                              <div className="text-[11px] text-slate-500">
+                                {p.gatewayFeeSource === 'paystack_actual' ? 'Actual' : 'Schedule'}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 font-extrabold tabular-nums text-emerald-700 dark:text-emerald-400">
+                          {p.netSettlementAmount !== null && p.netSettlementAmount !== undefined
+                            ? formatCurrency(p.netSettlementAmount, p.currency)
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3 capitalize text-xs font-bold text-slate-600 dark:text-slate-300">
+                          {p.paymentChannel || p.gateway}
                         </td>
                         <td className="px-4 py-3">
                           <StatusBadge status={p.paymentStatus} />
+                        </td>
+                        <td className="px-4 py-3">
+                          <ReconciliationBadge status={p.reconciliationStatus} />
                         </td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
                           <button
@@ -1669,14 +1807,57 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                   </span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block">Amount</span>
+                  <span className="text-slate-500 block">Total Charged</span>
                   <span className="font-extrabold tabular-nums">
-                    {formatCurrency(selectedPayment.amount, selectedPayment.currency)}
+                    {formatCurrency(
+                      selectedPayment.totalAmountCharged ?? selectedPayment.amount,
+                      selectedPayment.currency
+                    )}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Course Value</span>
+                  <span className="font-bold tabular-nums">
+                    {formatCurrency(selectedPayment.courseValue ?? 2300, selectedPayment.currency)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Paystack Fee Absorbed</span>
+                  <span className="font-bold tabular-nums text-amber-700 dark:text-amber-400">
+                    {selectedPayment.gatewayFee !== null && selectedPayment.gatewayFee !== undefined
+                      ? `${formatCurrency(selectedPayment.gatewayFee, selectedPayment.currency)} (${
+                          selectedPayment.gatewayFeeSource === 'paystack_actual'
+                            ? 'Actual'
+                            : 'Schedule'
+                        })`
+                      : '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Net Settlement</span>
+                  <span className="font-extrabold tabular-nums text-emerald-700 dark:text-emerald-400">
+                    {selectedPayment.netSettlementAmount !== null &&
+                    selectedPayment.netSettlementAmount !== undefined
+                      ? formatCurrency(
+                          selectedPayment.netSettlementAmount,
+                          selectedPayment.currency
+                        )
+                      : '—'}
                   </span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">Status</span>
                   <StatusBadge status={selectedPayment.paymentStatus} />
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Reconciliation</span>
+                  <ReconciliationBadge status={selectedPayment.reconciliationStatus} />
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Channel</span>
+                  <span className="font-bold capitalize">
+                    {selectedPayment.paymentChannel || selectedPayment.gateway}
+                  </span>
                 </div>
                 <div>
                   <span className="text-slate-500 block">Gateway Tx ID</span>

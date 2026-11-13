@@ -93,9 +93,12 @@ export const courses = pgTable(
     title: text('title').notNull(),
     level: text('level').notNull().default('100 Level'),
     description: text('description').notNull().default(''),
+    courseValue: numeric('course_value', { precision: 12, scale: 2 })
+      .notNull()
+      .default('2300.00'),
     registrationFee: numeric('registration_fee', { precision: 12, scale: 2 })
       .notNull()
-      .default('2000.00'),
+      .default('2350.00'),
     currency: text('currency').notNull().default('NGN'),
     publicationStatus: text('publication_status').notNull().default('published'),
     examCategory: text('exam_category').notNull().default('Acadet CBT Examination'),
@@ -113,6 +116,10 @@ export const courses = pgTable(
       sql`${table.publicationStatus} IN ('draft', 'published', 'archived')`
     ),
     check('courses_registration_fee_check', sql`${table.registrationFee} >= 0`),
+    check(
+      'courses_standardized_pricing_check',
+      sql`${table.courseValue} = 2300.00 AND ${table.registrationFee} = 2350.00`
+    ),
   ]
 );
 
@@ -250,8 +257,21 @@ export const payments = pgTable(
     paymentReference: text('payment_reference').notNull(),
     gateway: text('gateway').notNull().default('paystack'),
     whatsappNumber: text('whatsapp_number'),
+    courseValue: numeric('course_value', { precision: 12, scale: 2 })
+      .notNull()
+      .default('2300.00'),
+    totalAmountCharged: numeric('total_amount_charged', { precision: 12, scale: 2 })
+      .notNull()
+      .default('2350.00'),
     amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
     currency: text('currency').notNull().default('NGN'),
+    gatewayFee: numeric('gateway_fee', { precision: 12, scale: 2 }),
+    gatewayFeeSource: text('gateway_fee_source'),
+    netSettlementAmount: numeric('net_settlement_amount', { precision: 12, scale: 2 }),
+    settlementVariance: numeric('settlement_variance', { precision: 12, scale: 2 }),
+    reconciliationStatus: text('reconciliation_status').notNull().default('pending'),
+    feeAbsorbedBy: text('fee_absorbed_by').notNull().default('Acadet CBT'),
+    paymentChannel: text('payment_channel'),
     paymentStatus: text('payment_status').notNull().default('pending'),
     gatewayTransactionId: text('gateway_transaction_id'),
     gatewayResponse: jsonb('gateway_response')
@@ -268,9 +288,14 @@ export const payments = pgTable(
     index('payments_student_created_idx').on(table.studentId, table.createdAt),
     index('payments_course_status_idx').on(table.courseId, table.paymentStatus),
     index('payments_status_created_idx').on(table.paymentStatus, table.createdAt),
+    index('payments_reconciliation_idx').on(table.reconciliationStatus, table.createdAt),
     check(
       'payments_status_check',
       sql`${table.paymentStatus} IN ('pending', 'successful', 'failed', 'refunded')`
+    ),
+    check(
+      'payments_reconciliation_status_check',
+      sql`${table.reconciliationStatus} IN ('pending', 'reconciled', 'shortfall', 'not_applicable')`
     ),
     check('payments_amount_check', sql`${table.amount} >= 0`),
   ]

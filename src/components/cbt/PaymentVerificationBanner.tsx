@@ -25,6 +25,9 @@ export const PaymentVerificationBanner: React.FC<PaymentVerificationBannerProps>
   if (!verifying && !outcome && !error) return null;
 
   const isSuccess = outcome?.paymentStatus === 'successful' && outcome.unlocked;
+  const isShortfall =
+    outcome?.paymentStatus === 'successful' &&
+    (!outcome.unlocked || outcome.payment.reconciliationStatus === 'shortfall');
   const isPending = outcome?.paymentStatus === 'pending';
 
   return (
@@ -94,6 +97,14 @@ export const PaymentVerificationBanner: React.FC<PaymentVerificationBannerProps>
                     <p className="mt-1 text-xs">{outcome.message}</p>
                   </div>
                 </div>
+              ) : isShortfall ? (
+                <div className="rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-4 flex items-start gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="text-sm text-amber-900 dark:text-amber-100">
+                    <div className="font-extrabold">Settlement Reconciliation Needed</div>
+                    <p className="mt-1 text-xs">{outcome.message}</p>
+                  </div>
+                </div>
               ) : isPending ? (
                 <div className="rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 p-4 flex items-start gap-3">
                   <Clock className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
@@ -128,10 +139,27 @@ export const PaymentVerificationBanner: React.FC<PaymentVerificationBannerProps>
                   </span>
                 </div>
                 <div className="flex justify-between gap-2">
-                  <span className="text-slate-500 dark:text-slate-400">Amount</span>
-                  <span className="font-bold tabular-nums text-slate-900 dark:text-white">
+                  <span className="text-slate-500 dark:text-slate-400">Course Value</span>
+                  <span className="font-bold tabular-nums text-slate-800 dark:text-slate-200">
                     {formatCurrency(
-                      Number(outcome.payment.amount),
+                      Number(outcome.payment.courseValue ?? 2300),
+                      outcome.payment.currency
+                    )}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-slate-500 dark:text-slate-400">Processing Charges</span>
+                  <span className="font-bold text-emerald-700 dark:text-emerald-400">
+                    {outcome.payment.feeAbsorbedBy
+                      ? `Absorbed by ${outcome.payment.feeAbsorbedBy}`
+                      : 'Absorbed by Acadet CBT'}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-slate-500 dark:text-slate-400">Total Paid</span>
+                  <span className="font-extrabold tabular-nums text-slate-900 dark:text-white">
+                    {formatCurrency(
+                      Number(outcome.payment.totalAmountCharged ?? outcome.payment.amount),
                       outcome.payment.currency
                     )}
                   </span>

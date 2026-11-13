@@ -5,6 +5,7 @@ export type OptionLetter = 'A' | 'B' | 'C' | 'D';
 export type MaterialCategory = 'Tutorials' | 'Notes' | 'Past Questions' | 'Guides';
 export type PublicationStatus = 'draft' | 'published' | 'archived';
 export type PaymentStatus = 'pending' | 'successful' | 'failed' | 'refunded';
+export type ReconciliationStatus = 'pending' | 'reconciled' | 'shortfall' | 'not_applicable';
 export type CourseRegistrationState = 'registered' | 'pending' | 'failed' | 'not_registered';
 
 export interface UserPreferences {
@@ -38,6 +39,7 @@ export interface CourseCatalogueItem {
   title: string;
   level: string;
   description: string;
+  courseValue?: number;
   registrationFee: number;
   currency: string;
   publicationStatus: PublicationStatus;
@@ -66,6 +68,7 @@ export interface RegisteredCourseItem {
   paymentId: string;
   paymentReference: string;
   paymentStatus: PaymentStatus;
+  courseValue?: number;
   amountPaid: number;
   currency: string;
   paidAt: string | null;
@@ -189,7 +192,9 @@ export interface PaymentInitializeResponse {
   reference: string;
   authorizationUrl: string;
   accessCode: string;
+  courseValue?: number;
   amount: number;
+  feeAbsorbedBy?: string;
   currency: string;
   course: {
     id: string;
@@ -211,8 +216,17 @@ export interface PaymentVerifyOutcome {
     paymentReference: string;
     gateway: string;
     whatsappNumber?: string | null;
+    courseValue?: string;
+    totalAmountCharged?: string;
     amount: string;
     currency: string;
+    gatewayFee?: string | null;
+    gatewayFeeSource?: string | null;
+    netSettlementAmount?: string | null;
+    settlementVariance?: string | null;
+    reconciliationStatus?: ReconciliationStatus;
+    feeAbsorbedBy?: string;
+    paymentChannel?: string | null;
     paymentStatus: PaymentStatus;
     gatewayTransactionId: string | null;
     paidAt: string | null;
@@ -231,6 +245,7 @@ export interface PaymentVerifyOutcome {
     id: string;
     code: string;
     title: string;
+    courseValue?: string;
     registrationFee: string;
     currency: string;
   } | null;
@@ -244,8 +259,17 @@ export interface StudentPaymentRecord {
   paymentReference: string;
   gateway: string;
   whatsappNumber?: string | null;
+  courseValue?: number;
+  totalAmountCharged?: number;
   amount: number;
   currency: string;
+  gatewayFee?: number | null;
+  gatewayFeeSource?: string | null;
+  netSettlementAmount?: number | null;
+  settlementVariance?: number | null;
+  reconciliationStatus?: ReconciliationStatus;
+  feeAbsorbedBy?: string;
+  paymentChannel?: string | null;
   paymentStatus: PaymentStatus;
   gatewayTransactionId: string | null;
   paidAt: string | null;
@@ -261,6 +285,11 @@ export interface AdminOverview {
   totalActiveRegistrations: number;
   totalSuccessfulPayments: number;
   totalRevenueNaira: number;
+  totalCourseValueNaira?: number;
+  totalPaystackFeesNaira?: number;
+  totalNetSettlementNaira?: number;
+  totalReconciledPayments?: number;
+  totalShortfallPayments?: number;
 }
 
 export interface AdminCourseItem {
@@ -270,6 +299,7 @@ export interface AdminCourseItem {
   title: string;
   level: string;
   description: string;
+  courseValue?: number;
   registrationFee: number;
   currency: string;
   publicationStatus: PublicationStatus;
@@ -312,8 +342,15 @@ export interface AdminRegistrationItem {
   courseTitle: string;
   paymentId: string;
   paymentReference: string;
+  courseValue?: number;
+  totalAmountCharged?: number;
   amount: number;
   currency: string;
+  gatewayFee?: number | null;
+  netSettlementAmount?: number | null;
+  settlementVariance?: number | null;
+  reconciliationStatus?: ReconciliationStatus;
+  paymentChannel?: string | null;
   paymentStatus: PaymentStatus;
   registrationStatus: string;
   gateway: string;
@@ -333,8 +370,17 @@ export interface AdminPaymentRecord {
   courseTitle: string;
   paymentReference: string;
   gateway: string;
+  courseValue?: number;
+  totalAmountCharged?: number;
   amount: number;
   currency: string;
+  gatewayFee?: number | null;
+  gatewayFeeSource?: string | null;
+  netSettlementAmount?: number | null;
+  settlementVariance?: number | null;
+  reconciliationStatus?: ReconciliationStatus;
+  feeAbsorbedBy?: string;
+  paymentChannel?: string | null;
   paymentStatus: PaymentStatus;
   gatewayTransactionId: string | null;
   gatewayResponse: Record<string, unknown>;
@@ -351,6 +397,7 @@ export interface AdminStudentProfile {
     code: string;
     title: string;
     level: string;
+    courseValue?: number;
     registrationFee: number;
     currency: string;
     isRegistered: boolean;

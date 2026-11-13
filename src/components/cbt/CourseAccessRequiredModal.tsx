@@ -52,9 +52,21 @@ export const CourseAccessRequiredModal: React.FC<CourseAccessRequiredModalProps>
               </span>
             </div>
             <div className="flex justify-between gap-3">
-              <span className="text-slate-600 dark:text-slate-400">Registration Fee</span>
+              <span className="text-slate-600 dark:text-slate-400">Course Value</span>
+              <span className="font-bold text-slate-900 dark:text-white tabular-nums">
+                {formatCurrency(2300, course.currency)}
+              </span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-600 dark:text-slate-400">Processing Charges</span>
+              <span className="font-bold text-emerald-700 dark:text-emerald-400">
+                Absorbed by Acadet CBT
+              </span>
+            </div>
+            <div className="border-t border-[#d6e4fa] dark:border-slate-700 pt-2 flex justify-between gap-3">
+              <span className="font-extrabold text-[#082252] dark:text-white">Total Payable</span>
               <span className="font-extrabold text-[#0a58ed] dark:text-blue-400 tabular-nums">
-                {formatCurrency(course.registrationFee, course.currency)}
+                {formatCurrency(2350, course.currency)}
               </span>
             </div>
           </div>

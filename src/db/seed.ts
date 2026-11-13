@@ -49,7 +49,7 @@ const STARTER_COURSES: SeedCourseEntry[] = [
     level: '100 Level',
     description:
       'Computer architecture, binary arithmetic, operating systems, data representation, and algorithmic thinking.',
-    registrationFee: '2000.00',
+    registrationFee: '2350.00',
     defaultDurationMinutes: 60,
     questions: [
       {
@@ -111,7 +111,7 @@ const STARTER_COURSES: SeedCourseEntry[] = [
     title: 'Introduction to Biology',
     level: '100 Level',
     description: 'Cell biology, genetics, ecology, plant physiology, and human anatomy.',
-    registrationFee: '2000.00',
+    registrationFee: '2350.00',
     defaultDurationMinutes: 60,
     questions: [
       {
@@ -161,7 +161,7 @@ const STARTER_COURSES: SeedCourseEntry[] = [
     title: 'Introduction to Mathematics',
     level: '100 Level',
     description: 'Algebra, indices, logarithms, geometry, trigonometry, and introductory calculus.',
-    registrationFee: '2000.00',
+    registrationFee: '2350.00',
     defaultDurationMinutes: 90,
     questions: [
       {
@@ -246,7 +246,7 @@ const STARTER_COURSES: SeedCourseEntry[] = [
     title: 'Use of English & Communication',
     level: '100 Level',
     description: 'Lexis, structure, comprehension, oral forms, and academic sentence interpretation.',
-    registrationFee: '2000.00',
+    registrationFee: '2350.00',
     defaultDurationMinutes: 60,
     questions: [
       {
@@ -309,7 +309,7 @@ const STARTER_COURSES: SeedCourseEntry[] = [
     title: 'General Physics & Mechanics',
     level: '100 Level',
     description: 'Mechanics, waves, optics, electricity, magnetism, and modern physics.',
-    registrationFee: '2000.00',
+    registrationFee: '2350.00',
     defaultDurationMinutes: 60,
     questions: [
       {
@@ -370,7 +370,7 @@ const STARTER_COURSES: SeedCourseEntry[] = [
     title: 'Foundations of Chemistry',
     level: '100 Level',
     description: 'Atomic structure, stoichiometry, chemical bonding, kinetics, and organic chemistry.',
-    registrationFee: '2000.00',
+    registrationFee: '2350.00',
     defaultDurationMinutes: 60,
     questions: [
       {
@@ -536,6 +536,7 @@ export async function runSeed(): Promise<void> {
           title: entry.title,
           level: entry.level,
           description: entry.description,
+          courseValue: '2300.00',
           registrationFee: entry.registrationFee,
           currency: 'NGN',
           publicationStatus: 'published',

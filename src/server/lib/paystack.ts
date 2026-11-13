@@ -133,10 +133,17 @@ export interface PaystackVerifyData {
   status: string;
   reference: string;
   amount: number;
+  fees?: number | null;
   currency: string;
   paid_at?: string | null;
-  channel?: string;
+  channel?: string | null;
   gateway_response?: string;
+  authorization?: {
+    country_code?: string;
+    channel?: string;
+    card_type?: string;
+    bank?: string;
+  } | null;
   customer?: {
     email?: string;
   };

@@ -32,6 +32,7 @@ router.get('/courses', requireDb, optionalAuth, async (req, res) => {
         title: courses.title,
         level: courses.level,
         description: courses.description,
+        courseValue: courses.courseValue,
         registrationFee: courses.registrationFee,
         currency: courses.currency,
         publicationStatus: courses.publicationStatus,
@@ -119,7 +120,8 @@ router.get('/courses', requireDb, optionalAuth, async (req, res) => {
 
       return {
         ...c,
-        registrationFee: Number(c.registrationFee),
+        courseValue: Number(c.courseValue ?? 2300),
+        registrationFee: 2350,
         isRegistered: Boolean(activeReg),
         registrationState,
         registeredAt: activeReg?.registeredAt ?? null,
@@ -164,7 +166,8 @@ router.get('/my-courses', requireAuth, async (req, res) => {
         paymentId: payments.id,
         paymentReference: payments.paymentReference,
         paymentStatus: payments.paymentStatus,
-        amountPaid: payments.amount,
+        courseValue: payments.courseValue,
+        amountPaid: payments.totalAmountCharged,
         currency: payments.currency,
         paidAt: payments.paidAt,
         questionCount: sql<number>`(
@@ -192,6 +195,7 @@ router.get('/my-courses', requireAuth, async (req, res) => {
     res.json({
       registeredCourses: rows.map((r) => ({
         ...r,
+        courseValue: Number(r.courseValue ?? 2300),
         amountPaid: Number(r.amountPaid),
       })),
     });

@@ -12,6 +12,11 @@ import {
 } from '../../db/schema.js';
 import { writeAuditLog } from '../lib/audit.js';
 import { gradeExamAnswers, type OptionLetter } from '../lib/examGrader.js';
+import {
+  COURSE_VALUE_NAIRA,
+  STANDARD_CURRENCY,
+  TOTAL_STUDENT_PAYABLE_NAIRA,
+} from '../lib/pricing.js';
 import { handleApiError, requireAuth } from '../middleware/auth.js';
 
 const router = Router();
@@ -99,8 +104,9 @@ router.post('/start', requireAuth, async (req, res) => {
           code: course.code,
           title: course.title,
           level: course.level,
-          registrationFee: Number(course.registrationFee),
-          currency: course.currency,
+          courseValue: COURSE_VALUE_NAIRA,
+          registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA,
+          currency: STANDARD_CURRENCY,
         },
       });
       return;
