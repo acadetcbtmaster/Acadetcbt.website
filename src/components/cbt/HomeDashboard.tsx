@@ -21,7 +21,7 @@ import type {
   CourseCatalogueItem,
   DifficultyLevel,
 } from '../../types/cbt';
-import { HeroStudyGraphic } from './AcadetLogo';
+import { AcadetCrest, HeroStudyGraphic, useBranding } from './AcadetLogo';
 import { formatCurrency } from './CourseRegistrationView';
 
 interface HomeDashboardProps {
@@ -61,6 +61,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onOpenSettings,
   startingExam,
 }) => {
+  const { branding } = useBranding();
   const [showStartModal, setShowStartModal] = useState(false);
   const [modalCourseId, setModalCourseId] = useState<string>(
     selectedCourseId || courses[0]?.id || ''
@@ -116,9 +117,12 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       {/* Hero Banner */}
       <section className="rounded-2xl border border-[#c6daf7] dark:border-slate-700 bg-gradient-to-r from-[#eff5ff] via-[#e1ecfe] to-[#cce0ff] dark:from-slate-900 dark:via-slate-800 dark:to-blue-950/70 px-4 py-4 sm:px-7 sm:py-5 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
         <div className="space-y-2 text-center md:text-left">
-          <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight text-[#082252] dark:text-white">
-            Welcome to Acadet CBT
-          </h1>
+          <div className="flex items-center justify-center md:justify-start gap-3">
+            <AcadetCrest className="w-10 h-10 sm:w-11 sm:h-11" frameOnDark={false} />
+            <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight text-[#082252] dark:text-white">
+              Welcome to {branding.siteName}
+            </h1>
+          </div>
           <p className="text-sm sm:text-lg font-semibold text-[#1e3a6e] dark:text-blue-200">
             Prepare smart. Practice well. Score higher.
           </p>

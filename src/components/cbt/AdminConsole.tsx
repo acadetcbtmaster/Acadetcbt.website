@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   AlertTriangle,
+  Archive,
   Ban,
   Bell,
   BookCheck,
@@ -14,12 +15,16 @@ import {
   ExternalLink,
   Eye,
   FileText,
+  Globe,
+  Image as ImageIcon,
   Lock,
   Megaphone,
   MessageCircle,
+  Palette,
   Plus,
   RefreshCw,
   RotateCcw,
+  Save,
   Search,
   Send,
   Shield,
@@ -42,20 +47,33 @@ import type {
   AdminRegistrationItem,
   AdminStudentProfile,
   AnnouncementItem,
+  FounderProfileData,
   MaterialCategory,
   NotificationType,
   OptionLetter,
+  PaymentBackupSummary,
+  PaymentResetPreview,
   PaymentStatus,
   PublicationStatus,
   QuestionDifficulty,
   ReconciliationStatus,
   SafeUser,
+  SiteBrandingData,
+  SocialLinksMap,
   StudyMaterialItem,
 } from '../../types/cbt';
+import {
+  AcadetCrest,
+  DEFAULT_CLIENT_BRANDING,
+  DEFAULT_CLIENT_FOUNDER,
+  useBranding,
+} from './AcadetLogo';
 import { formatCurrency } from './CourseRegistrationView';
 
 interface AdminConsoleProps {
   onCatalogUpdated: () => Promise<void>;
+  userRole?: SafeUser['role'];
+  onNavigatePublic?: (path: string) => void;
 }
 
 type AdminSection =
@@ -67,7 +85,8 @@ type AdminSection =
   | 'materials'
   | 'announcements'
   | 'notifications'
-  | 'users';
+  | 'users'
+  | 'branding';
 
 function StatusBadge({ status }: { status: PaymentStatus }) {
   if (status === 'successful') {
@@ -133,7 +152,14 @@ function ReconciliationBadge({ status }: { status?: ReconciliationStatus }) {
   );
 }
 
-export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) => {
+export const AdminConsole: React.FC<AdminConsoleProps> = ({
+  onCatalogUpdated,
+  userRole = 'admin',
+  onNavigatePublic,
+}) => {
+  const { refreshBranding } = useBranding();
+  const isSuperAdmin = userRole === 'super_admin';
+
   const [section, setSection] = useState<AdminSection>('overview');
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [courses, setCourses] = useState<AdminCourseItem[]>([]);
@@ -223,6 +249,21 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
   const [annBody, setAnnBody] = useState('');
   const [annPinned, setAnnPinned] = useState(true);
 
+  // Payment Record Reset & Backup state
+  const [resetPreview, setResetPreview] = useState<PaymentResetPreview | null>(null);
+  const [paymentBackups, setPaymentBackups] = useState<PaymentBackupSummary[]>([]);
+  const [backupLabel, setBackupLabel] = useState('');
+  const [resetAllModalOpen, setResetAllModalOpen] = useState(false);
+  const [resetBackupId, setResetBackupId] = useState('');
+  const [resetAcknowledge, setResetAcknowledge] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState('');
+  const [exportingBackupId, setExportingBackupId] = useState<string | null>(null);
+
+  // Website Branding, SEO & Founder Profile state (Super Admin)
+  const [brandingForm, setBrandingForm] = useState<SiteBrandingData>(DEFAULT_CLIENT_BRANDING);
+  const [founderForm, setFounderForm] = useState<FounderProfileData>(DEFAULT_CLIENT_FOUNDER);
+  const [uploadingSlot, setUploadingSlot] = useState<'logo' | 'favicon' | 'founder-photo' | null>(null);
+
   const loadRegistrations = async () => {
     const res = await api.admin.listRegistrations({
       search: regSearch || undefined,
@@ -267,25 +308,45 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     setAdminNotifications(res.notifications);
   };
 
+  const loadPaymentResetData = async () => {
+    const res = await api.admin.getPaymentResetPreview();
+    setResetPreview(res.preview);
+    setPaymentBackups(res.backups);
+    setResetBackupId((prev) => prev || res.backups[0]?.id || '');
+  };
+
   const loadAllAdminData = async () => {
-    const [ov, cRes, qRes, matRes, annRes, usrRes, regRes, payRes, notifRes] =
-      await Promise.allSettled([
-        api.admin.getOverview(),
-        api.admin.listCourses(),
-        api.admin.listQuestions(),
-        api.materials.list(),
-        api.admin.listAnnouncements(),
-        api.admin.listUsers({
-          search: userSearch || undefined,
-          status: userStatusFilter || undefined,
-        }),
-        api.admin.listRegistrations(),
-        api.admin.listPayments(),
-        api.admin.listNotifications({
-          search: notifSearch || undefined,
-          type: notifTypeFilter || undefined,
-        }),
-      ]);
+    const [
+      ov,
+      cRes,
+      qRes,
+      matRes,
+      annRes,
+      usrRes,
+      regRes,
+      payRes,
+      notifRes,
+      resetRes,
+      brandRes,
+    ] = await Promise.allSettled([
+      api.admin.getOverview(),
+      api.admin.listCourses(),
+      api.admin.listQuestions(),
+      api.materials.list(),
+      api.admin.listAnnouncements(),
+      api.admin.listUsers({
+        search: userSearch || undefined,
+        status: userStatusFilter || undefined,
+      }),
+      api.admin.listRegistrations(),
+      api.admin.listPayments(),
+      api.admin.listNotifications({
+        search: notifSearch || undefined,
+        type: notifTypeFilter || undefined,
+      }),
+      api.admin.getPaymentResetPreview(),
+      api.admin.getBranding(),
+    ]);
 
     const errors: string[] = [];
 
@@ -320,6 +381,17 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     else errors.push(payRes.reason instanceof Error ? payRes.reason.message : 'payments');
 
     if (notifRes.status === 'fulfilled') setAdminNotifications(notifRes.value.notifications);
+
+    if (resetRes.status === 'fulfilled') {
+      setResetPreview(resetRes.value.preview);
+      setPaymentBackups(resetRes.value.backups);
+      setResetBackupId((prev) => prev || resetRes.value.backups[0]?.id || '');
+    }
+
+    if (brandRes.status === 'fulfilled') {
+      setBrandingForm(brandRes.value.branding);
+      setFounderForm(brandRes.value.founder);
+    }
 
     if (errors.length > 0) {
       setFeedback({ type: 'err', text: errors[0] });
@@ -766,6 +838,194 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     }
   };
 
+  const handleCreatePaymentBackup = async () => {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.createPaymentBackup(backupLabel.trim() || undefined);
+      setResetPreview(res.preview);
+      setPaymentBackups(res.backups);
+      setResetBackupId(res.backup.id);
+      setBackupLabel('');
+      setFeedback({ type: 'ok', text: res.message });
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Failed to create payment backup.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDownloadPaymentBackup = async (backup: PaymentBackupSummary) => {
+    setExportingBackupId(backup.id);
+    setFeedback(null);
+    try {
+      const url = api.admin.getPaymentBackupExportUrl(backup.id);
+      const token = getClientAuthToken();
+      const resp = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
+      });
+      if (!resp.ok) {
+        throw new Error('Failed to export payment backup JSON.');
+      }
+      const blob = await resp.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = `acadet-payment-backup-${backup.id.slice(0, 8)}-${new Date(backup.createdAt).toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Backup download failed.',
+      });
+    } finally {
+      setExportingBackupId(null);
+    }
+  };
+
+  const handleResetTestPayments = async () => {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.resetTestPayments();
+      setResetPreview(res.preview);
+      setPaymentBackups(res.backups);
+      setResetBackupId(res.backupId);
+      setFeedback({ type: 'ok', text: res.message });
+      await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Unable to clean test payment records.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResetAllPayments = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.resetAllPayments({
+        backupId: resetBackupId,
+        acknowledgeConsequences: resetAcknowledge,
+        confirmation: resetConfirmText.trim(),
+      });
+      setResetPreview(res.preview);
+      setPaymentBackups(res.backups);
+      setResetAllModalOpen(false);
+      setResetAcknowledge(false);
+      setResetConfirmText('');
+      setFeedback({ type: 'ok', text: res.message });
+      await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Full payment reset failed.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSaveBranding = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.updateBranding({
+        siteName: brandingForm.siteName,
+        tagline: brandingForm.tagline,
+        siteDescription: brandingForm.siteDescription,
+        seoTitle: brandingForm.seoTitle,
+        seoDescription: brandingForm.seoDescription,
+        seoKeywords: brandingForm.seoKeywords,
+        logoUrl: brandingForm.logoUrl,
+        faviconUrl: brandingForm.faviconUrl,
+        contactEmail: brandingForm.contactEmail,
+        contactPhone: brandingForm.contactPhone || null,
+        contactWhatsapp: brandingForm.contactWhatsapp || null,
+        socialLinks: brandingForm.socialLinks,
+      });
+      setBrandingForm(res.branding);
+      setFounderForm(res.founder);
+      await refreshBranding?.();
+      setFeedback({ type: 'ok', text: res.message });
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Failed to save branding configuration.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSaveFounder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.updateFounder({
+        fullName: founderForm.fullName,
+        positionTitle: founderForm.positionTitle,
+        biography: founderForm.biography,
+        founderMessage: founderForm.founderMessage,
+        visionStatement: founderForm.visionStatement,
+        missionStatement: founderForm.missionStatement,
+        backgroundStory: founderForm.backgroundStory,
+        photoUrl: founderForm.photoUrl || null,
+        socialLinks: founderForm.socialLinks,
+      });
+      setBrandingForm(res.branding);
+      setFounderForm(res.founder);
+      await refreshBranding?.();
+      setFeedback({ type: 'ok', text: res.message });
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Failed to save founder profile.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleUploadBrandingAsset = async (
+    slot: 'logo' | 'favicon' | 'founder-photo',
+    file: File | null
+  ) => {
+    if (!file) return;
+    setUploadingSlot(slot);
+    setFeedback(null);
+    try {
+      const res = await api.admin.uploadBrandingAsset(slot, file);
+      setBrandingForm(res.branding);
+      setFounderForm(res.founder);
+      await refreshBranding?.();
+      setFeedback({ type: 'ok', text: res.message });
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text:
+          err instanceof Error
+            ? err.message
+            : 'Upload failed. Ensure Object Storage is configured or enter an image URL directly.',
+      });
+    } finally {
+      setUploadingSlot(null);
+    }
+  };
+
   const tabs: Array<{
     id: AdminSection;
     label: string;
@@ -780,13 +1040,17 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     { id: 'announcements', label: 'Notices', icon: Megaphone },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'users', label: 'Users', icon: Users },
+    ...(isSuperAdmin
+      ? [{ id: 'branding' as AdminSection, label: 'Branding & Founder', icon: Palette }]
+      : []),
   ];
 
   return (
     <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-sm overflow-hidden">
       <div className="bg-[#0b337a] text-white px-4 py-3 flex flex-wrap items-center justify-between gap-2.5">
-        <div className="flex items-center gap-2">
-          <Shield className="w-5 h-5" />
+        <div className="flex items-center gap-2.5">
+          <AcadetCrest className="w-8 h-8 sm:w-9 sm:h-9" />
+          <Shield className="w-5 h-5 shrink-0" />
           <h2 className="text-base sm:text-lg font-extrabold tracking-tight">
             Admin Console (PostgreSQL)
           </h2>
@@ -1310,6 +1574,145 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
         {/* PAYMENT RECORDS */}
         {section === 'payments' && (
           <div className="space-y-4">
+            {/* Payment Record Reset & Backup Console */}
+            <div className="rounded-xl border border-[#d6e4fa] dark:border-slate-700 bg-white dark:bg-slate-900 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Archive className="w-4 h-4 text-[#0b337a] dark:text-blue-400 shrink-0" />
+                  <div>
+                    <h3 className="text-sm font-extrabold text-[#082252] dark:text-white">
+                      Payment Record Backup &amp; Safe Reset
+                    </h3>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">
+                      Student accounts, exam attempts, results, and registered courses are always preserved.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void loadPaymentResetData()}
+                  className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 inline-flex items-center gap-1.5"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Inspect Records</span>
+                </button>
+              </div>
+
+              {resetPreview && (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                  {[
+                    { label: 'Total Records', value: resetPreview.totalPayments },
+                    { label: 'Successful', value: resetPreview.successfulCount },
+                    { label: 'Pending', value: resetPreview.pendingCount },
+                    { label: 'Failed', value: resetPreview.failedCount },
+                    { label: 'Test / Stale', value: resetPreview.testAndStaleCount },
+                    { label: 'Active Courses', value: resetPreview.activeRegistrationsCount },
+                  ].map((item) => (
+                    <div
+                      key={item.label}
+                      className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/50 px-3 py-2 text-center"
+                    >
+                      <div className="text-base sm:text-lg font-extrabold text-[#082252] dark:text-white tabular-nums">
+                        {item.value}
+                      </div>
+                      <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                        {item.label}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between pt-1">
+                <div className="flex flex-1 gap-2">
+                  <input
+                    type="text"
+                    value={backupLabel}
+                    onChange={(e) => setBackupLabel(e.target.value)}
+                    placeholder="Backup snapshot label (e.g. Pre-Launch Reset)"
+                    className="flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-medium"
+                  />
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={handleCreatePaymentBackup}
+                    className="px-3.5 py-2 rounded-lg bg-[#0b337a] hover:bg-[#072459] text-white text-xs font-extrabold whitespace-nowrap inline-flex items-center gap-1.5"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Create Backup Snapshot</span>
+                  </button>
+                </div>
+
+                {isSuperAdmin ? (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={handleResetTestPayments}
+                      className="px-3.5 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold whitespace-nowrap inline-flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Clean Test &amp; Stale</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setResetAcknowledge(false);
+                        setResetConfirmText('');
+                        setResetBackupId((prev) => prev || paymentBackups[0]?.id || '');
+                        setResetAllModalOpen(true);
+                      }}
+                      className="px-3.5 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-xs font-extrabold whitespace-nowrap inline-flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Reset All Payments</span>
+                    </button>
+                  </div>
+                ) : (
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    Super Admin required for payment deletion.
+                  </span>
+                )}
+              </div>
+
+              {paymentBackups.length > 0 && (
+                <div className="border-t border-slate-200 dark:border-slate-800 pt-2.5 space-y-1.5">
+                  <div className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Verified Payment Backups ({paymentBackups.length})
+                  </div>
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                    {paymentBackups.map((bk) => (
+                      <div
+                        key={bk.id}
+                        className="rounded-lg border border-slate-200 dark:border-slate-800 px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="min-w-0">
+                          <span className="font-extrabold text-slate-900 dark:text-white">
+                            {bk.backupLabel}
+                          </span>
+                          <span className="text-slate-500 dark:text-slate-400 ml-2 tabular-nums">
+                            {bk.totalPaymentsCount} payments · {bk.successfulCount} live · {bk.testCount} test ·{' '}
+                            {new Date(bk.createdAt).toLocaleString()}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={exportingBackupId === bk.id}
+                          onClick={() => void handleDownloadPaymentBackup(bk)}
+                          className="px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-1"
+                        >
+                          <Download className="w-3 h-3" />
+                          <span>{exportingBackupId === bk.id ? 'Downloading...' : 'Export JSON'}</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/70 border border-[#d6e4fa] dark:border-slate-700 p-4 space-y-3">
               <h3 className="text-sm font-extrabold text-[#082252] dark:text-white">
                 Payment Records
@@ -2138,6 +2541,512 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
             </div>
           </div>
         )}
+
+        {/* BRANDING, SEO & FOUNDER MANAGEMENT (SUPER ADMIN) */}
+        {section === 'branding' && isSuperAdmin && (
+          <div className="space-y-6">
+            {/* Panel 1: Official Website Branding, Logo, Favicon & SEO */}
+            <form
+              onSubmit={handleSaveBranding}
+              className="rounded-xl border border-[#d6e4fa] dark:border-slate-800 p-4 sm:p-5 space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <AcadetCrest src={brandingForm.logoUrl} className="w-9 h-9" />
+                  <div>
+                    <h3 className="text-sm sm:text-base font-extrabold text-[#082252] dark:text-white">
+                      Official Branding, Logo, Favicon &amp; SEO
+                    </h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Consistent across website header, dashboards, exams, results, payments, and footer.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="px-4 py-2 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-extrabold inline-flex items-center gap-1.5 min-h-[38px]"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{busy ? 'Saving...' : 'Save Branding & SEO'}</span>
+                </button>
+              </div>
+
+              {/* Logo & Favicon Uploaders */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="rounded-xl bg-[#eff5ff]/70 dark:bg-slate-800/50 border border-[#d6e4fa] dark:border-slate-700 p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-extrabold text-[#082252] dark:text-white">
+                      Official Website Logo
+                    </span>
+                    <AcadetCrest src={brandingForm.logoUrl} className="w-10 h-10" />
+                  </div>
+                  <input
+                    type="text"
+                    value={brandingForm.logoUrl}
+                    onChange={(e) =>
+                      setBrandingForm((p) => ({ ...p, logoUrl: e.target.value }))
+                    }
+                    placeholder="/acadet-logo.png"
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-mono"
+                  />
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-bold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <ImageIcon className="w-3.5 h-3.5 text-[#0a58ed]" />
+                    <span>
+                      {uploadingSlot === 'logo' ? 'Uploading Logo...' : 'Upload Logo (PNG/SVG/WEBP)'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                      className="hidden"
+                      onChange={(e) =>
+                        void handleUploadBrandingAsset('logo', e.target.files?.[0] || null)
+                      }
+                    />
+                  </label>
+                </div>
+
+                <div className="rounded-xl bg-[#eff5ff]/70 dark:bg-slate-800/50 border border-[#d6e4fa] dark:border-slate-700 p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-extrabold text-[#082252] dark:text-white">
+                      Browser Favicon (≥ 48×48)
+                    </span>
+                    <img
+                      src={brandingForm.faviconUrl || '/favicon-48x48.png'}
+                      alt="Favicon preview"
+                      className="w-9 h-9 rounded-lg bg-white p-0.5 border border-slate-200 object-contain"
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    value={brandingForm.faviconUrl}
+                    onChange={(e) =>
+                      setBrandingForm((p) => ({ ...p, faviconUrl: e.target.value }))
+                    }
+                    placeholder="/favicon-48x48.png"
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-mono"
+                  />
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-bold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <Upload className="w-3.5 h-3.5 text-[#0a58ed]" />
+                    <span>
+                      {uploadingSlot === 'favicon' ? 'Uploading Favicon...' : 'Upload Favicon (PNG/ICO)'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/png,image/x-icon,image/vnd.microsoft.icon,image/svg+xml"
+                      className="hidden"
+                      onChange={(e) =>
+                        void handleUploadBrandingAsset('favicon', e.target.files?.[0] || null)
+                      }
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Website Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={brandingForm.siteName}
+                    onChange={(e) =>
+                      setBrandingForm((p) => ({ ...p, siteName: e.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Brand Tagline
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={brandingForm.tagline}
+                    onChange={(e) =>
+                      setBrandingForm((p) => ({ ...p, tagline: e.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Website Description (Public Homepage &amp; Organization Schema)
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  value={brandingForm.siteDescription}
+                  onChange={(e) =>
+                    setBrandingForm((p) => ({ ...p, siteDescription: e.target.value }))
+                  }
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    SEO Page Title (&lt;title&gt;)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={brandingForm.seoTitle}
+                    onChange={(e) =>
+                      setBrandingForm((p) => ({ ...p, seoTitle: e.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs sm:text-sm font-semibold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    SEO Keywords
+                  </label>
+                  <input
+                    type="text"
+                    value={brandingForm.seoKeywords}
+                    onChange={(e) =>
+                      setBrandingForm((p) => ({ ...p, seoKeywords: e.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs sm:text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  SEO Meta Description
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  value={brandingForm.seoDescription}
+                  onChange={(e) =>
+                    setBrandingForm((p) => ({ ...p, seoDescription: e.target.value }))
+                  }
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs sm:text-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Contact Email
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={brandingForm.contactEmail}
+                    onChange={(e) =>
+                      setBrandingForm((p) => ({ ...p, contactEmail: e.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs sm:text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Contact Phone (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={brandingForm.contactPhone || ''}
+                    onChange={(e) =>
+                      setBrandingForm((p) => ({ ...p, contactPhone: e.target.value || null }))
+                    }
+                    placeholder="+234..."
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs sm:text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Support WhatsApp (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={brandingForm.contactWhatsapp || ''}
+                    onChange={(e) =>
+                      setBrandingForm((p) => ({
+                        ...p,
+                        contactWhatsapp: e.target.value || null,
+                      }))
+                    }
+                    placeholder="+234..."
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs sm:text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                  <Globe className="w-3.5 h-3.5" />
+                  <span>Website Social Media Links (Schema sameAs &amp; Footer)</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                  {(
+                    [
+                      'facebook',
+                      'twitter',
+                      'instagram',
+                      'youtube',
+                      'linkedin',
+                      'whatsapp',
+                      'tiktok',
+                      'website',
+                    ] as Array<keyof SocialLinksMap>
+                  ).map((net) => (
+                    <input
+                      key={net}
+                      type="url"
+                      placeholder={`${net} URL (https://...)`}
+                      value={brandingForm.socialLinks?.[net] || ''}
+                      onChange={(e) =>
+                        setBrandingForm((p) => ({
+                          ...p,
+                          socialLinks: {
+                            ...(p.socialLinks || {}),
+                            [net]: e.target.value || undefined,
+                          },
+                        }))
+                      }
+                      className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs"
+                    />
+                  ))}
+                </div>
+              </div>
+            </form>
+
+            {/* Panel 2: Founder & Creator Profile Editor (/founder) */}
+            <form
+              onSubmit={handleSaveFounder}
+              className="rounded-xl border border-[#d6e4fa] dark:border-slate-800 p-4 sm:p-5 space-y-4"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold text-[#082252] dark:text-white">
+                    Founder &amp; Creator Profile (/founder)
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Manage founder biography, vision, mission, photograph, and social profiles.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {onNavigatePublic && (
+                    <button
+                      type="button"
+                      onClick={() => onNavigatePublic('/founder')}
+                      className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 inline-flex items-center gap-1"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Preview /founder</span>
+                    </button>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={busy}
+                    className="px-4 py-2 rounded-lg bg-[#0b337a] hover:bg-[#072459] text-white text-xs font-extrabold inline-flex items-center gap-1.5 min-h-[38px]"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>{busy ? 'Saving...' : 'Save Founder Profile'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-[#eff5ff]/70 dark:bg-slate-800/50 border border-[#d6e4fa] dark:border-slate-700 p-3.5 flex flex-col sm:flex-row items-center gap-4">
+                <div className="w-16 h-16 rounded-xl bg-gradient-to-br from-[#0a58ed] to-[#0b337a] text-white font-extrabold text-xl flex items-center justify-center overflow-hidden shrink-0">
+                  {founderForm.photoUrl ? (
+                    <img
+                      src={founderForm.photoUrl}
+                      alt={founderForm.fullName}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span>IM</span>
+                  )}
+                </div>
+                <div className="flex-1 w-full space-y-2">
+                  <input
+                    type="text"
+                    value={founderForm.photoUrl || ''}
+                    onChange={(e) =>
+                      setFounderForm((p) => ({ ...p, photoUrl: e.target.value || null }))
+                    }
+                    placeholder="Founder photo URL (or upload below)"
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-mono"
+                  />
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-bold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <Upload className="w-3.5 h-3.5 text-[#0a58ed]" />
+                    <span>
+                      {uploadingSlot === 'founder-photo'
+                        ? 'Uploading Photo...'
+                        : 'Upload Founder Photo'}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      className="hidden"
+                      onChange={(e) =>
+                        void handleUploadBrandingAsset(
+                          'founder-photo',
+                          e.target.files?.[0] || null
+                        )
+                      }
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Founder Full Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={founderForm.fullName}
+                    onChange={(e) =>
+                      setFounderForm((p) => ({ ...p, fullName: e.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Position / Title
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={founderForm.positionTitle}
+                    onChange={(e) =>
+                      setFounderForm((p) => ({ ...p, positionTitle: e.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Biography
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  value={founderForm.biography}
+                  onChange={(e) =>
+                    setFounderForm((p) => ({ ...p, biography: e.target.value }))
+                  }
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs sm:text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Founder&apos;s Message
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  value={founderForm.founderMessage}
+                  onChange={(e) =>
+                    setFounderForm((p) => ({ ...p, founderMessage: e.target.value }))
+                  }
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs sm:text-sm"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Vision Statement
+                  </label>
+                  <textarea
+                    rows={2}
+                    required
+                    value={founderForm.visionStatement}
+                    onChange={(e) =>
+                      setFounderForm((p) => ({ ...p, visionStatement: e.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs sm:text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Mission Statement
+                  </label>
+                  <textarea
+                    rows={2}
+                    required
+                    value={founderForm.missionStatement}
+                    onChange={(e) =>
+                      setFounderForm((p) => ({ ...p, missionStatement: e.target.value }))
+                    }
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs sm:text-sm"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Acadet CBT Background Story
+                </label>
+                <textarea
+                  rows={2}
+                  required
+                  value={founderForm.backgroundStory}
+                  onChange={(e) =>
+                    setFounderForm((p) => ({ ...p, backgroundStory: e.target.value }))
+                  }
+                  className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs sm:text-sm"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Founder Social Links
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                  {(
+                    [
+                      'facebook',
+                      'twitter',
+                      'instagram',
+                      'youtube',
+                      'linkedin',
+                      'whatsapp',
+                      'tiktok',
+                      'website',
+                    ] as Array<keyof SocialLinksMap>
+                  ).map((net) => (
+                    <input
+                      key={net}
+                      type="url"
+                      placeholder={`${net} URL (https://...)`}
+                      value={founderForm.socialLinks?.[net] || ''}
+                      onChange={(e) =>
+                        setFounderForm((p) => ({
+                          ...p,
+                          socialLinks: {
+                            ...(p.socialLinks || {}),
+                            [net]: e.target.value || undefined,
+                          },
+                        }))
+                      }
+                      className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-1.5 text-xs"
+                    />
+                  ))}
+                </div>
+              </div>
+            </form>
+          </div>
+        )}
       </div>
 
       {/* Registration Details Modal */}
@@ -2847,6 +3756,119 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>{busy ? 'Sending...' : 'Send Notification'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Full Production Payment Record Reset Confirmation Modal (Super Admin) */}
+      {resetAllModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900 shadow-2xl overflow-hidden">
+            <div className="bg-red-600 text-white px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5" />
+                <h3 className="text-sm sm:text-base font-extrabold">
+                  Full Payment Record Reset (Super Admin)
+                </h3>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setResetAllModalOpen(false)}
+                className="p-1 rounded-lg hover:bg-white/15"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleResetAllPayments} className="p-4 space-y-3">
+              <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 p-3 text-xs text-red-800 dark:text-red-200 space-y-1.5">
+                <div className="font-extrabold">Read Consequences Carefully:</div>
+                <ul className="list-disc pl-4 space-y-1">
+                  <li>
+                    All payment transaction rows and Paystack webhook event logs will be removed from the active dashboard, resetting revenue statistics to zero.
+                  </li>
+                  <li>
+                    Student accounts, exam attempts, results, and previously registered courses remain intact with preserved reference metadata.
+                  </li>
+                  <li>A verified JSON backup snapshot is required before proceeding.</li>
+                </ul>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Verified Backup Snapshot
+                </label>
+                {paymentBackups.length === 0 ? (
+                  <div className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 p-2.5 text-xs text-amber-900 dark:text-amber-200">
+                    No backup exists yet. Close this dialog and click{' '}
+                    <strong>Create Backup Snapshot</strong> first.
+                  </div>
+                ) : (
+                  <select
+                    required
+                    value={resetBackupId}
+                    onChange={(e) => setResetBackupId(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-semibold"
+                  >
+                    {paymentBackups.map((bk) => (
+                      <option key={bk.id} value={bk.id}>
+                        {bk.backupLabel} ({bk.totalPaymentsCount} records · {new Date(bk.createdAt).toLocaleDateString()})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <label className="flex items-start gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={resetAcknowledge}
+                  onChange={(e) => setResetAcknowledge(e.target.checked)}
+                  className="mt-0.5 rounded border-slate-300 text-red-600 focus:ring-red-600"
+                />
+                <span>
+                  I understand this clears active payment transaction history and confirm a verified backup has been created.
+                </span>
+              </label>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Type <strong>RESET ALL PAYMENTS</strong> to confirm
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={resetConfirmText}
+                  onChange={(e) => setResetConfirmText(e.target.value)}
+                  placeholder="RESET ALL PAYMENTS"
+                  className="w-full rounded-xl border border-red-300 dark:border-red-800 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-extrabold"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setResetAllModalOpen(false)}
+                  className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    busy ||
+                    !resetBackupId ||
+                    !resetAcknowledge ||
+                    resetConfirmText.trim().toUpperCase() !== 'RESET ALL PAYMENTS'
+                  }
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-extrabold"
+                >
+                  {busy ? 'Resetting...' : 'Execute Full Reset'}
                 </button>
               </div>
             </form>

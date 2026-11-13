@@ -1,4 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import {
+  AcadetCrest,
+  BrandingProvider,
+  DEFAULT_CLIENT_BRANDING,
+  DEFAULT_CLIENT_FOUNDER,
+} from './components/cbt/AcadetLogo';
 import { AdminConsole } from './components/cbt/AdminConsole';
 import { AuthScreen } from './components/cbt/AuthScreen';
 import { CourseAccessRequiredModal } from './components/cbt/CourseAccessRequiredModal';
@@ -11,10 +17,20 @@ import { NotificationsView } from './components/cbt/NotificationsView';
 import { PaymentVerificationBanner } from './components/cbt/PaymentVerificationBanner';
 import { PracticeExamsView } from './components/cbt/PracticeExamsView';
 import { ResultsView } from './components/cbt/ResultsView';
+import { SeoHead } from './components/cbt/SeoHead';
 import { SettingsDrawer } from './components/cbt/SettingsDrawer';
 import { StudyMaterialsView } from './components/cbt/StudyMaterialsView';
 import { TopHeader } from './components/cbt/TopHeader';
 import { WorkspaceSidebar, type WorkspaceTab } from './components/cbt/WorkspaceSidebar';
+import { FounderView } from './components/public/FounderView';
+import {
+  PublicAboutView,
+  PublicContactView,
+  PublicCoursesView,
+  PublicHomeView,
+  PublicHowItWorksView,
+} from './components/public/PublicPages';
+import { PublicShell } from './components/public/PublicShell';
 import { api, ApiError } from './lib/api';
 import type {
   ActiveExamQuestion,
@@ -23,15 +39,41 @@ import type {
   AnnouncementItem,
   CourseCatalogueItem,
   DifficultyLevel,
+  FounderProfileData,
   GradedExamQuestion,
   PaymentVerifyOutcome,
+  PublicCourseSummary,
   SafeUser,
+  SiteBrandingData,
   StudentNotificationItem,
   UserPreferences,
 } from './types/cbt';
 
+const SUB_PUBLIC_PATHS = new Set([
+  '/about',
+  '/courses',
+  '/how-it-works',
+  '/contact',
+  '/founder',
+]);
+
+const INDEXABLE_PUBLIC_PATHS = new Set(['/', ...SUB_PUBLIC_PATHS]);
+
+function normalizePathname(raw: string): string {
+  const cleaned = (raw || '/').split('?')[0].split('#')[0].replace(/\/+$/, '');
+  return cleaned || '/';
+}
+
 export default function App() {
   const [booting, setBooting] = useState(true);
+  const [currentPath, setCurrentPath] = useState<string>(() =>
+    typeof window !== 'undefined' ? normalizePathname(window.location.pathname) : '/'
+  );
+
+  const [branding, setBranding] = useState<SiteBrandingData>(DEFAULT_CLIENT_BRANDING);
+  const [founder, setFounder] = useState<FounderProfileData>(DEFAULT_CLIENT_FOUNDER);
+  const [publicCourses, setPublicCourses] = useState<PublicCourseSummary[]>([]);
+
   const [healthState, setHealthState] = useState<{
     dbConfigured: boolean;
     dbConnected: boolean;
@@ -84,6 +126,36 @@ export default function App() {
   const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
   const [paymentOutcome, setPaymentOutcome] = useState<PaymentVerifyOutcome | null>(null);
   const [paymentVerifyError, setPaymentVerifyError] = useState<string | null>(null);
+
+  const navigateTo = useCallback((targetPath: string) => {
+    const next = normalizePathname(targetPath);
+    if (typeof window !== 'undefined' && normalizePathname(window.location.pathname) !== next) {
+      window.history.pushState({}, '', next);
+    }
+    setCurrentPath(next);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => {
+      setCurrentPath(normalizePathname(window.location.pathname));
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  const loadPublicSiteData = useCallback(async () => {
+    try {
+      const siteData = await api.public.getSiteData();
+      setBranding(siteData.branding);
+      setFounder(siteData.founder);
+      setPublicCourses(siteData.courses);
+    } catch {
+      // Keep default client branding fallback if offline or DB initializing
+    }
+  }, []);
 
   // Sync theme & font size from PostgreSQL user preferences onto <html>
   useEffect(() => {
@@ -154,10 +226,11 @@ export default function App() {
       setUnreadNotifications(0);
       setActivity(null);
       setActiveTab('home');
+      navigateTo('/login');
     };
     window.addEventListener('acadet:account-suspended', onSuspended);
     return () => window.removeEventListener('acadet:account-suspended', onSuspended);
-  }, []);
+  }, [navigateTo]);
 
   const verifyPaystackReturnReference = useCallback(
     async (reference: string, activeUser: SafeUser | null) => {
@@ -188,7 +261,7 @@ export default function App() {
     let active = true;
     async function bootstrap() {
       try {
-        const health = await api.health();
+        const [health] = await Promise.all([api.health(), loadPublicSiteData()]);
         if (!active) return;
         setHealthState({
           dbConfigured: health.database.configured,
@@ -229,7 +302,7 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [loadWorkspaceData, verifyPaystackReturnReference]);
+  }, [loadPublicSiteData, loadWorkspaceData, verifyPaystackReturnReference]);
 
   // Countdown tick while inside active CBT exam
   useEffect(() => {
@@ -244,6 +317,9 @@ export default function App() {
     setSuspensionNotice(null);
     setUser(signedInUser);
     setActiveTab('home');
+    if (currentPath === '/login' || currentPath === '/register') {
+      navigateTo('/');
+    }
     await loadWorkspaceData(signedInUser);
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -269,6 +345,7 @@ export default function App() {
     setCourseRequiredModalCourse(null);
     setPendingRegisterCourseId(null);
     setActiveTab('home');
+    navigateTo('/');
   };
 
   const handleMarkNotificationRead = async (notificationId: string) => {
@@ -344,7 +421,7 @@ export default function App() {
               title: coursePayload.title,
               level: '100 Level',
               description: '',
-              registrationFee: Number(coursePayload.registrationFee ?? 2000),
+              registrationFee: Number(coursePayload.registrationFee ?? 2350),
               currency: coursePayload.currency || 'NGN',
               publicationStatus: 'published',
               examCategory: 'Acadet CBT Examination',
@@ -396,58 +473,390 @@ export default function App() {
     await loadWorkspaceData(user);
   };
 
-  if (booting) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#eef3fb] dark:bg-[#0a0f1e] text-slate-700 dark:text-slate-200">
-        <div className="w-10 h-10 rounded-full border-4 border-[#0a58ed] border-t-transparent animate-spin" />
-        <p className="mt-4 text-sm font-bold">Loading Acadet CBT...</p>
-      </div>
-    );
-  }
+  const isViewingSubPublicPage = SUB_PUBLIC_PATHS.has(currentPath);
+  const isPublicIndexableRoute =
+    INDEXABLE_PUBLIC_PATHS.has(currentPath) && (!user || isViewingSubPublicPage);
 
-  if (!user) {
+  const renderPublicPageContent = () => {
+    if (currentPath === '/founder') {
+      return <FounderView onNavigate={navigateTo} />;
+    }
+    if (currentPath === '/about') {
+      return (
+        <PublicAboutView
+          courses={publicCourses}
+          user={user}
+          onNavigate={navigateTo}
+          onOpenDashboard={() => {
+            setActiveTab('home');
+            navigateTo('/');
+          }}
+        />
+      );
+    }
+    if (currentPath === '/courses') {
+      return (
+        <PublicCoursesView
+          courses={publicCourses}
+          user={user}
+          onNavigate={navigateTo}
+          onOpenDashboard={() => {
+            setActiveTab('catalogue');
+            navigateTo('/');
+          }}
+        />
+      );
+    }
+    if (currentPath === '/how-it-works') {
+      return (
+        <PublicHowItWorksView
+          courses={publicCourses}
+          user={user}
+          onNavigate={navigateTo}
+          onOpenDashboard={() => {
+            setActiveTab('home');
+            navigateTo('/');
+          }}
+        />
+      );
+    }
+    if (currentPath === '/contact') {
+      return (
+        <PublicContactView
+          courses={publicCourses}
+          user={user}
+          onNavigate={navigateTo}
+          onOpenDashboard={() => {
+            setActiveTab('help');
+            navigateTo('/');
+          }}
+        />
+      );
+    }
     return (
-      <AuthScreen
-        onAuthenticated={handleAuthenticated}
-        dbConfigured={healthState.dbConfigured}
-        dbConnected={healthState.dbConnected}
-        dbError={healthState.dbError}
-        suspensionNotice={suspensionNotice}
+      <PublicHomeView
+        courses={publicCourses}
+        user={user}
+        onNavigate={navigateTo}
+        onOpenDashboard={() => {
+          setActiveTab('home');
+          navigateTo('/');
+        }}
       />
     );
-  }
+  };
 
-  // Active CBT Examination Hall Mode
-  if (activeExam) {
+  const renderMainContent = () => {
+    if (booting) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-[#eef3fb] dark:bg-[#0a0f1e] text-slate-700 dark:text-slate-200">
+          <AcadetCrest className="w-12 h-12 mb-3" />
+          <div className="w-8 h-8 rounded-full border-4 border-[#0a58ed] border-t-transparent animate-spin" />
+          <p className="mt-3 text-sm font-bold">Loading {branding.siteName}...</p>
+        </div>
+      );
+    }
+
+    // Active CBT Examination Hall Mode takes strict precedence
+    if (user && activeExam) {
+      return (
+        <div className="min-h-screen flex flex-col bg-[#eef3fb] dark:bg-[#0a0f1e]">
+          <TopHeader
+            user={user}
+            courses={courses}
+            selectedCourseId={activeExam.session.courseId}
+            onSelectCourse={setSelectedCourseId}
+            onNavigateHome={() => setEndExamConfirmOpen(true)}
+            onLogout={handleLogout}
+            examMode={{
+              remainingSeconds,
+              courseLabel: `${activeExam.session.courseCode} — ${activeExam.session.courseTitle}`,
+              onRequestEndExam: () => setEndExamConfirmOpen(true),
+            }}
+          />
+          <main className="flex-1 flex flex-col">
+            <ExamHall
+              session={activeExam.session}
+              initialQuestions={activeExam.questions}
+              showQuestionPalette={user.preferences.showQuestionPalette}
+              soundNotifications={user.preferences.soundNotifications}
+              autoNextQuestion={user.preferences.autoNextQuestion}
+              remainingSeconds={remainingSeconds}
+              endExamConfirmOpen={endExamConfirmOpen}
+              onCloseEndExamConfirm={() => setEndExamConfirmOpen(false)}
+              onOpenEndExamConfirm={() => setEndExamConfirmOpen(true)}
+              onExamSubmitted={handleExamSubmitted}
+            />
+          </main>
+          <SettingsDrawer
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+            preferences={user.preferences}
+            courses={courses}
+            selectedCourseId={selectedCourseId}
+            onSavePreferences={handleSavePreferences}
+            saving={savingSettings}
+          />
+        </div>
+      );
+    }
+
+    // Sub-public informational pages (/about, /courses, /how-it-works, /contact, /founder)
+    // remain accessible anytime (both signed out & signed in)
+    if (isViewingSubPublicPage) {
+      return (
+        <PublicShell
+          currentPath={currentPath}
+          user={user}
+          onNavigate={navigateTo}
+          onReturnToDashboard={() => {
+            setActiveTab('home');
+            navigateTo('/');
+          }}
+        >
+          {renderPublicPageContent()}
+        </PublicShell>
+      );
+    }
+
+    // Signed out view routing: '/' renders Public Website, '/login'|'/register'|protected render AuthScreen
+    if (!user) {
+      if (currentPath === '/') {
+        return (
+          <PublicShell currentPath={currentPath} user={null} onNavigate={navigateTo}>
+            {renderPublicPageContent()}
+          </PublicShell>
+        );
+      }
+
+      return (
+        <AuthScreen
+          onAuthenticated={handleAuthenticated}
+          dbConfigured={healthState.dbConfigured}
+          dbConnected={healthState.dbConnected}
+          dbError={healthState.dbError}
+          suspensionNotice={suspensionNotice}
+          initialMode={currentPath === '/register' ? 'register' : 'login'}
+          onNavigatePublic={navigateTo}
+        />
+      );
+    }
+
+    // Signed-in Student / Admin Workspace
     return (
       <div className="min-h-screen flex flex-col bg-[#eef3fb] dark:bg-[#0a0f1e]">
         <TopHeader
           user={user}
           courses={courses}
-          selectedCourseId={activeExam.session.courseId}
+          selectedCourseId={selectedCourseId}
           onSelectCourse={setSelectedCourseId}
-          onNavigateHome={() => setEndExamConfirmOpen(true)}
+          onNavigateHome={() => setActiveTab('home')}
+          onOpenAdmin={
+            user.role === 'admin' || user.role === 'super_admin'
+              ? () => setActiveTab('admin')
+              : undefined
+          }
+          onOpenNotifications={() => setActiveTab('notifications')}
+          unreadNotifications={unreadNotifications}
           onLogout={handleLogout}
-          examMode={{
-            remainingSeconds,
-            courseLabel: `${activeExam.session.courseCode} — ${activeExam.session.courseTitle}`,
-            onRequestEndExam: () => setEndExamConfirmOpen(true),
-          }}
+          onToggleMobileMenu={() => setMobileMenuOpen((prev) => !prev)}
         />
-        <main className="flex-1 flex flex-col">
-          <ExamHall
-            session={activeExam.session}
-            initialQuestions={activeExam.questions}
-            showQuestionPalette={user.preferences.showQuestionPalette}
-            soundNotifications={user.preferences.soundNotifications}
-            autoNextQuestion={user.preferences.autoNextQuestion}
-            remainingSeconds={remainingSeconds}
-            endExamConfirmOpen={endExamConfirmOpen}
-            onCloseEndExamConfirm={() => setEndExamConfirmOpen(false)}
-            onOpenEndExamConfirm={() => setEndExamConfirmOpen(true)}
-            onExamSubmitted={handleExamSubmitted}
-          />
-        </main>
+
+        {activeTab === 'home' ? (
+          <>
+            <WorkspaceSidebar
+              activeTab={activeTab}
+              role={user.role}
+              mobileOpen={mobileMenuOpen}
+              mobileOnly
+              unreadNotifications={unreadNotifications}
+              onCloseMobile={() => setMobileMenuOpen(false)}
+              onSelectTab={setActiveTab}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onLogout={handleLogout}
+            />
+            <main className="flex-1 flex flex-col">
+              <HomeDashboard
+                courses={courses}
+                selectedCourseId={selectedCourseId}
+                defaultDifficulty={user.preferences.defaultDifficulty}
+                announcements={announcements}
+                activity={activity}
+                onSelectCourse={setSelectedCourseId}
+                onStartExam={handleStartExam}
+                onRequireRegistration={handleRequireRegistration}
+                onNavigateCourseRegistration={() => setActiveTab('catalogue')}
+                onNavigateMyCourses={() => setActiveTab('my-courses')}
+                onNavigateViewResults={() => setActiveTab('results')}
+                onNavigateStudyMaterials={() => setActiveTab('materials')}
+                onOpenSettings={() => setSettingsOpen(true)}
+                startingExam={startingExam}
+              />
+            </main>
+          </>
+        ) : (
+          <div className="flex-1 flex min-h-0">
+            <WorkspaceSidebar
+              activeTab={activeTab}
+              role={user.role}
+              mobileOpen={mobileMenuOpen}
+              unreadNotifications={unreadNotifications}
+              onCloseMobile={() => setMobileMenuOpen(false)}
+              onSelectTab={setActiveTab}
+              onOpenSettings={() => setSettingsOpen(true)}
+              onLogout={handleLogout}
+            />
+
+            <main className="flex-1 min-w-0 p-2.5 sm:p-5">
+              <div className="max-w-7xl mx-auto">
+                {activeTab === 'catalogue' && (
+                  <CourseRegistrationView
+                    user={user}
+                    courses={courses}
+                    onRefreshCatalog={() => loadWorkspaceData(user)}
+                    onStartCourseExam={handleStartCourseExamQuick}
+                    onWhatsappUpdated={(whatsappNumber) =>
+                      setUser((prev) => (prev ? { ...prev, whatsappNumber } : prev))
+                    }
+                    initialRegisterCourseId={pendingRegisterCourseId}
+                    onClearInitialRegisterCourseId={() => setPendingRegisterCourseId(null)}
+                  />
+                )}
+
+                {activeTab === 'my-courses' && (
+                  <MyRegisteredCoursesView
+                    onStartExamForCourse={handleStartCourseExamQuick}
+                    onBrowseCatalogue={() => setActiveTab('catalogue')}
+                    refreshTrigger={myCoursesRefreshKey}
+                  />
+                )}
+
+                {activeTab === 'notifications' && (
+                  <NotificationsView
+                    notifications={notifications}
+                    unreadCount={unreadNotifications}
+                    onMarkRead={handleMarkNotificationRead}
+                    onMarkAllRead={handleMarkAllNotificationsRead}
+                    onStartCourseExam={handleStartCourseExamQuick}
+                  />
+                )}
+
+                {activeTab === 'results' && (
+                  <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+                    <div className="xl:col-span-7">
+                      <ResultsView
+                        courses={courses}
+                        initialSessionResult={latestResult}
+                        onClearInitialSessionResult={() => setLatestResult(null)}
+                      />
+                    </div>
+                    <div className="xl:col-span-5">
+                      <StudyMaterialsView
+                        selectedCourseId={selectedCourseId}
+                        compact
+                        onExploreMore={() => setActiveTab('materials')}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'materials' && (
+                  <StudyMaterialsView selectedCourseId={selectedCourseId} />
+                )}
+
+                {activeTab === 'practice' && (
+                  <PracticeExamsView
+                    courses={courses}
+                    defaultDifficulty={user.preferences.defaultDifficulty}
+                    onStartExam={handleStartExam}
+                    onRequireRegistration={handleRequireRegistration}
+                    startingExam={startingExam}
+                  />
+                )}
+
+                {activeTab === 'help' && (
+                  <HelpSupportView
+                    dbConfigured={healthState.dbConfigured}
+                    dbConnected={healthState.dbConnected}
+                    objectStorageConfigured={healthState.objectStorageConfigured}
+                    paystackConfigured={healthState.paystackConfigured}
+                  />
+                )}
+
+                {activeTab === 'admin' &&
+                  (user.role === 'admin' || user.role === 'super_admin') && (
+                    <AdminConsole
+                      userRole={user.role}
+                      onNavigatePublic={navigateTo}
+                      onCatalogUpdated={async () => {
+                        await Promise.all([loadWorkspaceData(user), loadPublicSiteData()]);
+                        setMyCoursesRefreshKey((k) => k + 1);
+                      }}
+                    />
+                  )}
+              </div>
+            </main>
+          </div>
+        )}
+
+        {/* Deep Navy Footer with Consistent Brand Crest & Public Links */}
+        <footer className="bg-[#0b337a] text-white/90 text-xs sm:text-sm py-3.5 px-4 sm:px-6 border-t border-white/10">
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2">
+              <AcadetCrest className="w-6 h-6" />
+              <span>
+                © {new Date().getFullYear()} {branding.siteName}. All rights reserved.
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-blue-100">
+              <a
+                href="/about"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigateTo('/about');
+                }}
+                className="hover:text-white hover:underline"
+              >
+                About
+              </a>
+              <a
+                href="/courses"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigateTo('/courses');
+                }}
+                className="hover:text-white hover:underline"
+              >
+                Courses
+              </a>
+              <a
+                href="/founder"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigateTo('/founder');
+                }}
+                className="hover:text-white hover:underline"
+              >
+                Founder
+              </a>
+              <a
+                href="/contact"
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigateTo('/contact');
+                }}
+                className="hover:text-white hover:underline"
+              >
+                Contact
+              </a>
+              <span className="sm:border-l sm:border-white/25 sm:pl-3 text-white/90">
+                Powered by Acadet Learning Hub
+              </span>
+            </div>
+          </div>
+        </footer>
+
         <SettingsDrawer
           open={settingsOpen}
           onClose={() => setSettingsOpen(false)}
@@ -457,208 +866,48 @@ export default function App() {
           onSavePreferences={handleSavePreferences}
           saving={savingSettings}
         />
+
+        <CourseAccessRequiredModal
+          course={courseRequiredModalCourse}
+          onClose={() => setCourseRequiredModalCourse(null)}
+          onRegisterNow={handleRegisterNowFromModal}
+        />
+
+        <PaymentVerificationBanner
+          verifying={isVerifyingPayment}
+          reference={verifyingRef}
+          outcome={paymentOutcome}
+          error={paymentVerifyError}
+          onRetryVerify={(ref) => void verifyPaystackReturnReference(ref, user)}
+          onGoToMyCourses={() => {
+            setPaymentOutcome(null);
+            setPaymentVerifyError(null);
+            setVerifyingRef(null);
+            setActiveTab('my-courses');
+          }}
+          onDismiss={() => {
+            setPaymentOutcome(null);
+            setPaymentVerifyError(null);
+            setVerifyingRef(null);
+          }}
+        />
       </div>
     );
-  }
+  };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#eef3fb] dark:bg-[#0a0f1e]">
-      <TopHeader
-        user={user}
-        courses={courses}
-        selectedCourseId={selectedCourseId}
-        onSelectCourse={setSelectedCourseId}
-        onNavigateHome={() => setActiveTab('home')}
-        onOpenAdmin={
-          user.role === 'admin' || user.role === 'super_admin'
-            ? () => setActiveTab('admin')
-            : undefined
-        }
-        onOpenNotifications={() => setActiveTab('notifications')}
-        unreadNotifications={unreadNotifications}
-        onLogout={handleLogout}
-        onToggleMobileMenu={() => setMobileMenuOpen((prev) => !prev)}
+    <BrandingProvider
+      branding={branding}
+      founder={founder}
+      refreshBranding={loadPublicSiteData}
+    >
+      <SeoHead
+        pathname={currentPath}
+        branding={branding}
+        founder={founder}
+        isPrivateAppRoute={!isPublicIndexableRoute}
       />
-
-      {activeTab === 'home' ? (
-        <>
-          <WorkspaceSidebar
-            activeTab={activeTab}
-            role={user.role}
-            mobileOpen={mobileMenuOpen}
-            mobileOnly
-            unreadNotifications={unreadNotifications}
-            onCloseMobile={() => setMobileMenuOpen(false)}
-            onSelectTab={setActiveTab}
-            onOpenSettings={() => setSettingsOpen(true)}
-            onLogout={handleLogout}
-          />
-          <main className="flex-1 flex flex-col">
-            <HomeDashboard
-              courses={courses}
-              selectedCourseId={selectedCourseId}
-              defaultDifficulty={user.preferences.defaultDifficulty}
-              announcements={announcements}
-              activity={activity}
-              onSelectCourse={setSelectedCourseId}
-              onStartExam={handleStartExam}
-              onRequireRegistration={handleRequireRegistration}
-              onNavigateCourseRegistration={() => setActiveTab('catalogue')}
-              onNavigateMyCourses={() => setActiveTab('my-courses')}
-              onNavigateViewResults={() => setActiveTab('results')}
-              onNavigateStudyMaterials={() => setActiveTab('materials')}
-              onOpenSettings={() => setSettingsOpen(true)}
-              startingExam={startingExam}
-            />
-          </main>
-        </>
-      ) : (
-        <div className="flex-1 flex min-h-0">
-          <WorkspaceSidebar
-            activeTab={activeTab}
-            role={user.role}
-            mobileOpen={mobileMenuOpen}
-            unreadNotifications={unreadNotifications}
-            onCloseMobile={() => setMobileMenuOpen(false)}
-            onSelectTab={setActiveTab}
-            onOpenSettings={() => setSettingsOpen(true)}
-            onLogout={handleLogout}
-          />
-
-          <main className="flex-1 min-w-0 p-2.5 sm:p-5">
-            <div className="max-w-7xl mx-auto">
-              {activeTab === 'catalogue' && (
-                <CourseRegistrationView
-                  user={user}
-                  courses={courses}
-                  onRefreshCatalog={() => loadWorkspaceData(user)}
-                  onStartCourseExam={handleStartCourseExamQuick}
-                  onWhatsappUpdated={(whatsappNumber) =>
-                    setUser((prev) => (prev ? { ...prev, whatsappNumber } : prev))
-                  }
-                  initialRegisterCourseId={pendingRegisterCourseId}
-                  onClearInitialRegisterCourseId={() => setPendingRegisterCourseId(null)}
-                />
-              )}
-
-              {activeTab === 'my-courses' && (
-                <MyRegisteredCoursesView
-                  onStartExamForCourse={handleStartCourseExamQuick}
-                  onBrowseCatalogue={() => setActiveTab('catalogue')}
-                  refreshTrigger={myCoursesRefreshKey}
-                />
-              )}
-
-              {activeTab === 'notifications' && (
-                <NotificationsView
-                  notifications={notifications}
-                  unreadCount={unreadNotifications}
-                  onMarkRead={handleMarkNotificationRead}
-                  onMarkAllRead={handleMarkAllNotificationsRead}
-                  onStartCourseExam={handleStartCourseExamQuick}
-                />
-              )}
-
-              {activeTab === 'results' && (
-                <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
-                  <div className="xl:col-span-7">
-                    <ResultsView
-                      courses={courses}
-                      initialSessionResult={latestResult}
-                      onClearInitialSessionResult={() => setLatestResult(null)}
-                    />
-                  </div>
-                  <div className="xl:col-span-5">
-                    <StudyMaterialsView
-                      selectedCourseId={selectedCourseId}
-                      compact
-                      onExploreMore={() => setActiveTab('materials')}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {activeTab === 'materials' && (
-                <StudyMaterialsView selectedCourseId={selectedCourseId} />
-              )}
-
-              {activeTab === 'practice' && (
-                <PracticeExamsView
-                  courses={courses}
-                  defaultDifficulty={user.preferences.defaultDifficulty}
-                  onStartExam={handleStartExam}
-                  onRequireRegistration={handleRequireRegistration}
-                  startingExam={startingExam}
-                />
-              )}
-
-              {activeTab === 'help' && (
-                <HelpSupportView
-                  dbConfigured={healthState.dbConfigured}
-                  dbConnected={healthState.dbConnected}
-                  objectStorageConfigured={healthState.objectStorageConfigured}
-                  paystackConfigured={healthState.paystackConfigured}
-                />
-              )}
-
-              {activeTab === 'admin' &&
-                (user.role === 'admin' || user.role === 'super_admin') && (
-                  <AdminConsole
-                    onCatalogUpdated={async () => {
-                      await loadWorkspaceData(user);
-                      setMyCoursesRefreshKey((k) => k + 1);
-                    }}
-                  />
-                )}
-            </div>
-          </main>
-        </div>
-      )}
-
-      {/* Deep Navy Footer */}
-      <footer className="bg-[#0b337a] text-white/90 text-xs sm:text-sm py-3.5 px-4 sm:px-6 border-t border-white/10">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>© 2025 Acadet CBT. All rights reserved.</span>
-          <span className="sm:border-l sm:border-white/25 sm:pl-4">
-            Powered by Acadet Learning Hub
-          </span>
-        </div>
-      </footer>
-
-      <SettingsDrawer
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        preferences={user.preferences}
-        courses={courses}
-        selectedCourseId={selectedCourseId}
-        onSavePreferences={handleSavePreferences}
-        saving={savingSettings}
-      />
-
-      <CourseAccessRequiredModal
-        course={courseRequiredModalCourse}
-        onClose={() => setCourseRequiredModalCourse(null)}
-        onRegisterNow={handleRegisterNowFromModal}
-      />
-
-      <PaymentVerificationBanner
-        verifying={isVerifyingPayment}
-        reference={verifyingRef}
-        outcome={paymentOutcome}
-        error={paymentVerifyError}
-        onRetryVerify={(ref) => void verifyPaystackReturnReference(ref, user)}
-        onGoToMyCourses={() => {
-          setPaymentOutcome(null);
-          setPaymentVerifyError(null);
-          setVerifyingRef(null);
-          setActiveTab('my-courses');
-        }}
-        onDismiss={() => {
-          setPaymentOutcome(null);
-          setPaymentVerifyError(null);
-          setVerifyingRef(null);
-        }}
-      />
-    </div>
+      {renderMainContent()}
+    </BrandingProvider>
   );
 }

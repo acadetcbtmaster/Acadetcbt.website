@@ -16,6 +16,7 @@ import type {
   GradedExamQuestion,
   OptionLetter,
 } from '../../types/cbt';
+import { AcadetCrest } from './AcadetLogo';
 import { CalculatorModal } from './CalculatorModal';
 
 interface ExamHallProps {
@@ -257,8 +258,11 @@ export const ExamHall: React.FC<ExamHallProps> = ({
         {/* Main Question Area */}
         <section className="flex-1 flex flex-col rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-sm overflow-hidden">
           <div className="px-5 py-3.5 bg-[#eff5ff]/75 dark:bg-slate-800/70 border-b border-[#dce6f5] dark:border-slate-800 flex items-center justify-between gap-3">
-            <div className="font-extrabold text-base sm:text-lg text-slate-900 dark:text-white">
-              Question {currentQuestion.order} of {questions.length}
+            <div className="flex items-center gap-2.5 min-w-0">
+              <AcadetCrest className="w-7 h-7" frameOnDark={false} />
+              <div className="font-extrabold text-base sm:text-lg text-slate-900 dark:text-white truncate">
+                Question {currentQuestion.order} of {questions.length}
+              </div>
             </div>
             <span
               className={`px-3.5 py-1 rounded-lg text-xs font-extrabold ${difficultyBadgeClass}`}

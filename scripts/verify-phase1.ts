@@ -21,6 +21,9 @@ async function verifyPhase1() {
     'paymentWebhookEvents',
     'notifications',
     'notificationReads',
+    'paymentBackups',
+    'siteBranding',
+    'founderProfile',
   ] as const;
 
   for (const key of expectedTables) {
@@ -117,6 +120,25 @@ async function verifyPhase1() {
     assert.ok(
       sqlContent5.includes(snippet),
       `SQL migration 0005 missing expected definition: ${snippet}`
+    );
+  }
+
+  const sqlPath6 = path.resolve(
+    process.cwd(),
+    'migrations/0006_branding_founder_and_payment_reset.sql'
+  );
+  const sqlContent6 = await fs.readFile(sqlPath6, 'utf-8');
+  for (const snippet of [
+    'CREATE TABLE IF NOT EXISTS payment_backups',
+    'CREATE TABLE IF NOT EXISTS site_branding',
+    'CREATE TABLE IF NOT EXISTS founder_profile',
+    'preserved_payment_ref',
+    'ON DELETE SET NULL',
+    'ISAIAH (MENMEX)',
+  ]) {
+    assert.ok(
+      sqlContent6.includes(snippet),
+      `SQL migration 0006 missing expected definition: ${snippet}`
     );
   }
 

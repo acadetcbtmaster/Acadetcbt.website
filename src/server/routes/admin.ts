@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+import path from 'node:path';
 import { GoogleGenAI, Type } from '@google/genai';
 import { desc, eq, sql } from 'drizzle-orm';
 import { Router, type RequestHandler } from 'express';
@@ -9,12 +11,20 @@ import {
   auditLogs,
   courses,
   examSessions,
+  founderProfile,
+  paymentBackups,
   payments,
   questions,
+  siteBranding,
   studyMaterials,
   users,
 } from '../../db/schema.js';
 import { writeAuditLog } from '../lib/audit.js';
+import {
+  getPublicBrandingAndFounder,
+  sanitizePublicUrl,
+  sanitizeSocialLinks,
+} from '../lib/branding.js';
 import { sanitizeUser } from '../lib/jwt.js';
 import {
   createStudentNotification,
@@ -804,7 +814,9 @@ async function queryAdminRegistrations(filters: {
   }
   if (filters.paymentStatus) {
     values.push(filters.paymentStatus);
-    clauses.push(`p.payment_status = $${values.length}`);
+    clauses.push(
+      `COALESCE(p.payment_status, CASE WHEN cr.preserved_payment_ref IS NOT NULL THEN 'successful' ELSE 'pending' END) = $${values.length}`
+    );
   }
   if (filters.dateFrom) {
     values.push(filters.dateFrom);
@@ -852,27 +864,27 @@ async function queryAdminRegistrations(filters: {
        c.id AS "courseId",
        c.code AS "courseCode",
        c.title AS "courseTitle",
-       p.id AS "paymentId",
-       p.payment_reference AS "paymentReference",
-       p.course_value::text AS "courseValue",
-       p.total_amount_charged::text AS "totalAmountCharged",
-       p.amount::text AS "amount",
-       p.currency,
+       COALESCE(p.id::text, cr.id::text) AS "paymentId",
+       COALESCE(p.payment_reference, cr.preserved_payment_ref, 'PRESERVED-REG') AS "paymentReference",
+       COALESCE(p.course_value, 2300.00)::text AS "courseValue",
+       COALESCE(p.total_amount_charged, cr.preserved_amount_paid, 2350.00)::text AS "totalAmountCharged",
+       COALESCE(p.amount, cr.preserved_amount_paid, 2350.00)::text AS "amount",
+       COALESCE(p.currency, 'NGN') AS currency,
        p.gateway_fee::text AS "gatewayFee",
        p.net_settlement_amount::text AS "netSettlementAmount",
        p.settlement_variance::text AS "settlementVariance",
-       p.reconciliation_status AS "reconciliationStatus",
+       COALESCE(p.reconciliation_status, 'reconciled') AS "reconciliationStatus",
        p.payment_channel AS "paymentChannel",
-       p.payment_status AS "paymentStatus",
+       COALESCE(p.payment_status, CASE WHEN cr.preserved_payment_ref IS NOT NULL THEN 'successful' ELSE 'pending' END) AS "paymentStatus",
        cr.registration_status AS "registrationStatus",
-       p.gateway,
+       COALESCE(p.gateway, 'paystack') AS gateway,
        p.gateway_transaction_id AS "gatewayTransactionId",
        p.paid_at AS "paidAt",
        cr.registered_at AS "registeredAt"
      FROM course_registrations cr
      INNER JOIN users u ON u.id = cr.student_id
      INNER JOIN courses c ON c.id = cr.course_id
-     INNER JOIN payments p ON p.id = cr.payment_id
+     LEFT JOIN payments p ON p.id = cr.payment_id
      ${whereSql}
      ORDER BY cr.registered_at DESC
      LIMIT 500`,
@@ -1336,6 +1348,8 @@ router.get('/users/:id/profile', async (req, res) => {
       registrationStatus: string | null;
       registeredAt: Date | null;
       whatsappNumber: string | null;
+      paymentId: string | null;
+      preservedPaymentRef: string | null;
       paymentStatus: string | null;
       paymentReference: string | null;
       amountPaid: string | null;
@@ -1351,9 +1365,11 @@ router.get('/users/:id/profile', async (req, res) => {
          cr.registration_status AS "registrationStatus",
          cr.registered_at AS "registeredAt",
          COALESCE(cr.whatsapp_number, p.whatsapp_number) AS "whatsappNumber",
-         p.payment_status AS "paymentStatus",
-         p.payment_reference AS "paymentReference",
-         p.total_amount_charged::text AS "amountPaid"
+         cr.payment_id AS "paymentId",
+         cr.preserved_payment_ref AS "preservedPaymentRef",
+         COALESCE(p.payment_status, CASE WHEN cr.preserved_payment_ref IS NOT NULL THEN 'successful' ELSE NULL END) AS "paymentStatus",
+         COALESCE(p.payment_reference, cr.preserved_payment_ref) AS "paymentReference",
+         COALESCE(p.total_amount_charged, cr.preserved_amount_paid)::text AS "amountPaid"
        FROM courses c
        LEFT JOIN course_registrations cr
          ON cr.course_id = c.id AND cr.student_id = $1 AND cr.registration_status = 'active'
@@ -1464,7 +1480,10 @@ router.get('/users/:id/profile', async (req, res) => {
       courseValue: COURSE_VALUE_NAIRA,
       registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA,
       currency: STANDARD_CURRENCY,
-      isRegistered: r.registrationStatus === 'active' && r.paymentStatus === 'successful',
+      isRegistered:
+        r.registrationStatus === 'active' &&
+        (r.paymentStatus === 'successful' ||
+          (r.paymentId === null && Boolean(r.preservedPaymentRef))),
       registeredAt: r.registeredAt,
       whatsappNumber: r.whatsappNumber,
       paymentStatus: r.paymentStatus,
@@ -1982,6 +2001,729 @@ router.get('/results', async (_req, res) => {
     handleApiError(res, err, 'listing student results');
   }
 });
+
+// Payment Inspection, Backup & Reset Management (Preserves users, registrations, exam sessions & results)
+const TEST_PAYMENT_PREDICATE = `(
+  LOWER(payment_reference) LIKE '%test%'
+  OR LOWER(payment_reference) LIKE '%demo%'
+  OR LOWER(payment_reference) LIKE '%seed%'
+  OR COALESCE(gateway_response->>'domain', '') = 'test'
+)`;
+
+async function fetchPaymentResetPreviewAndBackups() {
+  const pool = getPool();
+  const [countsRes, backupsRes] = await Promise.all([
+    pool.query<{
+      totalPayments: number;
+      successfulCount: number;
+      liveSuccessfulCount: number;
+      pendingCount: number;
+      failedCount: number;
+      refundedCount: number;
+      testCount: number;
+      testAndStaleCount: number;
+      linkedRegistrationsCount: number;
+      activeRegistrationsCount: number;
+      webhookEventsCount: number;
+    }>(`
+      SELECT
+        (SELECT COUNT(*)::int FROM payments) AS "totalPayments",
+        (SELECT COUNT(*)::int FROM payments WHERE payment_status = 'successful') AS "successfulCount",
+        (SELECT COUNT(*)::int FROM payments WHERE payment_status = 'successful' AND NOT ${TEST_PAYMENT_PREDICATE}) AS "liveSuccessfulCount",
+        (SELECT COUNT(*)::int FROM payments WHERE payment_status = 'pending') AS "pendingCount",
+        (SELECT COUNT(*)::int FROM payments WHERE payment_status = 'failed') AS "failedCount",
+        (SELECT COUNT(*)::int FROM payments WHERE payment_status = 'refunded') AS "refundedCount",
+        (SELECT COUNT(*)::int FROM payments WHERE ${TEST_PAYMENT_PREDICATE}) AS "testCount",
+        (SELECT COUNT(*)::int FROM payments WHERE ${TEST_PAYMENT_PREDICATE} OR payment_status IN ('pending', 'failed')) AS "testAndStaleCount",
+        (SELECT COUNT(*)::int FROM course_registrations WHERE payment_id IS NOT NULL) AS "linkedRegistrationsCount",
+        (SELECT COUNT(*)::int FROM course_registrations WHERE registration_status = 'active') AS "activeRegistrationsCount",
+        (SELECT COUNT(*)::int FROM payment_webhook_events) AS "webhookEventsCount"
+    `),
+    pool.query<{
+      id: string;
+      backupLabel: string;
+      resetScope: string;
+      totalPaymentsCount: number;
+      successfulCount: number;
+      pendingCount: number;
+      failedCount: number;
+      testCount: number;
+      createdByName: string | null;
+      createdAt: Date;
+    }>(`
+      SELECT
+        pb.id,
+        pb.backup_label AS "backupLabel",
+        pb.reset_scope AS "resetScope",
+        pb.total_payments_count AS "totalPaymentsCount",
+        pb.successful_count AS "successfulCount",
+        pb.pending_count AS "pendingCount",
+        pb.failed_count AS "failedCount",
+        pb.test_count AS "testCount",
+        u.full_name AS "createdByName",
+        pb.created_at AS "createdAt"
+      FROM payment_backups pb
+      LEFT JOIN users u ON u.id = pb.created_by
+      ORDER BY pb.created_at DESC
+      LIMIT 15
+    `),
+  ]);
+
+  return {
+    preview: countsRes.rows[0] ?? {
+      totalPayments: 0,
+      successfulCount: 0,
+      liveSuccessfulCount: 0,
+      pendingCount: 0,
+      failedCount: 0,
+      refundedCount: 0,
+      testCount: 0,
+      testAndStaleCount: 0,
+      linkedRegistrationsCount: 0,
+      activeRegistrationsCount: 0,
+      webhookEventsCount: 0,
+    },
+    backups: backupsRes.rows,
+  };
+}
+
+async function createPaymentBackupSnapshot(params: {
+  actorUserId: string;
+  label: string;
+  scope: 'manual_snapshot' | 'test_and_stale' | 'full_production_reset';
+}) {
+  const pool = getPool();
+  const [payRows, regRows, webhookRows] = await Promise.all([
+    pool.query(`SELECT * FROM payments ORDER BY created_at DESC`),
+    pool.query(`SELECT * FROM course_registrations ORDER BY registered_at DESC`),
+    pool.query(`SELECT * FROM payment_webhook_events ORDER BY received_at DESC LIMIT 1000`),
+  ]);
+
+  const rows = payRows.rows as Array<{
+    payment_status: string;
+    payment_reference: string;
+    gateway_response?: Record<string, unknown> | null;
+  }>;
+
+  let successfulCount = 0;
+  let pendingCount = 0;
+  let failedCount = 0;
+  let testCount = 0;
+
+  for (const r of rows) {
+    if (r.payment_status === 'successful') successfulCount += 1;
+    else if (r.payment_status === 'pending') pendingCount += 1;
+    else if (r.payment_status === 'failed') failedCount += 1;
+
+    const refLower = String(r.payment_reference || '').toLowerCase();
+    const domain = String(r.gateway_response?.domain || '').toLowerCase();
+    if (
+      refLower.includes('test') ||
+      refLower.includes('demo') ||
+      refLower.includes('seed') ||
+      domain === 'test'
+    ) {
+      testCount += 1;
+    }
+  }
+
+  const db = getDb();
+  const [inserted] = await db
+    .insert(paymentBackups)
+    .values({
+      backupLabel: params.label,
+      resetScope: params.scope,
+      totalPaymentsCount: rows.length,
+      successfulCount,
+      pendingCount,
+      failedCount,
+      testCount,
+      snapshotPayload: {
+        exportedAt: new Date().toISOString(),
+        payments: payRows.rows,
+        courseRegistrations: regRows.rows,
+        paymentWebhookEvents: webhookRows.rows,
+      },
+      createdBy: params.actorUserId,
+    })
+    .returning({
+      id: paymentBackups.id,
+      backupLabel: paymentBackups.backupLabel,
+      resetScope: paymentBackups.resetScope,
+      totalPaymentsCount: paymentBackups.totalPaymentsCount,
+      successfulCount: paymentBackups.successfulCount,
+      pendingCount: paymentBackups.pendingCount,
+      failedCount: paymentBackups.failedCount,
+      testCount: paymentBackups.testCount,
+      createdAt: paymentBackups.createdAt,
+    });
+
+  return inserted;
+}
+
+router.get('/payments/reset-preview', async (_req, res) => {
+  try {
+    const data = await fetchPaymentResetPreviewAndBackups();
+    res.json(data);
+  } catch (err) {
+    handleApiError(res, err, 'fetching payment reset preview');
+  }
+});
+
+router.post('/payments/backup', async (req, res) => {
+  try {
+    const bodySchema = z.object({
+      label: z.string().trim().min(2).max(120).optional(),
+    });
+    const parsed = bodySchema.parse(req.body ?? {});
+    const label =
+      parsed.label ||
+      `Payment Backup ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
+
+    const backup = await createPaymentBackupSnapshot({
+      actorUserId: req.user!.id,
+      label,
+      scope: 'manual_snapshot',
+    });
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.payments.backup_create',
+      entityType: 'payment_backup',
+      entityId: backup.id,
+      metadata: {
+        backupLabel: backup.backupLabel,
+        totalPaymentsCount: backup.totalPaymentsCount,
+      },
+      ipAddress: req.ip,
+    });
+
+    const data = await fetchPaymentResetPreviewAndBackups();
+    res.status(201).json({
+      backup,
+      ...data,
+      message: `Backup created with ${backup.totalPaymentsCount} payment records.`,
+    });
+  } catch (err) {
+    handleApiError(res, err, 'creating payment backup');
+  }
+});
+
+router.get('/payments/backup/:id/export', async (req, res) => {
+  try {
+    const db = getDb();
+    const [backup] = await db
+      .select()
+      .from(paymentBackups)
+      .where(eq(paymentBackups.id, req.params.id))
+      .limit(1);
+
+    if (!backup) {
+      res.status(404).json({ error: 'Payment backup record not found.' });
+      return;
+    }
+
+    const safeDate = new Date(backup.createdAt).toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="acadet-payments-backup-${safeDate}-${backup.id.slice(0, 8)}.json"`
+    );
+    res.send(
+      JSON.stringify(
+        {
+          id: backup.id,
+          backupLabel: backup.backupLabel,
+          resetScope: backup.resetScope,
+          createdAt: backup.createdAt,
+          counts: {
+            totalPaymentsCount: backup.totalPaymentsCount,
+            successfulCount: backup.successfulCount,
+            pendingCount: backup.pendingCount,
+            failedCount: backup.failedCount,
+            testCount: backup.testCount,
+          },
+          snapshot: backup.snapshotPayload,
+        },
+        null,
+        2
+      )
+    );
+  } catch (err) {
+    handleApiError(res, err, 'exporting payment backup');
+  }
+});
+
+router.post('/payments/reset-test', requireRole('super_admin'), async (req, res) => {
+  try {
+    const backup = await createPaymentBackupSnapshot({
+      actorUserId: req.user!.id,
+      label: `Auto-Backup before Test/Stale Cleanup (${new Date().toISOString().slice(0, 10)})`,
+      scope: 'test_and_stale',
+    });
+
+    const pool = getPool();
+    const client = await pool.connect();
+    let removedCount = 0;
+
+    try {
+      await client.query('BEGIN');
+
+      const targetRes = await client.query<{ id: string; payment_reference: string }>(
+        `SELECT id, payment_reference FROM payments
+         WHERE ${TEST_PAYMENT_PREDICATE} OR payment_status IN ('pending', 'failed')`
+      );
+      const targetIds = targetRes.rows.map((r) => r.id);
+      const targetRefs = targetRes.rows.map((r) => r.payment_reference);
+
+      if (targetIds.length > 0) {
+        // Preserve any active course_registrations before clearing stale payment rows
+        await client.query(
+          `UPDATE course_registrations cr
+           SET preserved_payment_ref = COALESCE(cr.preserved_payment_ref, p.payment_reference),
+               preserved_amount_paid = COALESCE(cr.preserved_amount_paid, p.total_amount_charged, p.amount),
+               payment_id = NULL,
+               updated_at = NOW()
+           FROM payments p
+           WHERE cr.payment_id = p.id
+             AND p.id = ANY($1::uuid[])`,
+          [targetIds]
+        );
+
+        await client.query(
+          `UPDATE notifications SET payment_id = NULL WHERE payment_id = ANY($1::uuid[])`,
+          [targetIds]
+        );
+
+        if (targetRefs.length > 0) {
+          await client.query(
+            `DELETE FROM payment_webhook_events WHERE payment_reference = ANY($1::text[])`,
+            [targetRefs]
+          );
+        }
+
+        const delRes = await client.query(
+          `DELETE FROM payments WHERE id = ANY($1::uuid[])`,
+          [targetIds]
+        );
+        removedCount = delRes.rowCount ?? 0;
+      }
+
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.payments.reset_test',
+      entityType: 'payments',
+      entityId: backup.id,
+      metadata: {
+        backupId: backup.id,
+        removedCount,
+        preservedStudentsAndRegistrations: true,
+      },
+      ipAddress: req.ip,
+    });
+
+    const data = await fetchPaymentResetPreviewAndBackups();
+    res.json({
+      removedCount,
+      backupId: backup.id,
+      ...data,
+      message: `Removed ${removedCount} test, pending, and failed transactions. Live successful receipts, student accounts, exam sessions, and course registrations remain intact.`,
+    });
+  } catch (err) {
+    handleApiError(res, err, 'cleaning test and stale payment transactions');
+  }
+});
+
+router.post('/payments/reset-all', requireRole('super_admin'), async (req, res) => {
+  try {
+    const schema = z.object({
+      backupId: z.string().uuid('A verified backup ID is required before full payment reset.'),
+      acknowledgeConsequences: z.literal(true),
+      confirmation: z.literal('RESET ALL PAYMENTS'),
+    });
+    const parsed = schema.parse(req.body ?? {});
+
+    const db = getDb();
+    const [verifiedBackup] = await db
+      .select({
+        id: paymentBackups.id,
+        backupLabel: paymentBackups.backupLabel,
+        createdAt: paymentBackups.createdAt,
+      })
+      .from(paymentBackups)
+      .where(eq(paymentBackups.id, parsed.backupId))
+      .limit(1);
+
+    if (!verifiedBackup) {
+      res.status(400).json({
+        error: 'Verified backup not found. Create a payment backup first before confirming a full reset.',
+      });
+      return;
+    }
+
+    const pool = getPool();
+    const client = await pool.connect();
+    let deletedPaymentsCount = 0;
+    let preservedRegistrationsCount = 0;
+
+    try {
+      await client.query('BEGIN');
+
+      const preserveRes = await client.query(
+        `UPDATE course_registrations cr
+         SET preserved_payment_ref = COALESCE(cr.preserved_payment_ref, p.payment_reference),
+             preserved_amount_paid = COALESCE(cr.preserved_amount_paid, p.total_amount_charged, p.amount),
+             payment_id = NULL,
+             updated_at = NOW()
+         FROM payments p
+         WHERE cr.payment_id = p.id`
+      );
+      preservedRegistrationsCount = preserveRes.rowCount ?? 0;
+
+      await client.query(`UPDATE notifications SET payment_id = NULL WHERE payment_id IS NOT NULL`);
+      await client.query(`DELETE FROM payment_webhook_events`);
+      const delRes = await client.query(`DELETE FROM payments`);
+      deletedPaymentsCount = delRes.rowCount ?? 0;
+
+      await client.query('COMMIT');
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.payments.reset_all',
+      entityType: 'payments',
+      entityId: verifiedBackup.id,
+      metadata: {
+        verifiedBackupId: verifiedBackup.id,
+        deletedPaymentsCount,
+        preservedRegistrationsCount,
+        preservedStudentsAndExams: true,
+      },
+      ipAddress: req.ip,
+    });
+
+    const data = await fetchPaymentResetPreviewAndBackups();
+    res.json({
+      deletedPaymentsCount,
+      preservedRegistrationsCount,
+      verifiedBackupId: verifiedBackup.id,
+      ...data,
+      message: `Cleared ${deletedPaymentsCount} payment records for a fresh start using backup "${verifiedBackup.backupLabel}". All student accounts, exam history, results, and ${preservedRegistrationsCount} course registrations were preserved.`,
+    });
+  } catch (err) {
+    handleApiError(res, err, 'performing Super Admin payment reset');
+  }
+});
+
+// Super Admin Site Branding, SEO & Founder Profile Management
+const brandingUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+const socialLinksSchema = z
+  .object({
+    facebook: z.string().trim().max(400).optional(),
+    twitter: z.string().trim().max(400).optional(),
+    instagram: z.string().trim().max(400).optional(),
+    youtube: z.string().trim().max(400).optional(),
+    linkedin: z.string().trim().max(400).optional(),
+    whatsapp: z.string().trim().max(400).optional(),
+    tiktok: z.string().trim().max(400).optional(),
+    website: z.string().trim().max(400).optional(),
+  })
+  .optional();
+
+router.get('/branding', async (_req, res) => {
+  try {
+    const [{ branding, founder }, resetState] = await Promise.all([
+      getPublicBrandingAndFounder(),
+      fetchPaymentResetPreviewAndBackups(),
+    ]);
+    res.json({
+      branding,
+      founder,
+      recentBackups: resetState.backups,
+    });
+  } catch (err) {
+    handleApiError(res, err, 'fetching branding configuration');
+  }
+});
+
+router.patch('/branding', requireRole('super_admin'), async (req, res) => {
+  try {
+    const schema = z.object({
+      siteName: z.string().trim().min(2).max(120).optional(),
+      tagline: z.string().trim().min(2).max(160).optional(),
+      siteDescription: z.string().trim().min(10).max(2000).optional(),
+      seoTitle: z.string().trim().min(5).max(160).optional(),
+      seoDescription: z.string().trim().min(10).max(400).optional(),
+      seoKeywords: z.string().trim().min(5).max(500).optional(),
+      logoUrl: z.string().trim().max(500).optional(),
+      faviconUrl: z.string().trim().max(500).optional(),
+      contactEmail: z.string().trim().email().max(160).optional(),
+      contactPhone: z.string().trim().max(50).nullable().optional(),
+      contactWhatsapp: z.string().trim().max(250).nullable().optional(),
+      socialLinks: socialLinksSchema,
+    });
+
+    const parsed = schema.parse(req.body ?? {});
+    const updateValues: Record<string, unknown> = {
+      updatedBy: req.user!.id,
+      updatedAt: new Date(),
+    };
+
+    if (parsed.siteName !== undefined) updateValues.siteName = parsed.siteName;
+    if (parsed.tagline !== undefined) updateValues.tagline = parsed.tagline;
+    if (parsed.siteDescription !== undefined) updateValues.siteDescription = parsed.siteDescription;
+    if (parsed.seoTitle !== undefined) updateValues.seoTitle = parsed.seoTitle;
+    if (parsed.seoDescription !== undefined) updateValues.seoDescription = parsed.seoDescription;
+    if (parsed.seoKeywords !== undefined) updateValues.seoKeywords = parsed.seoKeywords;
+    if (parsed.logoUrl !== undefined) {
+      const safeLogo = sanitizePublicUrl(parsed.logoUrl);
+      if (!safeLogo) {
+        res.status(400).json({ error: 'Logo URL must be a valid https://, http://, or relative / path.' });
+        return;
+      }
+      updateValues.logoUrl = safeLogo;
+    }
+    if (parsed.faviconUrl !== undefined) {
+      const safeFav = sanitizePublicUrl(parsed.faviconUrl);
+      if (!safeFav) {
+        res.status(400).json({ error: 'Favicon URL must be a valid https://, http://, or relative / path.' });
+        return;
+      }
+      updateValues.faviconUrl = safeFav;
+    }
+    if (parsed.contactEmail !== undefined) updateValues.contactEmail = parsed.contactEmail;
+    if (parsed.contactPhone !== undefined) updateValues.contactPhone = parsed.contactPhone || null;
+    if (parsed.contactWhatsapp !== undefined) {
+      updateValues.contactWhatsapp = parsed.contactWhatsapp || null;
+    }
+    if (parsed.socialLinks !== undefined) {
+      updateValues.socialLinks = sanitizeSocialLinks(parsed.socialLinks);
+    }
+
+    const db = getDb();
+    await db
+      .insert(siteBranding)
+      .values({ id: 'default' })
+      .onConflictDoNothing();
+
+    await db
+      .update(siteBranding)
+      .set(updateValues)
+      .where(eq(siteBranding.id, 'default'));
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.branding.update',
+      entityType: 'site_branding',
+      entityId: 'default',
+      metadata: { updatedFields: Object.keys(parsed) },
+      ipAddress: req.ip,
+    });
+
+    const latest = await getPublicBrandingAndFounder();
+    res.json({
+      branding: latest.branding,
+      founder: latest.founder,
+      message: 'Official branding & SEO settings saved.',
+    });
+  } catch (err) {
+    handleApiError(res, err, 'updating site branding');
+  }
+});
+
+router.patch('/founder', requireRole('super_admin'), async (req, res) => {
+  try {
+    const schema = z.object({
+      fullName: z.string().trim().min(2).max(160).optional(),
+      positionTitle: z.string().trim().min(2).max(160).optional(),
+      biography: z.string().trim().min(10).max(5000).optional(),
+      founderMessage: z.string().trim().min(10).max(5000).optional(),
+      visionStatement: z.string().trim().min(5).max(3000).optional(),
+      missionStatement: z.string().trim().min(5).max(3000).optional(),
+      backgroundStory: z.string().trim().min(5).max(5000).optional(),
+      photoUrl: z.string().trim().max(500).nullable().optional(),
+      socialLinks: socialLinksSchema,
+    });
+
+    const parsed = schema.parse(req.body ?? {});
+    const updateValues: Record<string, unknown> = {
+      updatedBy: req.user!.id,
+      updatedAt: new Date(),
+    };
+
+    if (parsed.fullName !== undefined) updateValues.fullName = parsed.fullName;
+    if (parsed.positionTitle !== undefined) updateValues.positionTitle = parsed.positionTitle;
+    if (parsed.biography !== undefined) updateValues.biography = parsed.biography;
+    if (parsed.founderMessage !== undefined) updateValues.founderMessage = parsed.founderMessage;
+    if (parsed.visionStatement !== undefined) updateValues.visionStatement = parsed.visionStatement;
+    if (parsed.missionStatement !== undefined) updateValues.missionStatement = parsed.missionStatement;
+    if (parsed.backgroundStory !== undefined) updateValues.backgroundStory = parsed.backgroundStory;
+    if (parsed.photoUrl !== undefined) {
+      if (!parsed.photoUrl) {
+        updateValues.photoUrl = null;
+        updateValues.photoObjectKey = null;
+      } else {
+        const safePhoto = sanitizePublicUrl(parsed.photoUrl);
+        if (!safePhoto) {
+          res.status(400).json({ error: 'Photo URL must be a valid https://, http://, or relative / path.' });
+          return;
+        }
+        updateValues.photoUrl = safePhoto;
+      }
+    }
+    if (parsed.socialLinks !== undefined) {
+      updateValues.socialLinks = sanitizeSocialLinks(parsed.socialLinks);
+    }
+
+    const db = getDb();
+    await db
+      .insert(founderProfile)
+      .values({ id: 'default' })
+      .onConflictDoNothing();
+
+    await db
+      .update(founderProfile)
+      .set(updateValues)
+      .where(eq(founderProfile.id, 'default'));
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.founder.update',
+      entityType: 'founder_profile',
+      entityId: 'default',
+      metadata: { updatedFields: Object.keys(parsed) },
+      ipAddress: req.ip,
+    });
+
+    const latest = await getPublicBrandingAndFounder();
+    res.json({
+      branding: latest.branding,
+      founder: latest.founder,
+      message: 'Founder profile updated and published.',
+    });
+  } catch (err) {
+    handleApiError(res, err, 'updating founder profile');
+  }
+});
+
+router.post(
+  '/branding/upload',
+  requireRole('super_admin'),
+  brandingUpload.single('file') as unknown as RequestHandler,
+  async (req, res) => {
+    try {
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ error: 'An image file (PNG, JPG, WEBP, SVG, or ICO) is required.' });
+        return;
+      }
+
+      const slotSchema = z.object({
+        slot: z.enum(['logo', 'favicon', 'founder-photo']),
+      });
+      const { slot } = slotSchema.parse(req.body ?? {});
+
+      const mime = (file.mimetype || '').toLowerCase();
+      const allowedMimes = [
+        'image/png',
+        'image/jpeg',
+        'image/jpg',
+        'image/webp',
+        'image/svg+xml',
+        'image/x-icon',
+        'image/vnd.microsoft.icon',
+      ];
+      if (!allowedMimes.includes(mime)) {
+        res.status(400).json({
+          error: 'Unsupported image format. Please upload PNG, JPG, WEBP, SVG, or ICO.',
+        });
+        return;
+      }
+
+      const ext =
+        path.extname(file.originalname || '').toLowerCase().replace(/[^.a-z0-9]/g, '') || '.png';
+      const objectKey = `branding/${slot}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}${ext}`;
+
+      await uploadObjectBuffer({
+        objectKey,
+        body: file.buffer,
+        contentType: file.mimetype || 'image/png',
+      });
+
+      const publicUrl = `/api/public/assets/${slot}?v=${Date.now()}`;
+      const db = getDb();
+
+      if (slot === 'founder-photo') {
+        await db.insert(founderProfile).values({ id: 'default' }).onConflictDoNothing();
+        await db
+          .update(founderProfile)
+          .set({
+            photoUrl: publicUrl,
+            photoObjectKey: objectKey,
+            updatedBy: req.user!.id,
+            updatedAt: new Date(),
+          })
+          .where(eq(founderProfile.id, 'default'));
+      } else {
+        await db.insert(siteBranding).values({ id: 'default' }).onConflictDoNothing();
+        await db
+          .update(siteBranding)
+          .set({
+            ...(slot === 'logo'
+              ? { logoUrl: publicUrl, logoObjectKey: objectKey }
+              : { faviconUrl: publicUrl, faviconObjectKey: objectKey }),
+            updatedBy: req.user!.id,
+            updatedAt: new Date(),
+          })
+          .where(eq(siteBranding.id, 'default'));
+      }
+
+      await writeAuditLog({
+        actorUserId: req.user!.id,
+        action: 'admin.branding.upload',
+        entityType: slot === 'founder-photo' ? 'founder_profile' : 'site_branding',
+        entityId: slot,
+        metadata: { objectKey, publicUrl },
+        ipAddress: req.ip,
+      });
+
+      const latest = await getPublicBrandingAndFounder();
+      res.status(201).json({
+        slot,
+        url: publicUrl,
+        branding: latest.branding,
+        founder: latest.founder,
+        message: `Uploaded new ${slot.replace('-', ' ')} asset.`,
+      });
+    } catch (err) {
+      if (err instanceof ObjectStorageNotConfiguredError) {
+        res.status(503).json({
+          error: err.message,
+          code: 'OBJECT_STORAGE_NOT_CONFIGURED',
+        });
+        return;
+      }
+      handleApiError(res, err, 'uploading branding asset');
+    }
+  }
+);
 
 router.get('/audit-logs', async (_req, res) => {
   try {

@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { Router } from 'express';
 import { getDb } from '../../db/index.js';
 import {
@@ -66,15 +66,21 @@ router.get('/courses', requireDb, optionalAuth, async (req, res) => {
           id: courseRegistrations.id,
           courseId: courseRegistrations.courseId,
           registeredAt: courseRegistrations.registeredAt,
-          paymentReference: payments.paymentReference,
+          paymentReference: sql<string>`COALESCE(${payments.paymentReference}, ${courseRegistrations.preservedPaymentRef}, 'PRESERVED-REG')`,
         })
         .from(courseRegistrations)
-        .innerJoin(payments, eq(courseRegistrations.paymentId, payments.id))
+        .leftJoin(payments, eq(courseRegistrations.paymentId, payments.id))
         .where(
           and(
             eq(courseRegistrations.studentId, studentId),
             eq(courseRegistrations.registrationStatus, 'active'),
-            eq(payments.paymentStatus, 'successful')
+            or(
+              eq(payments.paymentStatus, 'successful'),
+              and(
+                isNull(courseRegistrations.paymentId),
+                isNotNull(courseRegistrations.preservedPaymentRef)
+              )
+            )
           )
         );
 
@@ -164,13 +170,13 @@ router.get('/my-courses', requireAuth, async (req, res) => {
         registrationStatus: courseRegistrations.registrationStatus,
         registeredAt: courseRegistrations.registeredAt,
         whatsappNumber: sql<string | null>`COALESCE(${courseRegistrations.whatsappNumber}, ${payments.whatsappNumber})`,
-        paymentId: payments.id,
-        paymentReference: payments.paymentReference,
-        paymentStatus: payments.paymentStatus,
-        courseValue: payments.courseValue,
-        amountPaid: payments.totalAmountCharged,
-        currency: payments.currency,
-        paidAt: payments.paidAt,
+        paymentId: courseRegistrations.paymentId,
+        paymentReference: sql<string>`COALESCE(${payments.paymentReference}, ${courseRegistrations.preservedPaymentRef}, 'PRESERVED-REG')`,
+        paymentStatus: sql<string>`COALESCE(${payments.paymentStatus}, 'successful')`,
+        courseValue: sql<string>`COALESCE(${payments.courseValue}, '2300.00')`,
+        amountPaid: sql<string>`COALESCE(${payments.totalAmountCharged}, ${courseRegistrations.preservedAmountPaid}, '2350.00')`,
+        currency: sql<string>`COALESCE(${payments.currency}, ${courses.currency}, 'NGN')`,
+        paidAt: sql<Date | null>`COALESCE(${payments.paidAt}, ${courseRegistrations.registeredAt})`,
         questionCount: sql<number>`(
           SELECT COUNT(*)::int FROM questions q
           WHERE (
@@ -182,12 +188,18 @@ router.get('/my-courses', requireAuth, async (req, res) => {
       })
       .from(courseRegistrations)
       .innerJoin(courses, eq(courseRegistrations.courseId, courses.id))
-      .innerJoin(payments, eq(courseRegistrations.paymentId, payments.id))
+      .leftJoin(payments, eq(courseRegistrations.paymentId, payments.id))
       .where(
         and(
           eq(courseRegistrations.studentId, studentId),
           eq(courseRegistrations.registrationStatus, 'active'),
-          eq(payments.paymentStatus, 'successful'),
+          or(
+            eq(payments.paymentStatus, 'successful'),
+            and(
+              isNull(courseRegistrations.paymentId),
+              isNotNull(courseRegistrations.preservedPaymentRef)
+            )
+          ),
           eq(courses.isActive, true)
         )
       )
@@ -197,7 +209,7 @@ router.get('/my-courses', requireAuth, async (req, res) => {
       registeredCourses: rows.map((r) => ({
         ...r,
         courseValue: Number(r.courseValue ?? 2300),
-        amountPaid: Number(r.amountPaid),
+        amountPaid: Number(r.amountPaid ?? 2350),
       })),
     });
   } catch (err) {

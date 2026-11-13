@@ -1,6 +1,5 @@
 import {
   AlertCircle,
-  BookOpen,
   CheckCircle2,
   Clock,
   CreditCard,
@@ -15,6 +14,7 @@ import {
 import React, { useMemo, useState } from 'react';
 import { api } from '../../lib/api';
 import type { CourseCatalogueItem, SafeUser } from '../../types/cbt';
+import { AcadetCrest } from './AcadetLogo';
 
 interface CourseRegistrationViewProps {
   user: SafeUser;
@@ -133,8 +133,8 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
     <div className="max-w-5xl mx-auto space-y-3.5">
       <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-sm overflow-hidden">
         <div className="bg-[#0b337a] text-white px-4 py-2.5 sm:px-5 sm:py-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <BookOpen className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+          <div className="flex items-center gap-2.5 min-w-0">
+            <AcadetCrest className="w-8 h-8 sm:w-9 sm:h-9" />
             <div className="min-w-0">
               <h2 className="text-base sm:text-lg font-extrabold tracking-tight leading-tight">
                 Course Registration
@@ -347,6 +347,7 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
           <div className="w-full max-w-md max-h-[94dvh] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col overflow-hidden">
             <div className="bg-[#0b337a] text-white px-4 py-2.5 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2 min-w-0">
+                <AcadetCrest className="w-7 h-7" />
                 <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
                 <h3 className="text-sm sm:text-base font-extrabold truncate">
                   Confirm Course Registration

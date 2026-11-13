@@ -19,6 +19,12 @@ import {
   buildPaymentSuccessNotificationContent,
   normalizeWhatsappGroupLink,
 } from '../src/server/lib/notifications.js';
+import {
+  DEFAULT_FOUNDER_PROFILE,
+  DEFAULT_SITE_BRANDING,
+  buildOrganizationJsonLd,
+  getSeoMetaForPath,
+} from '../src/server/lib/branding.js';
 
 async function verifyUpgrade() {
   console.log('[Upgrade Verification] Checking standardized pricing & Paystack fee reconciliation...');
@@ -260,6 +266,47 @@ async function verifyUpgrade() {
     'CourseRegistrationView must require students to input their correct WhatsApp number'
   );
 
+  assert.ok(
+    adminRoutesSrc.includes("requireRole('super_admin')") &&
+      adminRoutesSrc.includes('/payments/reset-all') &&
+      adminRoutesSrc.includes("'RESET ALL PAYMENTS'") &&
+      adminRoutesSrc.includes('acknowledgeConsequences') &&
+      adminRoutesSrc.includes('preserved_payment_ref'),
+    'Admin routes must restrict full payment reset & branding mutations to super_admin with backup confirmation and preserve course_registrations'
+  );
+
+  console.log('[Upgrade Verification] Auditing official logo PNGs, favicons & Organization JSON-LD...');
+  for (const imgRel of ['public/acadet-logo.png', 'public/favicon-48x48.png']) {
+    const buf = await fs.readFile(path.resolve(process.cwd(), imgRel));
+    assert.equal(buf.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', `${imgRel} must have valid PNG signature`);
+    const width = buf.readUInt32BE(16);
+    const height = buf.readUInt32BE(20);
+    assert.ok(width >= 48 && height >= 48 && width === height, `${imgRel} must be square >= 48x48 (got ${width}x${height})`);
+  }
+  const icoBuf = await fs.readFile(path.resolve(process.cwd(), 'public/favicon.ico'));
+  assert.equal(icoBuf.subarray(0, 4).toString('hex'), '00000100', 'public/favicon.ico must have valid ICO header');
+
+  const orgJsonLd = buildOrganizationJsonLd(
+    'https://acadetcbt.website',
+    DEFAULT_SITE_BRANDING,
+    DEFAULT_FOUNDER_PROFILE
+  ) as Record<string, unknown>;
+  assert.equal(orgJsonLd['@type'], 'Organization');
+  assert.equal(orgJsonLd.name, 'Acadet CBT');
+  assert.equal(orgJsonLd.alternateName, 'Acadet Learning Hub');
+  assert.equal((orgJsonLd.founder as Record<string, unknown>)?.name, 'ISAIAH (MENMEX)');
+  assert.equal('aggregateRating' in orgJsonLd, false, 'Organization JSON-LD must never include fake ratings');
+  assert.equal('review' in orgJsonLd, false, 'Organization JSON-LD must never include fake reviews');
+
+  const founderSeo = getSeoMetaForPath(
+    '/founder',
+    'https://acadetcbt.website',
+    DEFAULT_SITE_BRANDING,
+    DEFAULT_FOUNDER_PROFILE
+  );
+  assert.equal(founderSeo.ogType, 'profile');
+  assert.equal(founderSeo.robots, 'index, follow');
+
   console.log('[Upgrade Verification] Auditing UI components for Course terminology...');
   const uiFiles = [
     'src/components/cbt/WorkspaceSidebar.tsx',
@@ -274,6 +321,11 @@ async function verifyUpgrade() {
     'src/components/cbt/CourseAccessRequiredModal.tsx',
     'src/components/cbt/NotificationsView.tsx',
     'src/components/cbt/AdminConsole.tsx',
+    'src/components/cbt/AuthScreen.tsx',
+    'src/components/cbt/ExamHall.tsx',
+    'src/components/public/PublicShell.tsx',
+    'src/components/public/FounderView.tsx',
+    'src/components/public/PublicPages.tsx',
   ];
 
   for (const relPath of uiFiles) {
@@ -287,7 +339,7 @@ async function verifyUpgrade() {
     );
   }
 
-  console.log('[Upgrade Verification] Testing HTTP webhook signature rejection & auth gates...');
+  console.log('[Upgrade Verification] Testing HTTP webhook signature rejection, SEO endpoints & auth gates...');
   process.env.PAYSTACK_WEBHOOK_SECRET = 'test_webhook_secret_12345';
   const app = await createApp({ skipVite: true });
   const server = await new Promise<http.Server>((resolve) => {
@@ -329,6 +381,51 @@ async function verifyUpgrade() {
     // Unauthenticated notifications route blocked (401 or 503 when DB unconfigured, never 404)
     const notifRes = await fetch(`${baseUrl}/api/notifications`);
     assert.ok(notifRes.status === 401 || notifRes.status === 503);
+
+    // Public site data endpoint exposes branding + founder + courses without PII or WhatsApp invite links
+    const publicSiteRes = await fetch(`${baseUrl}/api/public/site-data`);
+    assert.equal(publicSiteRes.status, 200);
+    const siteData = (await publicSiteRes.json()) as {
+      branding: { siteName: string };
+      founder: { fullName: string };
+      courses: Array<Record<string, unknown>>;
+    };
+    assert.equal(siteData.branding.siteName, 'Acadet CBT');
+    assert.equal(siteData.founder.fullName, 'ISAIAH (MENMEX)');
+    assert.ok(Array.isArray(siteData.courses));
+    assert.equal(JSON.stringify(siteData.courses).includes('whatsappGroupLink'), false);
+
+    // Dynamic robots.txt & sitemap.xml
+    const robotsRes = await fetch(`${baseUrl}/robots.txt`);
+    assert.equal(robotsRes.status, 200);
+    const robotsTxt = await robotsRes.text();
+    assert.ok(
+      robotsTxt.includes('Disallow: /api/') &&
+        robotsTxt.includes('Disallow: /admin') &&
+        robotsTxt.includes('Disallow: /exam') &&
+        robotsTxt.includes('Allow: /founder'),
+      'robots.txt must allow /founder and disallow private routes'
+    );
+
+    const sitemapRes = await fetch(`${baseUrl}/sitemap.xml`);
+    assert.equal(sitemapRes.status, 200);
+    const sitemapXml = await sitemapRes.text();
+    for (const locPath of ['/about', '/courses', '/how-it-works', '/founder', '/contact']) {
+      assert.ok(sitemapXml.includes(locPath), `sitemap.xml missing ${locPath}`);
+    }
+    assert.equal(sitemapXml.includes('/admin'), false, 'sitemap.xml must exclude /admin');
+    assert.equal(sitemapXml.includes('/login'), false, 'sitemap.xml must exclude /login');
+
+    // Unauthenticated admin branding & full payment reset endpoints must reject access
+    const adminBrandRes = await fetch(`${baseUrl}/api/admin/branding`);
+    assert.ok(adminBrandRes.status === 401 || adminBrandRes.status === 503);
+
+    const resetAllRes = await fetch(`${baseUrl}/api/admin/payments/reset-all`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.ok(resetAllRes.status === 401 || resetAllRes.status === 503);
   } finally {
     delete process.env.PAYSTACK_WEBHOOK_SECRET;
     server.closeAllConnections();

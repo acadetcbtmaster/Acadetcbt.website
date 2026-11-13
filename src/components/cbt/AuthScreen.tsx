@@ -2,7 +2,7 @@ import { AlertTriangle, Lock, Mail, User, UserPlus } from 'lucide-react';
 import React, { useState } from 'react';
 import { api, ApiError } from '../../lib/api';
 import type { SafeUser } from '../../types/cbt';
-import { AcadetCrest } from './AcadetLogo';
+import { AcadetCrest, useBranding } from './AcadetLogo';
 
 interface AuthScreenProps {
   onAuthenticated: (user: SafeUser) => void;
@@ -10,6 +10,8 @@ interface AuthScreenProps {
   dbConnected: boolean;
   dbError?: string;
   suspensionNotice?: string | null;
+  initialMode?: 'login' | 'register';
+  onNavigatePublic?: (path: string) => void;
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({
@@ -18,8 +20,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   dbConnected,
   dbError,
   suspensionNotice = null,
+  initialMode = 'login',
+  onNavigatePublic,
 }) => {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const { branding } = useBranding();
+  const [mode, setMode] = useState<'login' | 'register'>(initialMode);
+
+  React.useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
   const [identifier, setIdentifier] = useState('');
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -61,15 +70,52 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   return (
     <div className="min-h-screen flex flex-col bg-[#eef3fb] dark:bg-[#0a0f1e]">
-      <header className="bg-[#0b337a] text-white px-4 sm:px-8 py-4 shadow-md">
-        <div className="max-w-5xl mx-auto flex items-center gap-3">
-          <AcadetCrest className="w-10 h-11" />
-          <div>
-            <h1 className="text-xl font-extrabold tracking-tight leading-tight">
-              Acadet CBT
-            </h1>
-            <p className="text-xs italic text-blue-100">...Learn, Practice, Excel</p>
-          </div>
+      <header className="bg-[#0b337a] text-white px-4 sm:px-8 py-3.5 shadow-md border-b border-white/10">
+        <div className="max-w-5xl mx-auto flex items-center justify-between gap-3">
+          <a
+            href="/"
+            onClick={(e) => {
+              if (onNavigatePublic) {
+                e.preventDefault();
+                onNavigatePublic('/');
+              }
+            }}
+            className="flex items-center gap-3 min-w-0"
+          >
+            <AcadetCrest className="w-10 h-10" />
+            <div className="min-w-0">
+              <div className="text-lg sm:text-xl font-extrabold tracking-tight leading-tight truncate">
+                {branding.siteName}
+              </div>
+              <p className="text-xs italic text-blue-100 truncate">{branding.tagline}</p>
+            </div>
+          </a>
+
+          {onNavigatePublic && (
+            <div className="flex items-center gap-3 text-xs sm:text-sm font-bold shrink-0">
+              <button
+                type="button"
+                onClick={() => onNavigatePublic('/courses')}
+                className="hidden sm:inline text-blue-100 hover:text-white hover:underline"
+              >
+                Courses
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigatePublic('/founder')}
+                className="hidden sm:inline text-blue-100 hover:text-white hover:underline"
+              >
+                Founder
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigatePublic('/')}
+                className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white"
+              >
+                Public Home
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -104,15 +150,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           )}
 
           <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-lg overflow-hidden">
-            <div className="bg-[#0b337a] px-4 sm:px-5 py-3.5 text-white">
-              <h2 className="text-lg sm:text-xl font-extrabold tracking-tight">
-                {mode === 'login' ? 'Student & Staff Sign In' : 'Create Student Account'}
-              </h2>
-              <p className="text-xs text-blue-100 mt-0.5">
-                {mode === 'login'
-                  ? 'Sign in to access practice exams, verified results, and study materials.'
-                  : 'Register to save exam attempts, track trends, and customize your CBT workspace.'}
-              </p>
+            <div className="bg-[#0b337a] px-4 sm:px-5 py-3.5 text-white flex items-center gap-3">
+              <AcadetCrest className="w-9 h-9" />
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
+                  {mode === 'login' ? 'Student & Staff Sign In' : 'Create Student Account'}
+                </h1>
+                <p className="text-xs text-blue-100 mt-0.5">
+                  {mode === 'login'
+                    ? `Sign in to access ${branding.siteName} practice exams, verified results, and study materials.`
+                    : `Register on ${branding.siteName} to save exam attempts, track trends, and customize your CBT workspace.`}
+                </p>
+              </div>
             </div>
 
             <div className="p-4 sm:p-5 space-y-3.5">
@@ -271,10 +320,24 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         </div>
       </main>
 
-      <footer className="bg-[#0b337a] text-white/90 text-xs py-3.5 px-6">
+      <footer className="bg-[#0b337a] text-white/90 text-xs py-3.5 px-6 border-t border-white/10">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>© {new Date().getFullYear()} Acadet CBT. All rights reserved.</span>
-          <span>Powered by Acadet Learning Hub</span>
+          <div className="flex items-center gap-2">
+            <AcadetCrest className="w-6 h-6" />
+            <span>© {new Date().getFullYear()} {branding.siteName}. All rights reserved.</span>
+          </div>
+          <div className="flex items-center gap-3">
+            {onNavigatePublic && (
+              <button
+                type="button"
+                onClick={() => onNavigatePublic('/founder')}
+                className="text-blue-100 hover:text-white underline"
+              >
+                Founder Profile
+              </button>
+            )}
+            <span>Powered by Acadet Learning Hub</span>
+          </div>
         </div>
       </footer>
     </div>

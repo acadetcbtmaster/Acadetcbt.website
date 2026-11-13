@@ -129,6 +129,24 @@ export async function getSignedUploadUrl(params: {
   });
 }
 
+export async function getObjectBuffer(objectKey: string): Promise<{
+  buffer: Buffer;
+  contentType: string;
+}> {
+  const { client, bucket } = getS3Client();
+  const out = await client.send(
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: objectKey,
+    })
+  );
+  const bytes = await out.Body?.transformToByteArray();
+  return {
+    buffer: bytes ? Buffer.from(bytes) : Buffer.alloc(0),
+    contentType: out.ContentType || 'application/octet-stream',
+  };
+}
+
 export async function deleteObjectKey(objectKey: string): Promise<void> {
   const { client, bucket } = getS3Client();
   await client.send(

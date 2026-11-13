@@ -1,55 +1,104 @@
-import React from 'react';
+import React, { createContext, useContext } from 'react';
+import type { FounderProfileData, SiteBrandingData } from '../../types/cbt';
 
-export const AcadetCrest: React.FC<{ className?: string }> = ({ className = 'w-11 h-11' }) => (
-  <svg
-    viewBox="0 0 64 68"
-    fill="none"
-    xmlns="http://www.w3.org/2000/svg"
-    className={className}
-    aria-hidden="true"
-  >
-    <path
-      d="M8 6C8 4.89543 8.89543 4 10 4H54C55.1046 4 56 4.89543 56 6V33C56 49.5 32 63 32 63C32 63 8 49.5 8 33V6Z"
-      fill="#FFFFFF"
-      stroke="#1E40AF"
-      strokeWidth="3"
-    />
-    <path
-      d="M12 8H52V32C52 45.2 32 57 32 57C32 57 12 45.2 12 32V8Z"
-      fill="#EFF6FF"
-    />
-    <rect x="12" y="8" width="40" height="11" fill="#0B337A" />
-    <text
-      x="32"
-      y="16.2"
-      textAnchor="middle"
-      fill="#FFFFFF"
-      fontSize="7.5"
-      fontWeight="800"
-      fontFamily="sans-serif"
-      letterSpacing="0.5"
-    >
-      ACADET
-    </text>
-    {/* Laurel wreath */}
-    <path
-      d="M21 44C17.5 39.5 17 31.5 21 26M43 44C46.5 39.5 47 31.5 43 26"
-      stroke="#15803D"
-      strokeWidth="2.5"
-      strokeLinecap="round"
-    />
-    {/* Open book + torch */}
-    <path
-      d="M32 24V42M24 31C27 29.5 30 30 32 32C34 30 37 29.5 40 31V41C37 39.5 34 40 32 42C30 40 27 39.5 24 41V31Z"
-      stroke="#0B337A"
-      strokeWidth="2.2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      fill="#DBEAFE"
-    />
-    <circle cx="32" cy="24" r="3.2" fill="#16A34A" />
-  </svg>
+export const DEFAULT_CLIENT_BRANDING: SiteBrandingData = {
+  siteName: 'Acadet CBT',
+  tagline: '...Learn, Practice, Excel',
+  siteDescription:
+    'Acadet CBT is an online computer-based testing and academic preparation platform helping students study course materials, practise examination questions, and track performance.',
+  seoTitle: 'Acadet CBT | Online CBT Practice, Courses & Exam Preparation',
+  seoDescription:
+    'Acadet CBT and Acadet Learning Hub provide realistic online CBT practice, JAMB CBT practice, structured courses, study materials, and instant performance analytics.',
+  seoKeywords:
+    'Acadet CBT, Acadet Learning Hub, JAMB CBT Practice, Online CBT Practice, Computer-Based Examination, Online Examination Practice',
+  logoUrl: '/acadet-logo.png',
+  faviconUrl: '/favicon-48x48.png',
+  contactEmail: 'support@acadetcbt.website',
+  contactPhone: null,
+  contactWhatsapp: null,
+  socialLinks: {},
+  updatedAt: new Date(0).toISOString(),
+};
+
+export const DEFAULT_CLIENT_FOUNDER: FounderProfileData = {
+  fullName: 'ISAIAH (MENMEX)',
+  positionTitle: 'Founder & Creator, Acadet CBT',
+  biography:
+    'Isaiah, popularly known as Menmex, is the Founder and Creator of Acadet CBT. He is a digital content creator and technology enthusiast interested in building practical digital solutions and supporting students through accessible educational resources and technology-driven learning.',
+  founderMessage:
+    'Acadet CBT was established to make learning, examination preparation and academic practice more accessible to students. Our goal is to provide a platform where students can improve their understanding, practise effectively and build confidence in their academic journey.',
+  visionStatement:
+    'To make structured academic preparation, computer-based testing practice, and accessible study materials available to every student preparing for success.',
+  missionStatement:
+    "To improve students' understanding of registered courses, provide reliable CBT simulations and educational resources, and build academic confidence through consistent practice and performance insight.",
+  backgroundStory:
+    'Acadet CBT was created under Acadet Learning Hub to bridge the gap between classroom study and realistic computer-based examination readiness, combining curated courses, study materials, verified assessments, and guided tutorial support.',
+  photoUrl: null,
+  socialLinks: {},
+  updatedAt: new Date(0).toISOString(),
+};
+
+interface BrandingContextValue {
+  branding: SiteBrandingData;
+  founder: FounderProfileData;
+  refreshBranding?: () => Promise<void>;
+}
+
+const BrandingContext = createContext<BrandingContextValue>({
+  branding: DEFAULT_CLIENT_BRANDING,
+  founder: DEFAULT_CLIENT_FOUNDER,
+});
+
+export const BrandingProvider: React.FC<{
+  branding: SiteBrandingData;
+  founder: FounderProfileData;
+  refreshBranding?: () => Promise<void>;
+  children: React.ReactNode;
+}> = ({ branding, founder, refreshBranding, children }) => (
+  <BrandingContext.Provider value={{ branding, founder, refreshBranding }}>
+    {children}
+  </BrandingContext.Provider>
 );
+
+export function useBranding(): BrandingContextValue {
+  return useContext(BrandingContext);
+}
+
+interface AcadetCrestProps {
+  className?: string;
+  src?: string;
+  alt?: string;
+  frameOnDark?: boolean;
+}
+
+export const AcadetCrest: React.FC<AcadetCrestProps> = ({
+  className = 'w-11 h-11',
+  src,
+  alt,
+  frameOnDark = true,
+}) => {
+  const { branding } = useBranding();
+  const resolvedSrc = src || branding.logoUrl || '/acadet-logo.png';
+  const resolvedAlt = alt || `${branding.siteName} official logo`;
+
+  return (
+    <span
+      className={`inline-flex items-center justify-center shrink-0 overflow-hidden select-none ${
+        frameOnDark
+          ? 'rounded-xl bg-white p-0.5 shadow-xs ring-1 ring-slate-200/70'
+          : 'rounded-xl bg-transparent'
+      } ${className}`}
+    >
+      <img
+        src={resolvedSrc}
+        alt={resolvedAlt}
+        className="w-full h-full object-contain"
+        loading="eager"
+        decoding="async"
+      />
+    </span>
+  );
+};
 
 export const HeroStudyGraphic: React.FC = () => (
   <svg
@@ -116,17 +165,12 @@ export const HeroStudyGraphic: React.FC = () => (
 
     {/* Stack of Books + Pen Cup on right */}
     <g transform="translate(262, 62)">
-      {/* Pen Cup */}
       <path d="M18 14L22 4H26L23 18" stroke="#1E3A8A" strokeWidth="3" strokeLinecap="round" />
       <path d="M29 14L31 2H35L33 18" stroke="#0052CC" strokeWidth="3" strokeLinecap="round" />
       <path d="M39 15L44 6H48L43 18" stroke="#0F172A" strokeWidth="2.8" strokeLinecap="round" />
       <rect x="13" y="16" width="38" height="36" rx="4" fill="#FFFFFF" stroke="#CBD5E1" strokeWidth="2" />
-
-      {/* Top Book */}
       <rect x="0" y="52" width="76" height="16" rx="3" fill="#2563EB" />
       <rect x="6" y="55" width="64" height="10" rx="2" fill="#EFF6FF" />
-
-      {/* Bottom Book */}
       <rect x="-4" y="69" width="84" height="18" rx="3" fill="#0B337A" />
       <rect x="4" y="73" width="68" height="10" rx="2" fill="#DBEAFE" />
     </g>

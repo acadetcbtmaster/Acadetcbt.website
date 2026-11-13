@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, or, sql } from 'drizzle-orm';
+import { and, asc, eq, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';
 import { getDb } from '../../db/index.js';
@@ -56,13 +56,19 @@ async function hasActivePaidCourseRegistration(
   const rows = await db
     .select({ id: courseRegistrations.id })
     .from(courseRegistrations)
-    .innerJoin(payments, eq(courseRegistrations.paymentId, payments.id))
+    .leftJoin(payments, eq(courseRegistrations.paymentId, payments.id))
     .where(
       and(
         eq(courseRegistrations.studentId, studentId),
         eq(courseRegistrations.courseId, courseId),
         eq(courseRegistrations.registrationStatus, 'active'),
-        eq(payments.paymentStatus, 'successful')
+        or(
+          eq(payments.paymentStatus, 'successful'),
+          and(
+            isNull(courseRegistrations.paymentId),
+            isNotNull(courseRegistrations.preservedPaymentRef)
+          )
+        )
       )
     )
     .limit(1);

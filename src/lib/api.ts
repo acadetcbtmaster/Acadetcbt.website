@@ -13,16 +13,21 @@ import type {
   AnnouncementItem,
   CourseCatalogueItem,
   DifficultyLevel,
+  FounderProfileData,
   GradedExamQuestion,
   NotificationType,
   OptionLetter,
+  PaymentBackupSummary,
   PaymentInitializeResponse,
+  PaymentResetPreview,
   PaymentStatus,
   PaymentVerifyOutcome,
+  PublicSiteDataResponse,
   PublicationStatus,
   RegisteredCourseItem,
   ResultsOverview,
   SafeUser,
+  SiteBrandingData,
   StudentNotificationItem,
   StudentPaymentRecord,
   StudyMaterialItem,
@@ -143,6 +148,10 @@ export const api = {
       objectStorage: { configured: boolean };
       paystack: { configured: boolean };
     }>('/api/health'),
+
+  public: {
+    getSiteData: () => request<PublicSiteDataResponse>('/api/public/site-data'),
+  },
 
   auth: {
     register: async (payload: {
@@ -498,6 +507,94 @@ export const api = {
       request<PaymentVerifyOutcome>(`/api/admin/payments/${paymentId}/reverify`, {
         method: 'POST',
       }),
+
+    getPaymentResetPreview: () =>
+      request<{ preview: PaymentResetPreview; backups: PaymentBackupSummary[] }>(
+        '/api/admin/payments/reset-preview'
+      ),
+
+    createPaymentBackup: (label?: string) =>
+      request<{
+        backup: PaymentBackupSummary;
+        preview: PaymentResetPreview;
+        backups: PaymentBackupSummary[];
+        message: string;
+      }>('/api/admin/payments/backup', {
+        method: 'POST',
+        body: JSON.stringify({ label }),
+      }),
+
+    getPaymentBackupExportUrl: (backupId: string) =>
+      `/api/admin/payments/backup/${encodeURIComponent(backupId)}/export`,
+
+    resetTestPayments: () =>
+      request<{
+        removedCount: number;
+        backupId: string;
+        preview: PaymentResetPreview;
+        backups: PaymentBackupSummary[];
+        message: string;
+      }>('/api/admin/payments/reset-test', { method: 'POST' }),
+
+    resetAllPayments: (payload: {
+      backupId: string;
+      acknowledgeConsequences: boolean;
+      confirmation: string;
+    }) =>
+      request<{
+        deletedPaymentsCount: number;
+        preservedRegistrationsCount: number;
+        verifiedBackupId: string;
+        preview: PaymentResetPreview;
+        backups: PaymentBackupSummary[];
+        message: string;
+      }>('/api/admin/payments/reset-all', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+
+    getBranding: () =>
+      request<{
+        branding: SiteBrandingData;
+        founder: FounderProfileData;
+        recentBackups: PaymentBackupSummary[];
+      }>('/api/admin/branding'),
+
+    updateBranding: (payload: Partial<SiteBrandingData>) =>
+      request<{
+        branding: SiteBrandingData;
+        founder: FounderProfileData;
+        message: string;
+      }>('/api/admin/branding', {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }),
+
+    updateFounder: (payload: Partial<FounderProfileData>) =>
+      request<{
+        branding: SiteBrandingData;
+        founder: FounderProfileData;
+        message: string;
+      }>('/api/admin/founder', {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }),
+
+    uploadBrandingAsset: (slot: 'logo' | 'favicon' | 'founder-photo', file: File) => {
+      const fd = new FormData();
+      fd.append('slot', slot);
+      fd.append('file', file);
+      return request<{
+        slot: string;
+        url: string;
+        branding: SiteBrandingData;
+        founder: FounderProfileData;
+        message: string;
+      }>('/api/admin/branding/upload', {
+        method: 'POST',
+        body: fd,
+      });
+    },
 
     listUsers: (filters?: { search?: string; status?: AccountStatus | '' }) => {
       const search = new URLSearchParams();

@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import React, { useState } from 'react';
 import type { CourseCatalogueItem, SafeUser } from '../../types/cbt';
-import { AcadetCrest } from './AcadetLogo';
+import { AcadetCrest, useBranding } from './AcadetLogo';
 
 interface TopHeaderProps {
   user: SafeUser;
@@ -52,6 +52,7 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onToggleMobileMenu,
   examMode,
 }) => {
+  const { branding } = useBranding();
   const [courseOpen, setCourseOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -81,13 +82,13 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             onClick={onNavigateHome}
             className="flex items-center gap-2.5 text-left group focus:outline-none min-w-0"
           >
-            <AcadetCrest className="w-9 h-10 sm:w-11 sm:h-11 shrink-0 transition-transform group-hover:scale-105" />
+            <AcadetCrest className="w-9 h-9 sm:w-11 sm:h-11 shrink-0 transition-transform group-hover:scale-105" />
             <div className="min-w-0">
               <div className="text-lg sm:text-xl font-extrabold tracking-tight leading-tight whitespace-nowrap">
-                Acadet CBT
+                {branding.siteName}
               </div>
               <div className="text-[11px] sm:text-xs italic text-blue-100/90 leading-tight truncate">
-                ...Learn, Practice, Excel
+                {branding.tagline}
               </div>
             </div>
           </button>

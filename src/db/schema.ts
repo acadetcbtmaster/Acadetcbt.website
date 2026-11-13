@@ -317,9 +317,9 @@ export const courseRegistrations = pgTable(
     courseId: uuid('course_id')
       .notNull()
       .references(() => courses.id, { onDelete: 'restrict' }),
-    paymentId: uuid('payment_id')
-      .notNull()
-      .references(() => payments.id, { onDelete: 'restrict' }),
+    paymentId: uuid('payment_id').references(() => payments.id, { onDelete: 'set null' }),
+    preservedPaymentRef: text('preserved_payment_ref'),
+    preservedAmountPaid: numeric('preserved_amount_paid', { precision: 12, scale: 2 }),
     whatsappNumber: text('whatsapp_number'),
     registrationStatus: text('registration_status').notNull().default('active'),
     registeredAt: timestamp('registered_at', { withTimezone: true }).notNull().defaultNow(),
@@ -442,4 +442,113 @@ export const notificationReads = pgTable(
     index('notification_reads_user_idx').on(table.userId, table.readAt),
   ]
 );
+
+export interface SocialLinksMap {
+  facebook?: string;
+  twitter?: string;
+  instagram?: string;
+  youtube?: string;
+  linkedin?: string;
+  whatsapp?: string;
+  tiktok?: string;
+  website?: string;
+}
+
+export const paymentBackups = pgTable(
+  'payment_backups',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    backupLabel: text('backup_label').notNull(),
+    resetScope: text('reset_scope').notNull().default('manual_snapshot'),
+    totalPaymentsCount: integer('total_payments_count').notNull().default(0),
+    successfulCount: integer('successful_count').notNull().default(0),
+    pendingCount: integer('pending_count').notNull().default(0),
+    failedCount: integer('failed_count').notNull().default(0),
+    testCount: integer('test_count').notNull().default(0),
+    snapshotPayload: jsonb('snapshot_payload')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('payment_backups_created_idx').on(table.createdAt),
+    check(
+      'payment_backups_scope_check',
+      sql`${table.resetScope} IN ('manual_snapshot', 'test_and_stale', 'full_production_reset')`
+    ),
+  ]
+);
+
+export const siteBranding = pgTable('site_branding', {
+  id: text('id').primaryKey().default('default'),
+  siteName: text('site_name').notNull().default('Acadet CBT'),
+  tagline: text('tagline').notNull().default('...Learn, Practice, Excel'),
+  siteDescription: text('site_description')
+    .notNull()
+    .default(
+      'Acadet CBT is an online computer-based testing and academic preparation platform helping students study course materials, practise examination questions, and track performance.'
+    ),
+  seoTitle: text('seo_title')
+    .notNull()
+    .default('Acadet CBT | Online CBT Practice, Courses & Exam Preparation'),
+  seoDescription: text('seo_description')
+    .notNull()
+    .default(
+      'Acadet CBT and Acadet Learning Hub provide realistic online CBT practice, JAMB CBT practice, structured courses, study materials, and instant performance analytics.'
+    ),
+  seoKeywords: text('seo_keywords')
+    .notNull()
+    .default(
+      'Acadet CBT, Acadet Learning Hub, JAMB CBT Practice, Online CBT Practice, Computer-Based Examination, Online Examination Practice'
+    ),
+  logoUrl: text('logo_url').notNull().default('/acadet-logo.png'),
+  logoObjectKey: text('logo_object_key'),
+  faviconUrl: text('favicon_url').notNull().default('/favicon-48x48.png'),
+  faviconObjectKey: text('favicon_object_key'),
+  contactEmail: text('contact_email').notNull().default('support@acadetcbt.website'),
+  contactPhone: text('contact_phone'),
+  contactWhatsapp: text('contact_whatsapp'),
+  socialLinks: jsonb('social_links').$type<SocialLinksMap>().notNull().default({}),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const founderProfile = pgTable('founder_profile', {
+  id: text('id').primaryKey().default('default'),
+  fullName: text('full_name').notNull().default('ISAIAH (MENMEX)'),
+  positionTitle: text('position_title').notNull().default('Founder & Creator, Acadet CBT'),
+  biography: text('biography')
+    .notNull()
+    .default(
+      'Isaiah, popularly known as Menmex, is the Founder and Creator of Acadet CBT. He is a digital content creator and technology enthusiast interested in building practical digital solutions and supporting students through accessible educational resources and technology-driven learning.'
+    ),
+  founderMessage: text('founder_message')
+    .notNull()
+    .default(
+      'Acadet CBT was established to make learning, examination preparation and academic practice more accessible to students. Our goal is to provide a platform where students can improve their understanding, practise effectively and build confidence in their academic journey.'
+    ),
+  visionStatement: text('vision_statement')
+    .notNull()
+    .default(
+      'To make structured academic preparation, computer-based testing practice, and accessible study materials available to every student preparing for success.'
+    ),
+  missionStatement: text('mission_statement')
+    .notNull()
+    .default(
+      'To improve students\u2019 understanding of registered courses, provide reliable CBT simulations and educational resources, and build academic confidence through consistent practice and performance insight.'
+    ),
+  backgroundStory: text('background_story')
+    .notNull()
+    .default(
+      'Acadet CBT was created under Acadet Learning Hub to bridge the gap between classroom study and realistic computer-based examination readiness, combining curated courses, study materials, verified assessments, and guided tutorial support.'
+    ),
+  photoUrl: text('photo_url'),
+  photoObjectKey: text('photo_object_key'),
+  socialLinks: jsonb('social_links').$type<SocialLinksMap>().notNull().default({}),
+  updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 

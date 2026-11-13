@@ -17,6 +17,7 @@ import type {
   GradedExamQuestion,
   ResultsOverview,
 } from '../../types/cbt';
+import { AcadetCrest } from './AcadetLogo';
 
 interface ResultsViewProps {
   courses: CourseCatalogueItem[];
@@ -104,6 +105,7 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
     <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-sm overflow-hidden flex flex-col">
       {/* Deep Navy Header Strip */}
       <div className="bg-[#0b337a] text-white px-5 py-3.5 flex items-center gap-2.5">
+        <AcadetCrest className="w-8 h-8" />
         <BarChart3 className="w-5 h-5 shrink-0" />
         <h2 className="text-lg font-extrabold tracking-tight">Course Results</h2>
       </div>
@@ -276,7 +278,8 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
           <div className="w-full max-w-3xl max-h-[90vh] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col overflow-hidden">
             <div className="bg-[#0b337a] text-white px-5 py-4 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2.5">
-                <Award className="w-5 h-5" />
+                <AcadetCrest className="w-8 h-8" />
+                <Award className="w-5 h-5 shrink-0" />
                 <div>
                   <h3 className="font-extrabold text-base">
                     {detailModal.session.courseCode

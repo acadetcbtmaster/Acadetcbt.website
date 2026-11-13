@@ -478,3 +478,91 @@ export interface AdminStudentProfile {
     outstandingCourseRegistrations: number;
   };
 }
+
+export interface SocialLinksMap {
+  facebook?: string;
+  twitter?: string;
+  instagram?: string;
+  youtube?: string;
+  linkedin?: string;
+  whatsapp?: string;
+  tiktok?: string;
+  website?: string;
+}
+
+export interface SiteBrandingData {
+  siteName: string;
+  tagline: string;
+  siteDescription: string;
+  seoTitle: string;
+  seoDescription: string;
+  seoKeywords: string;
+  logoUrl: string;
+  faviconUrl: string;
+  contactEmail: string;
+  contactPhone: string | null;
+  contactWhatsapp: string | null;
+  socialLinks: SocialLinksMap;
+  updatedAt: string;
+}
+
+export interface FounderProfileData {
+  fullName: string;
+  positionTitle: string;
+  biography: string;
+  founderMessage: string;
+  visionStatement: string;
+  missionStatement: string;
+  backgroundStory: string;
+  photoUrl: string | null;
+  socialLinks: SocialLinksMap;
+  updatedAt: string;
+}
+
+export interface PublicCourseSummary {
+  id: string;
+  code: string;
+  title: string;
+  level: string;
+  description: string;
+  courseValue: number;
+  registrationFee: number;
+  currency: string;
+  examCategory: string;
+  defaultDurationMinutes: number;
+  questionCount: number;
+}
+
+export interface PublicSiteDataResponse {
+  branding: SiteBrandingData;
+  founder: FounderProfileData;
+  courses: PublicCourseSummary[];
+}
+
+export interface PaymentResetPreview {
+  totalPayments: number;
+  successfulCount: number;
+  liveSuccessfulCount: number;
+  pendingCount: number;
+  failedCount: number;
+  refundedCount: number;
+  testCount: number;
+  testAndStaleCount: number;
+  linkedRegistrationsCount: number;
+  activeRegistrationsCount: number;
+  webhookEventsCount: number;
+}
+
+export interface PaymentBackupSummary {
+  id: string;
+  backupLabel: string;
+  resetScope: 'manual_snapshot' | 'test_and_stale' | 'full_production_reset';
+  totalPaymentsCount: number;
+  successfulCount: number;
+  pendingCount: number;
+  failedCount: number;
+  testCount: number;
+  createdByName?: string | null;
+  createdAt: string;
+}
+

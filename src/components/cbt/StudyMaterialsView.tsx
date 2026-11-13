@@ -3,11 +3,11 @@ import {
   Download,
   FileText,
   FolderOpen,
-  Library,
 } from 'lucide-react';
 import React, { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import type { MaterialCategory, StudyMaterialItem } from '../../types/cbt';
+import { AcadetCrest } from './AcadetLogo';
 
 interface StudyMaterialsViewProps {
   selectedCourseId?: string | null;
@@ -99,6 +99,7 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
     <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-sm overflow-hidden flex flex-col">
       {/* Deep Navy Header Strip */}
       <div className="bg-[#0b337a] text-white px-5 py-3.5 flex items-center gap-2.5">
+        <AcadetCrest className="w-8 h-8" />
         <BookOpen className="w-5 h-5 shrink-0" />
         <h2 className="text-lg font-extrabold tracking-tight">Study Materials</h2>
       </div>
@@ -106,8 +107,8 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
       <div className="p-4 sm:p-5 space-y-4 flex-1 flex flex-col">
         {/* Resource Banner */}
         <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/80 border border-[#d6e4fa] dark:border-slate-700 px-4 py-3.5 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl bg-[#0a58ed]/10 dark:bg-blue-900/40 text-[#0b337a] dark:text-blue-300 flex items-center justify-center shrink-0">
-            <Library className="w-7 h-7" />
+          <div className="w-12 h-12 rounded-xl bg-white dark:bg-slate-900 border border-[#d6e4fa] dark:border-slate-700 flex items-center justify-center shrink-0 p-1">
+            <AcadetCrest className="w-10 h-10" frameOnDark={false} />
           </div>
           <div>
             <div className="text-sm sm:text-base font-extrabold text-[#082252] dark:text-white">
