@@ -1,8 +1,10 @@
 import type {
+  AccountStatus,
   ActiveExamQuestion,
   ActiveExamSession,
   ActivitySummary,
   AdminCourseItem,
+  AdminNotificationRecord,
   AdminOverview,
   AdminPaymentRecord,
   AdminQuestionItem,
@@ -12,6 +14,7 @@ import type {
   CourseCatalogueItem,
   DifficultyLevel,
   GradedExamQuestion,
+  NotificationType,
   OptionLetter,
   PaymentInitializeResponse,
   PaymentStatus,
@@ -20,6 +23,7 @@ import type {
   RegisteredCourseItem,
   ResultsOverview,
   SafeUser,
+  StudentNotificationItem,
   StudentPaymentRecord,
   StudyMaterialItem,
   UserPreferences,
@@ -111,6 +115,20 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
         ? parsed.error
         : `Request failed with status ${response.status}`;
     const code = typeof parsed.code === 'string' ? parsed.code : undefined;
+
+    if (
+      response.status === 403 &&
+      code === 'ACCOUNT_SUSPENDED' &&
+      !path.includes('/api/auth/login')
+    ) {
+      setClientAuthToken(null);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('acadet:account-suspended', { detail: { message } })
+        );
+      }
+    }
+
     throw new ApiError(message, response.status, code, parsed);
   }
 
@@ -303,6 +321,22 @@ export const api = {
       ),
   },
 
+  notifications: {
+    list: () =>
+      request<{ notifications: StudentNotificationItem[]; unreadCount: number }>(
+        '/api/notifications'
+      ),
+    markRead: (id: string) =>
+      request<{ notificationId: string; isRead: boolean; readAt: string }>(
+        `/api/notifications/${id}/read`,
+        { method: 'POST' }
+      ),
+    markAllRead: () =>
+      request<{ ok: boolean; markedCount: number }>('/api/notifications/read-all', {
+        method: 'POST',
+      }),
+  },
+
   admin: {
     getOverview: () => request<{ overview: AdminOverview }>('/api/admin/overview'),
 
@@ -317,6 +351,7 @@ export const api = {
       publicationStatus?: PublicationStatus;
       examCategory?: string;
       defaultDurationMinutes?: number;
+      whatsappGroupLink?: string | null;
     }) =>
       request<{ course: AdminCourseItem }>('/api/admin/courses', {
         method: 'POST',
@@ -333,6 +368,7 @@ export const api = {
         publicationStatus: PublicationStatus;
         examCategory: string;
         defaultDurationMinutes: number;
+        whatsappGroupLink: string | null;
       }>
     ) =>
       request<{ course: AdminCourseItem }>(`/api/admin/courses/${id}`, {
@@ -463,7 +499,13 @@ export const api = {
         method: 'POST',
       }),
 
-    listUsers: () => request<{ users: SafeUser[] }>('/api/admin/users'),
+    listUsers: (filters?: { search?: string; status?: AccountStatus | '' }) => {
+      const search = new URLSearchParams();
+      if (filters?.search) search.set('search', filters.search);
+      if (filters?.status) search.set('status', filters.status);
+      const qs = search.toString();
+      return request<{ users: SafeUser[] }>(`/api/admin/users${qs ? `?${qs}` : ''}`);
+    },
     getStudentProfile: (studentId: string) =>
       request<AdminStudentProfile>(`/api/admin/users/${studentId}/profile`),
     updateUser: (
@@ -474,6 +516,42 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify(payload),
       }),
+    suspendUser: (id: string, reason?: string) =>
+      request<{ user: SafeUser; message: string }>(`/api/admin/users/${id}/suspend`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+    reactivateUser: (id: string) =>
+      request<{ user: SafeUser; message: string }>(`/api/admin/users/${id}/reactivate`, {
+        method: 'POST',
+      }),
+    deleteUser: (id: string, payload: { confirmation?: string; confirmEmail?: string }) =>
+      request<{
+        deletedId: string;
+        deletedStudentRef: string;
+        anonymizedPaymentsCount: number;
+        message: string;
+      }>(`/api/admin/users/${id}`, {
+        method: 'DELETE',
+        body: JSON.stringify(payload),
+      }),
+    sendUserNotification: (id: string, payload: { title: string; message: string }) =>
+      request<{ notification: Record<string, unknown>; message: string }>(
+        `/api/admin/users/${id}/notifications`,
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }
+      ),
+    listNotifications: (filters?: { search?: string; type?: NotificationType | '' }) => {
+      const search = new URLSearchParams();
+      if (filters?.search) search.set('search', filters.search);
+      if (filters?.type) search.set('type', filters.type);
+      const qs = search.toString();
+      return request<{ notifications: AdminNotificationRecord[] }>(
+        `/api/admin/notifications${qs ? `?${qs}` : ''}`
+      );
+    },
 
     listResults: () =>
       request<{

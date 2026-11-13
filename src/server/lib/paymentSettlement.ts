@@ -1,5 +1,6 @@
 import { getPool } from '../../db/index.js';
 import { writeAuditLog } from './audit.js';
+import { generatePaymentSuccessNotification } from './notifications.js';
 import { nairaToKobo, type PaystackVerifyData } from './paystack.js';
 import {
   COURSE_VALUE_KOBO,
@@ -486,6 +487,22 @@ export async function settlePaystackTransaction(params: {
     },
     ipAddress,
   });
+
+  if (outcome.paymentStatus === 'successful' && outcome.unlocked && outcome.registration) {
+    try {
+      await generatePaymentSuccessNotification({
+        studentId: outcome.payment.studentId,
+        courseId: outcome.payment.courseId,
+        paymentId: outcome.payment.id,
+        paymentReference: outcome.payment.paymentReference,
+        totalAmountChargedNaira: Number(
+          outcome.payment.totalAmountCharged || outcome.payment.amount
+        ),
+      });
+    } catch (notifErr) {
+      console.warn('[Notification] Failed creating payment success notification:', notifErr);
+    }
+  }
 
   return outcome;
 }

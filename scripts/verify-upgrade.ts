@@ -15,6 +15,10 @@ import {
   computeApplicablePaystackFeeKobo,
   reconcileCoursePayment,
 } from '../src/server/lib/pricing.js';
+import {
+  buildPaymentSuccessNotificationContent,
+  normalizeWhatsappGroupLink,
+} from '../src/server/lib/notifications.js';
 
 async function verifyUpgrade() {
   console.log('[Upgrade Verification] Checking standardized pricing & Paystack fee reconciliation...');
@@ -106,7 +110,42 @@ async function verifyUpgrade() {
     else process.env.PAYSTACK_WEBHOOK_SECRET = prevSecret;
   }
 
-  console.log('[Upgrade Verification] Auditing payment settlement & duplicate/tamper protections...');
+  console.log('[Upgrade Verification] Checking payment success notification & WhatsApp group links...');
+  assert.equal(
+    normalizeWhatsappGroupLink('https://chat.whatsapp.com/ABC123xyz'),
+    'https://chat.whatsapp.com/ABC123xyz'
+  );
+  assert.equal(normalizeWhatsappGroupLink('  '), null);
+  assert.equal(normalizeWhatsappGroupLink('javascript:alert(1)'), null);
+
+  const withLink = buildPaymentSuccessNotificationContent({
+    studentName: 'Chidi Okonkwo',
+    courseTitle: 'Use of English',
+    courseCode: 'GST 101',
+    totalAmountChargedNaira: 2350,
+    paymentReference: ref1,
+    whatsappGroupLink: 'https://chat.whatsapp.com/AcadetGst101',
+  });
+  assert.ok(withLink.title.includes('GST 101'));
+  assert.ok(withLink.message.includes('Chidi Okonkwo'));
+  assert.ok(withLink.message.includes('₦2,350'));
+  assert.ok(withLink.message.includes('unlocked'));
+  assert.equal(withLink.actionUrl, 'https://chat.whatsapp.com/AcadetGst101');
+  assert.equal(withLink.actionLabel, 'Join GST 101 Tutorial Group');
+
+  const withoutLink = buildPaymentSuccessNotificationContent({
+    studentName: 'Amina Yusuf',
+    courseTitle: 'General Biology',
+    courseCode: 'BIO 101',
+    totalAmountChargedNaira: 2350,
+    paymentReference: ref2,
+    whatsappGroupLink: null,
+  });
+  assert.equal(withoutLink.actionUrl, null);
+  assert.equal(withoutLink.actionLabel, null);
+  assert.ok(!withoutLink.message.includes('chat.whatsapp.com'));
+
+  console.log('[Upgrade Verification] Auditing payment settlement & user lifecycle protections...');
   const settlementSrc = await fs.readFile(
     path.resolve(process.cwd(), 'src/server/lib/paymentSettlement.ts'),
     'utf-8'
@@ -131,6 +170,48 @@ async function verifyUpgrade() {
     settlementSrc.includes("gatewayStatus === 'failed'") &&
       settlementSrc.includes('unlocked: false'),
     'TEST 3: Failed/pending payments must never unlock course access'
+  );
+  assert.ok(
+    settlementSrc.includes("outcome.paymentStatus === 'successful'") &&
+      settlementSrc.includes('outcome.unlocked') &&
+      settlementSrc.includes('generatePaymentSuccessNotification'),
+    'Payment settlement must trigger notification strictly on successful unlock'
+  );
+
+  const authMiddlewareSrc = await fs.readFile(
+    path.resolve(process.cwd(), 'src/server/middleware/auth.ts'),
+    'utf-8'
+  );
+  const authRoutesSrc = await fs.readFile(
+    path.resolve(process.cwd(), 'src/server/routes/auth.ts'),
+    'utf-8'
+  );
+  assert.ok(
+    authMiddlewareSrc.includes("code: 'ACCOUNT_SUSPENDED'") &&
+      authRoutesSrc.includes("code: 'ACCOUNT_SUSPENDED'"),
+    'Auth login and protected middleware must enforce 403 ACCOUNT_SUSPENDED'
+  );
+
+  const adminRoutesSrc = await fs.readFile(
+    path.resolve(process.cwd(), 'src/server/routes/admin.ts'),
+    'utf-8'
+  );
+  assert.ok(
+    adminRoutesSrc.includes("code: 'CANNOT_DELETE_LAST_SUPER_ADMIN'") &&
+      adminRoutesSrc.includes('deleted_student_ref') &&
+      adminRoutesSrc.includes('LEFT JOIN users'),
+    'Admin routes must guard last super admin, anonymize financial records, and LEFT JOIN users on payments'
+  );
+
+  const catalogRoutesSrc = await fs.readFile(
+    path.resolve(process.cwd(), 'src/server/routes/catalog.ts'),
+    'utf-8'
+  );
+  const publicCoursesSection = catalogRoutesSrc.split("router.get('/my-courses'")[0];
+  assert.equal(
+    publicCoursesSection.includes('whatsappGroupLink'),
+    false,
+    'Public /api/catalog/courses must never expose course WhatsApp group links before payment'
   );
 
   const migration2 = await fs.readFile(
@@ -180,6 +261,7 @@ async function verifyUpgrade() {
     'src/components/cbt/CourseRegistrationView.tsx',
     'src/components/cbt/MyRegisteredCoursesView.tsx',
     'src/components/cbt/CourseAccessRequiredModal.tsx',
+    'src/components/cbt/NotificationsView.tsx',
     'src/components/cbt/AdminConsole.tsx',
   ];
 
@@ -232,6 +314,10 @@ async function verifyUpgrade() {
       body: JSON.stringify({ courseId: '11111111-1111-4111-8111-111111111111' }),
     });
     assert.ok(examStartRes.status === 401 || examStartRes.status === 503);
+
+    // Unauthenticated notifications route blocked (401 or 503 when DB unconfigured, never 404)
+    const notifRes = await fetch(`${baseUrl}/api/notifications`);
+    assert.ok(notifRes.status === 401 || notifRes.status === 503);
   } finally {
     delete process.env.PAYSTACK_WEBHOOK_SECRET;
     server.closeAllConnections();

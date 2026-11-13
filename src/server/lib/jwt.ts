@@ -4,6 +4,7 @@ import type { UserPreferences } from '../../db/schema.js';
 import { DEFAULT_USER_PREFERENCES } from '../../db/schema.js';
 
 export type UserRole = 'student' | 'admin' | 'super_admin';
+export type AccountStatus = 'active' | 'suspended';
 
 export interface AuthTokenPayload {
   sub: string;
@@ -20,6 +21,9 @@ export interface SafeUser {
   examTarget: string;
   whatsappNumber: string | null;
   isActive: boolean;
+  accountStatus: AccountStatus;
+  suspendedReason: string | null;
+  suspendedAt: Date | null;
   preferences: UserPreferences;
   createdAt: Date;
 }
@@ -92,9 +96,15 @@ export function sanitizeUser(row: {
   examTarget: string;
   whatsappNumber?: string | null;
   isActive: boolean;
+  accountStatus?: string | null;
+  suspendedReason?: string | null;
+  suspendedAt?: Date | null;
   preferences: UserPreferences | null;
   createdAt: Date;
 }): SafeUser {
+  const resolvedAccountStatus: AccountStatus =
+    row.accountStatus === 'suspended' || !row.isActive ? 'suspended' : 'active';
+
   return {
     id: row.id,
     fullName: row.fullName,
@@ -103,7 +113,10 @@ export function sanitizeUser(row: {
     role: (row.role as UserRole) || 'student',
     examTarget: row.examTarget,
     whatsappNumber: row.whatsappNumber ?? null,
-    isActive: row.isActive,
+    isActive: row.isActive && resolvedAccountStatus === 'active',
+    accountStatus: resolvedAccountStatus,
+    suspendedReason: row.suspendedReason ?? null,
+    suspendedAt: row.suspendedAt ?? null,
     preferences: {
       ...DEFAULT_USER_PREFERENCES,
       ...(row.preferences || {}),

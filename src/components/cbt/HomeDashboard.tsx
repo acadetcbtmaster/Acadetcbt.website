@@ -112,23 +112,23 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   };
 
   return (
-    <div className="max-w-6xl mx-auto w-full px-3 sm:px-6 py-5 sm:py-7 space-y-6">
+    <div className="max-w-6xl mx-auto w-full px-3 sm:px-5 py-3.5 sm:py-5 space-y-4 sm:space-y-5">
       {/* Hero Banner */}
-      <section className="rounded-2xl border border-[#c6daf7] dark:border-slate-700 bg-gradient-to-r from-[#eff5ff] via-[#e1ecfe] to-[#cce0ff] dark:from-slate-900 dark:via-slate-800 dark:to-blue-950/70 px-6 py-6 sm:px-9 sm:py-7 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
-        <div className="space-y-3 text-center md:text-left">
-          <h1 className="text-2xl sm:text-4xl font-extrabold tracking-tight text-[#082252] dark:text-white">
+      <section className="rounded-2xl border border-[#c6daf7] dark:border-slate-700 bg-gradient-to-r from-[#eff5ff] via-[#e1ecfe] to-[#cce0ff] dark:from-slate-900 dark:via-slate-800 dark:to-blue-950/70 px-4 py-4 sm:px-7 sm:py-5 flex flex-col md:flex-row items-center justify-between gap-4 shadow-sm">
+        <div className="space-y-2 text-center md:text-left">
+          <h1 className="text-xl sm:text-3xl font-extrabold tracking-tight text-[#082252] dark:text-white">
             Welcome to Acadet CBT
           </h1>
-          <p className="text-base sm:text-xl font-semibold text-[#1e3a6e] dark:text-blue-200">
+          <p className="text-sm sm:text-lg font-semibold text-[#1e3a6e] dark:text-blue-200">
             Prepare smart. Practice well. Score higher.
           </p>
-          <div className="w-20 h-1.5 rounded-full bg-[#0a58ed] mx-auto md:mx-0" />
+          <div className="w-16 h-1 rounded-full bg-[#0a58ed] mx-auto md:mx-0" />
 
-          <div className="pt-2 flex flex-wrap items-center justify-center md:justify-start gap-2.5">
+          <div className="pt-1.5 flex flex-wrap items-center justify-center md:justify-start gap-2">
             <button
               type="button"
               onClick={onNavigateCourseRegistration}
-              className="px-4 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold shadow-xs inline-flex items-center gap-2 min-h-[40px] transition-colors"
+              className="px-3.5 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold shadow-xs inline-flex items-center gap-1.5 min-h-[40px] transition-colors"
             >
               <CreditCard className="w-4 h-4" />
               <span>Course Registration</span>
@@ -136,7 +136,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <button
               type="button"
               onClick={onNavigateMyCourses}
-              className="px-4 py-2 rounded-xl bg-white dark:bg-slate-900 border border-[#9dc0f5] dark:border-slate-700 text-[#082252] dark:text-blue-200 hover:bg-blue-50 dark:hover:bg-slate-800 text-xs sm:text-sm font-extrabold inline-flex items-center gap-2 min-h-[40px] transition-colors tabular-nums"
+              className="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-[#9dc0f5] dark:border-slate-700 text-[#082252] dark:text-blue-200 hover:bg-blue-50 dark:hover:bg-slate-800 text-xs sm:text-sm font-extrabold inline-flex items-center gap-1.5 min-h-[40px] transition-colors tabular-nums"
             >
               <BookCheck className="w-4 h-4 text-[#0a58ed]" />
               <span>My Courses ({registeredCount})</span>
@@ -150,22 +150,22 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
       </section>
 
       {/* 4 Horizontal Action Cards */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {/* Start Exam */}
         <button
           type="button"
           onClick={openExamModal}
-          className="group rounded-2xl bg-gradient-to-br from-[#0a58ed] to-[#0041b5] hover:from-[#0b61ff] hover:to-[#0049cc] text-white p-6 flex flex-col items-center justify-between text-center shadow-md hover:shadow-lg transition-all min-h-[188px]"
+          className="group rounded-2xl bg-gradient-to-br from-[#0a58ed] to-[#0041b5] hover:from-[#0b61ff] hover:to-[#0049cc] text-white p-4 sm:p-5 flex flex-col items-center justify-between text-center shadow-md hover:shadow-lg transition-all min-h-[146px] sm:min-h-[166px]"
         >
-          <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center">
-            <FileEdit className="w-7 h-7 text-white" />
+          <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center">
+            <FileEdit className="w-6 h-6 text-white" />
           </div>
-          <div className="my-3">
-            <div className="text-xl font-extrabold tracking-tight">Start Exam</div>
-            <div className="text-sm text-blue-100 mt-0.5">Begin a course CBT test</div>
+          <div className="my-2">
+            <div className="text-lg font-extrabold tracking-tight">Start Exam</div>
+            <div className="text-xs sm:text-sm text-blue-100 mt-0.5">Begin a course CBT test</div>
           </div>
-          <span className="w-8 h-8 rounded-full bg-white text-[#0041b5] flex items-center justify-center shadow-sm group-hover:translate-x-0.5 transition-transform">
-            <ChevronRight className="w-5 h-5" />
+          <span className="w-7 h-7 rounded-full bg-white text-[#0041b5] flex items-center justify-center shadow-sm group-hover:translate-x-0.5 transition-transform">
+            <ChevronRight className="w-4 h-4" />
           </span>
         </button>
 
@@ -173,21 +173,21 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         <button
           type="button"
           onClick={onNavigateViewResults}
-          className="group rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 hover:border-[#9dc0f5] dark:hover:border-blue-700 p-6 flex flex-col items-center justify-between text-center shadow-sm hover:shadow-md transition-all min-h-[188px]"
+          className="group rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 hover:border-[#9dc0f5] dark:hover:border-blue-700 p-4 sm:p-5 flex flex-col items-center justify-between text-center shadow-sm hover:shadow-md transition-all min-h-[146px] sm:min-h-[166px]"
         >
-          <div className="w-12 h-12 rounded-xl bg-[#eff5ff] dark:bg-blue-950/60 flex items-center justify-center">
-            <BarChart3 className="w-7 h-7 text-[#0b337a] dark:text-blue-400" />
+          <div className="w-10 h-10 rounded-xl bg-[#eff5ff] dark:bg-blue-950/60 flex items-center justify-center">
+            <BarChart3 className="w-6 h-6 text-[#0b337a] dark:text-blue-400" />
           </div>
-          <div className="my-3">
-            <div className="text-xl font-extrabold tracking-tight text-[#082252] dark:text-white">
+          <div className="my-2">
+            <div className="text-lg font-extrabold tracking-tight text-[#082252] dark:text-white">
               Course Results
             </div>
-            <div className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
+            <div className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-0.5">
               Check your performance
             </div>
           </div>
-          <span className="w-8 h-8 rounded-full bg-[#0b337a] text-white flex items-center justify-center group-hover:translate-x-0.5 transition-transform">
-            <ChevronRight className="w-5 h-5" />
+          <span className="w-7 h-7 rounded-full bg-[#0b337a] text-white flex items-center justify-center group-hover:translate-x-0.5 transition-transform">
+            <ChevronRight className="w-4 h-4" />
           </span>
         </button>
 
@@ -195,21 +195,21 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         <button
           type="button"
           onClick={onNavigateStudyMaterials}
-          className="group rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 hover:border-[#9dc0f5] dark:hover:border-blue-700 p-6 flex flex-col items-center justify-between text-center shadow-sm hover:shadow-md transition-all min-h-[188px]"
+          className="group rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 hover:border-[#9dc0f5] dark:hover:border-blue-700 p-4 sm:p-5 flex flex-col items-center justify-between text-center shadow-sm hover:shadow-md transition-all min-h-[146px] sm:min-h-[166px]"
         >
-          <div className="w-12 h-12 rounded-xl bg-[#eff5ff] dark:bg-blue-950/60 flex items-center justify-center">
-            <BookOpen className="w-7 h-7 text-[#0b337a] dark:text-blue-400" />
+          <div className="w-10 h-10 rounded-xl bg-[#eff5ff] dark:bg-blue-950/60 flex items-center justify-center">
+            <BookOpen className="w-6 h-6 text-[#0b337a] dark:text-blue-400" />
           </div>
-          <div className="my-3">
-            <div className="text-xl font-extrabold tracking-tight text-[#082252] dark:text-white">
+          <div className="my-2">
+            <div className="text-lg font-extrabold tracking-tight text-[#082252] dark:text-white">
               Study Materials
             </div>
-            <div className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
+            <div className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-0.5">
               Access course tutorials & notes
             </div>
           </div>
-          <span className="w-8 h-8 rounded-full bg-[#0b337a] text-white flex items-center justify-center group-hover:translate-x-0.5 transition-transform">
-            <ChevronRight className="w-5 h-5" />
+          <span className="w-7 h-7 rounded-full bg-[#0b337a] text-white flex items-center justify-center group-hover:translate-x-0.5 transition-transform">
+            <ChevronRight className="w-4 h-4" />
           </span>
         </button>
 
@@ -217,21 +217,21 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         <button
           type="button"
           onClick={onOpenSettings}
-          className="group rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 hover:border-[#9dc0f5] dark:hover:border-blue-700 p-6 flex flex-col items-center justify-between text-center shadow-sm hover:shadow-md transition-all min-h-[188px]"
+          className="group rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 hover:border-[#9dc0f5] dark:hover:border-blue-700 p-4 sm:p-5 flex flex-col items-center justify-between text-center shadow-sm hover:shadow-md transition-all min-h-[146px] sm:min-h-[166px]"
         >
-          <div className="w-12 h-12 rounded-xl bg-[#eff5ff] dark:bg-blue-950/60 flex items-center justify-center">
-            <Settings className="w-7 h-7 text-[#0b337a] dark:text-blue-400" />
+          <div className="w-10 h-10 rounded-xl bg-[#eff5ff] dark:bg-blue-950/60 flex items-center justify-center">
+            <Settings className="w-6 h-6 text-[#0b337a] dark:text-blue-400" />
           </div>
-          <div className="my-3">
-            <div className="text-xl font-extrabold tracking-tight text-[#082252] dark:text-white">
+          <div className="my-2">
+            <div className="text-lg font-extrabold tracking-tight text-[#082252] dark:text-white">
               Settings
             </div>
-            <div className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
+            <div className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 mt-0.5">
               Adjust your preferences
             </div>
           </div>
-          <span className="w-8 h-8 rounded-full bg-[#0b337a] text-white flex items-center justify-center group-hover:translate-x-0.5 transition-transform">
-            <ChevronRight className="w-5 h-5" />
+          <span className="w-7 h-7 rounded-full bg-[#0b337a] text-white flex items-center justify-center group-hover:translate-x-0.5 transition-transform">
+            <ChevronRight className="w-4 h-4" />
           </span>
         </button>
       </section>

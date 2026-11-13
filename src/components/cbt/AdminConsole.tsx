@@ -1,5 +1,8 @@
 import {
   AlertCircle,
+  AlertTriangle,
+  Ban,
+  Bell,
   BookCheck,
   BookOpen,
   CheckCircle2,
@@ -8,13 +11,17 @@ import {
   CreditCard,
   Download,
   Edit3,
+  ExternalLink,
   Eye,
   FileText,
   Lock,
   Megaphone,
+  MessageCircle,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
+  Send,
   Shield,
   Sparkles,
   Trash2,
@@ -26,7 +33,9 @@ import {
 import React, { useEffect, useState } from 'react';
 import { api, getClientAuthToken } from '../../lib/api';
 import type {
+  AccountStatus,
   AdminCourseItem,
+  AdminNotificationRecord,
   AdminOverview,
   AdminPaymentRecord,
   AdminQuestionItem,
@@ -34,6 +43,7 @@ import type {
   AdminStudentProfile,
   AnnouncementItem,
   MaterialCategory,
+  NotificationType,
   OptionLetter,
   PaymentStatus,
   PublicationStatus,
@@ -56,6 +66,7 @@ type AdminSection =
   | 'questions'
   | 'materials'
   | 'announcements'
+  | 'notifications'
   | 'users';
 
 function StatusBadge({ status }: { status: PaymentStatus }) {
@@ -147,6 +158,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
   const [cPubStatus, setCPubStatus] = useState<PublicationStatus>('published');
   const [cDuration, setCDuration] = useState('60');
   const [cDesc, setCDesc] = useState('');
+  const [cWhatsappLink, setCWhatsappLink] = useState('');
 
   // Registration filters & modal
   const [regSearch, setRegSearch] = useState('');
@@ -165,9 +177,23 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
   const [payDateTo, setPayDateTo] = useState('');
   const [selectedPayment, setSelectedPayment] = useState<AdminPaymentRecord | null>(null);
 
-  // Student Profile modal
+  // User Management filters & lifecycle modals
+  const [userSearch, setUserSearch] = useState('');
+  const [userStatusFilter, setUserStatusFilter] = useState<AccountStatus | ''>('');
   const [studentProfile, setStudentProfile] = useState<AdminStudentProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [suspendTarget, setSuspendTarget] = useState<SafeUser | null>(null);
+  const [suspendReason, setSuspendReason] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<SafeUser | null>(null);
+  const [deleteConfirmationText, setDeleteConfirmationText] = useState('');
+
+  // Notifications Management + Individual Student Notification Composer
+  const [adminNotifications, setAdminNotifications] = useState<AdminNotificationRecord[]>([]);
+  const [notifSearch, setNotifSearch] = useState('');
+  const [notifTypeFilter, setNotifTypeFilter] = useState<NotificationType | ''>('');
+  const [notifyTarget, setNotifyTarget] = useState<SafeUser | null>(null);
+  const [notifyTitle, setNotifyTitle] = useState('');
+  const [notifyMessage, setNotifyMessage] = useState('');
 
   // Question form
   const [qCourseId, setQCourseId] = useState('');
@@ -219,17 +245,46 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     setPayments(res.payments);
   };
 
+  const loadUsersFiltered = async (
+    nextSearch = userSearch,
+    nextStatus = userStatusFilter
+  ) => {
+    const res = await api.admin.listUsers({
+      search: nextSearch || undefined,
+      status: nextStatus || undefined,
+    });
+    setUsers(res.users);
+  };
+
+  const loadNotificationsFiltered = async (
+    nextSearch = notifSearch,
+    nextType = notifTypeFilter
+  ) => {
+    const res = await api.admin.listNotifications({
+      search: nextSearch || undefined,
+      type: nextType || undefined,
+    });
+    setAdminNotifications(res.notifications);
+  };
+
   const loadAllAdminData = async () => {
-    const [ov, cRes, qRes, matRes, annRes, usrRes, regRes, payRes] =
+    const [ov, cRes, qRes, matRes, annRes, usrRes, regRes, payRes, notifRes] =
       await Promise.allSettled([
         api.admin.getOverview(),
         api.admin.listCourses(),
         api.admin.listQuestions(),
         api.materials.list(),
         api.admin.listAnnouncements(),
-        api.admin.listUsers(),
+        api.admin.listUsers({
+          search: userSearch || undefined,
+          status: userStatusFilter || undefined,
+        }),
         api.admin.listRegistrations(),
         api.admin.listPayments(),
+        api.admin.listNotifications({
+          search: notifSearch || undefined,
+          type: notifTypeFilter || undefined,
+        }),
       ]);
 
     const errors: string[] = [];
@@ -264,6 +319,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     if (payRes.status === 'fulfilled') setPayments(payRes.value.payments);
     else errors.push(payRes.reason instanceof Error ? payRes.reason.message : 'payments');
 
+    if (notifRes.status === 'fulfilled') setAdminNotifications(notifRes.value.notifications);
+
     if (errors.length > 0) {
       setFeedback({ type: 'err', text: errors[0] });
     }
@@ -293,6 +350,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     setCPubStatus('published');
     setCDuration('60');
     setCDesc('');
+    setCWhatsappLink('');
   };
 
   const startEditCourse = (c: AdminCourseItem) => {
@@ -304,6 +362,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     setCPubStatus(c.publicationStatus);
     setCDuration(String(c.defaultDurationMinutes));
     setCDesc(c.description);
+    setCWhatsappLink(c.whatsappGroupLink || '');
     setFeedback(null);
   };
 
@@ -313,6 +372,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     setFeedback(null);
     try {
       const durNum = Number(cDuration) || 60;
+      const trimmedGroupLink = cWhatsappLink.trim();
       if (editingCourseId) {
         await api.admin.updateCourse(editingCourseId, {
           code: cCode.trim().toUpperCase(),
@@ -322,6 +382,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
           registrationFee: 2350,
           publicationStatus: cPubStatus,
           defaultDurationMinutes: durNum,
+          whatsappGroupLink: trimmedGroupLink || null,
         });
         setFeedback({ type: 'ok', text: `Course "${cCode.toUpperCase()}" updated in PostgreSQL.` });
       } else {
@@ -334,6 +395,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
           currency: 'NGN',
           publicationStatus: cPubStatus,
           defaultDurationMinutes: durNum,
+          whatsappGroupLink: trimmedGroupLink || null,
         });
         setFeedback({ type: 'ok', text: `Course "${cCode.toUpperCase()}" created in PostgreSQL.` });
       }
@@ -480,6 +542,108 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     }
   };
 
+  const handleConfirmSuspend = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!suspendTarget) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.suspendUser(
+        suspendTarget.id,
+        suspendReason.trim() || undefined
+      );
+      setFeedback({ type: 'ok', text: res.message });
+      setSuspendTarget(null);
+      setSuspendReason('');
+      await loadUsersFiltered();
+      if (studentProfile?.student.id === res.user.id) {
+        await openStudentProfile(res.user.id);
+      }
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Failed to suspend account.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReactivateUser = async (targetUser: SafeUser) => {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.reactivateUser(targetUser.id);
+      setFeedback({ type: 'ok', text: res.message });
+      await loadUsersFiltered();
+      if (studentProfile?.student.id === targetUser.id) {
+        await openStudentProfile(targetUser.id);
+      }
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Failed to reactivate account.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleConfirmPermanentDelete = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deleteTarget) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.deleteUser(deleteTarget.id, {
+        confirmation: deleteConfirmationText.trim(),
+        confirmEmail: deleteConfirmationText.trim(),
+      });
+      setFeedback({
+        type: 'ok',
+        text: `${res.message} (Ref: ${res.deletedStudentRef})`,
+      });
+      setDeleteTarget(null);
+      setDeleteConfirmationText('');
+      if (studentProfile?.student.id === res.deletedId) {
+        setStudentProfile(null);
+      }
+      await loadAllAdminData();
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Failed to permanently delete account.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSendStudentNotification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!notifyTarget) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.sendUserNotification(notifyTarget.id, {
+        title: notifyTitle.trim(),
+        message: notifyMessage.trim(),
+      });
+      setFeedback({ type: 'ok', text: res.message });
+      setNotifyTarget(null);
+      setNotifyTitle('');
+      setNotifyMessage('');
+      await loadNotificationsFiltered();
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Failed to send notification.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleCreateQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!qCourseId) return;
@@ -614,15 +778,16 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
     { id: 'questions', label: 'Questions', icon: FileText },
     { id: 'materials', label: 'Materials', icon: Upload },
     { id: 'announcements', label: 'Notices', icon: Megaphone },
+    { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'users', label: 'Users', icon: Users },
   ];
 
   return (
     <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-sm overflow-hidden">
-      <div className="bg-[#0b337a] text-white px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
+      <div className="bg-[#0b337a] text-white px-4 py-3 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2">
           <Shield className="w-5 h-5" />
-          <h2 className="text-lg font-extrabold tracking-tight">
+          <h2 className="text-base sm:text-lg font-extrabold tracking-tight">
             Admin Console (PostgreSQL)
           </h2>
         </div>
@@ -635,7 +800,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                 key={t.id}
                 type="button"
                 onClick={() => setSection(t.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors ${
+                className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors ${
                   section === t.id
                     ? 'bg-white text-[#0b337a]'
                     : 'bg-white/10 text-white hover:bg-white/20'
@@ -649,7 +814,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
         </div>
       </div>
 
-      <div className="p-5 space-y-5">
+      <div className="p-3 sm:p-4 space-y-4">
         {feedback && (
           <div
             className={`rounded-xl px-4 py-3 text-sm font-medium border ${
@@ -824,14 +989,39 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                 />
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <input
                   type="text"
                   placeholder="Course description"
                   value={cDesc}
                   onChange={(e) => setCDesc(e.target.value)}
-                  className="flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
                 />
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <MessageCircle className="w-4 h-4 text-emerald-600 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="url"
+                      placeholder="WhatsApp Tutorial Group Link (optional, https://...)"
+                      value={cWhatsappLink}
+                      onChange={(e) => setCWhatsappLink(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm"
+                    />
+                  </div>
+                  {cWhatsappLink && (
+                    <button
+                      type="button"
+                      onClick={() => setCWhatsappLink('')}
+                      title="Remove group link"
+                      className="px-2.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end">
                 <button
                   type="submit"
                   disabled={busy}
@@ -851,6 +1041,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                     <th className="px-4 py-3">Level</th>
                     <th className="px-4 py-3">Value / Payable</th>
                     <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Group Invite</th>
                     <th className="px-4 py-3">Questions</th>
                     <th className="px-4 py-3">Registrations</th>
                     <th className="px-4 py-3">Revenue</th>
@@ -895,6 +1086,22 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                         >
                           {c.publicationStatus}
                         </button>
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        {c.whatsappGroupLink ? (
+                          <a
+                            href={c.whatsappGroupLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400 hover:underline"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>Configured</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        ) : (
+                          <span className="text-slate-400 font-medium">None</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 tabular-nums font-semibold">
                         {c.questionCount}
@@ -1629,73 +1836,306 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
           </div>
         )}
 
-        {/* USERS & STUDENT PROFILE HISTORY */}
+        {/* ADMIN NOTIFICATIONS MANAGEMENT */}
+        {section === 'notifications' && (
+          <div className="space-y-4">
+            <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/70 border border-[#d6e4fa] dark:border-slate-700 p-3.5 flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={notifSearch}
+                  onChange={(e) => setNotifSearch(e.target.value)}
+                  placeholder="Search notifications by student name, email, or title..."
+                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs sm:text-sm font-semibold"
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <select
+                  value={notifTypeFilter}
+                  onChange={(e) => {
+                    const nextType = e.target.value as NotificationType | '';
+                    setNotifTypeFilter(nextType);
+                    void loadNotificationsFiltered(notifSearch, nextType);
+                  }}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-semibold"
+                >
+                  <option value="">All Types</option>
+                  <option value="admin_direct">Admin Direct</option>
+                  <option value="payment_success">Payment Confirmation (Auto)</option>
+                  <option value="system">System</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => void loadNotificationsFiltered()}
+                  className="px-3.5 py-2 rounded-lg bg-[#0a58ed] text-white text-xs font-bold"
+                >
+                  Filter
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-800/70 text-xs font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                  <tr>
+                    <th className="px-3.5 py-2.5">Recipient</th>
+                    <th className="px-3.5 py-2.5">Type</th>
+                    <th className="px-3.5 py-2.5">Title & Message</th>
+                    <th className="px-3.5 py-2.5">Sender</th>
+                    <th className="px-3.5 py-2.5">Status</th>
+                    <th className="px-3.5 py-2.5">Sent At</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                  {adminNotifications.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-10 text-center text-slate-500">
+                        No sent notifications match the current filters.
+                      </td>
+                    </tr>
+                  ) : (
+                    adminNotifications.map((n) => (
+                      <tr key={n.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                        <td className="px-3.5 py-2.5">
+                          <div className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm">
+                            {n.recipientName}
+                          </div>
+                          <div className="text-[11px] text-slate-500">{n.recipientEmail}</div>
+                        </td>
+                        <td className="px-3.5 py-2.5 text-xs font-bold">
+                          {n.notificationType === 'payment_success' ? (
+                            <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Payment Auto
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[#0a58ed] dark:text-blue-400">
+                              <Send className="w-3.5 h-3.5" />
+                              Admin Direct
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3.5 py-2.5 max-w-sm">
+                          <div className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm">
+                            {n.title}
+                          </div>
+                          <div className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2">
+                            {n.message}
+                          </div>
+                          {n.actionUrl && (
+                            <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 mt-0.5">
+                              Group CTA: {n.actionLabel || 'Tutorial Group Link'}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          {n.senderName}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-xs font-bold">
+                          {n.isRead ? (
+                            <span className="text-emerald-700 dark:text-emerald-400">Read</span>
+                          ) : (
+                            <span className="text-amber-600 dark:text-amber-400">Unread</span>
+                          )}
+                        </td>
+                        <td className="px-3.5 py-2.5 text-xs text-slate-500 tabular-nums whitespace-nowrap">
+                          {new Date(n.createdAt).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* USERS & STUDENT LIFECYCLE MANAGEMENT */}
         {section === 'users' && (
-          <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
-            {users.map((u) => (
-              <div
-                key={u.id}
-                className="px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-sm"
-              >
-                <div>
-                  <div className="font-bold">
-                    {u.fullName}{' '}
-                    <span className="text-xs font-semibold text-slate-500">
-                      (@{u.username})
-                    </span>
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {u.email}
-                    {u.whatsappNumber ? ` · WhatsApp: ${u.whatsappNumber}` : ''}
-                  </div>
+          <div className="space-y-3.5">
+            <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/70 border border-[#d6e4fa] dark:border-slate-700 p-3.5 flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={userSearch}
+                  onChange={(e) => setUserSearch(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void loadUsersFiltered();
+                    }
+                  }}
+                  placeholder="Search by full name, email, username, or WhatsApp..."
+                  className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs sm:text-sm font-semibold"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 p-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700">
+                  {(
+                    [
+                      { id: '', label: 'All' },
+                      { id: 'active', label: 'Active' },
+                      { id: 'suspended', label: 'Suspended' },
+                    ] as const
+                  ).map((tab) => (
+                    <button
+                      key={tab.label}
+                      type="button"
+                      onClick={() => {
+                        setUserStatusFilter(tab.id);
+                        void loadUsersFiltered(userSearch, tab.id);
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors ${
+                        userStatusFilter === tab.id
+                          ? 'bg-[#0a58ed] text-white'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={loadingProfile}
-                    onClick={() => void openStudentProfile(u.id)}
-                    className="px-3 py-1 rounded-lg bg-[#eff5ff] dark:bg-slate-800 text-[#0b337a] dark:text-blue-300 border border-[#c6daf7] dark:border-slate-700 text-xs font-bold flex items-center gap-1.5 hover:bg-blue-100 dark:hover:bg-slate-700"
-                  >
-                    <UserCheck className="w-3.5 h-3.5" />
-                    <span>View Courses & Payments</span>
-                  </button>
-                  <span className="px-2.5 py-1 rounded-md bg-slate-100 dark:bg-slate-800 text-xs font-bold uppercase">
-                    {u.role}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={async () => {
-                      setBusy(true);
-                      setFeedback(null);
-                      try {
-                        await api.admin.updateUser(u.id, { isActive: !u.isActive });
-                        setFeedback({
-                          type: 'ok',
-                          text: `Updated ${u.fullName} to ${!u.isActive ? 'Active' : 'Disabled'}.`,
-                        });
-                        await loadAllAdminData();
-                      } catch (err) {
-                        setFeedback({
-                          type: 'err',
-                          text: err instanceof Error ? err.message : 'Failed to update user.',
-                        });
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                    className={`px-3 py-1 rounded-lg text-xs font-bold disabled:opacity-50 ${
-                      u.isActive
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-red-100 text-red-800'
-                    }`}
-                  >
-                    {u.isActive ? 'Active' : 'Disabled'}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadUsersFiltered()}
+                  className="px-3.5 py-2 rounded-lg bg-[#0a58ed] text-white text-xs font-bold"
+                >
+                  Search
+                </button>
               </div>
-            ))}
+            </div>
+
+            <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+              {users.length === 0 ? (
+                <div className="py-10 text-center text-sm text-slate-500">
+                  No accounts match your search or status filter.
+                </div>
+              ) : (
+                users.map((u) => {
+                  const isSuspended = !u.isActive || u.accountStatus === 'suspended';
+                  return (
+                    <div
+                      key={u.id}
+                      className={`px-3.5 py-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-sm ${
+                        isSuspended ? 'bg-red-50/35 dark:bg-red-950/10' : ''
+                      }`}
+                    >
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-extrabold text-slate-900 dark:text-white">
+                            {u.fullName}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-500">
+                            (@{u.username})
+                          </span>
+                          <span className="text-[11px] font-extrabold uppercase text-slate-500 dark:text-slate-400">
+                            · {u.role}
+                          </span>
+                          {isSuspended ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-red-100 dark:bg-red-950/60 text-red-800 dark:text-red-300 text-xs font-extrabold">
+                              <Ban className="w-3 h-3" />
+                              Suspended
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-xs font-extrabold">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Active
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-xs text-slate-600 dark:text-slate-400 flex flex-wrap gap-x-3 gap-y-0.5 tabular-nums">
+                          <span>{u.email}</span>
+                          {u.whatsappNumber && <span>WhatsApp: {u.whatsappNumber}</span>}
+                          <span>Joined {new Date(u.createdAt).toLocaleDateString()}</span>
+                          {typeof u.registeredCoursesCount === 'number' && (
+                            <span>{u.registeredCoursesCount} Courses</span>
+                          )}
+                          {typeof u.submittedExamsCount === 'number' && (
+                            <span>{u.submittedExamsCount} Exams</span>
+                          )}
+                        </div>
+
+                        {isSuspended && u.suspendedReason && (
+                          <div className="text-[11px] text-red-700 dark:text-red-400 font-medium">
+                            Suspension note: {u.suspendedReason}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          disabled={loadingProfile}
+                          onClick={() => void openStudentProfile(u.id)}
+                          className="px-2.5 py-1.5 rounded-lg bg-[#eff5ff] dark:bg-slate-800 text-[#0b337a] dark:text-blue-300 border border-[#c6daf7] dark:border-slate-700 text-xs font-bold inline-flex items-center gap-1 hover:bg-blue-100 dark:hover:bg-slate-700"
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          <span>View Profile</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNotifyTarget(u);
+                            setNotifyTitle('');
+                            setNotifyMessage('');
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg border border-blue-200 dark:border-blue-800 bg-white dark:bg-slate-900 text-[#0a58ed] dark:text-blue-300 text-xs font-bold inline-flex items-center gap-1 hover:bg-blue-50 dark:hover:bg-slate-800"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Notify</span>
+                        </button>
+
+                        {isSuspended ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void handleReactivateUser(u)}
+                            className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>Reactivate</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              setSuspendTarget(u);
+                              setSuspendReason('');
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
+                          >
+                            <Ban className="w-3.5 h-3.5" />
+                            <span>Suspend</span>
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => {
+                            setDeleteTarget(u);
+                            setDeleteConfirmationText('');
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50"
+                          title="Permanently Delete Account"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -1704,7 +2144,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
       {selectedReg && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-[1px]">
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden">
-            <div className="bg-[#0b337a] text-white px-5 py-4 flex items-center justify-between">
+            <div className="bg-[#0b337a] text-white px-5 py-3.5 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <BookCheck className="w-5 h-5" />
                 <h3 className="text-base font-extrabold">Registration Details</h3>
@@ -1717,7 +2157,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-5 space-y-2.5 text-sm">
+            <div className="p-4 space-y-2 text-sm">
               <div className="flex justify-between gap-2">
                 <span className="text-slate-500">Student Name</span>
                 <span className="font-bold">{selectedReg.studentName}</span>
@@ -1766,8 +2206,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
       {/* Payment Transaction Details Modal */}
       {selectedPayment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-[1px]">
-          <div className="w-full max-w-lg rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden">
-            <div className="bg-[#0b337a] text-white px-5 py-4 flex items-center justify-between">
+          <div className="w-full max-w-lg max-h-[92dvh] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col overflow-hidden">
+            <div className="bg-[#0b337a] text-white px-5 py-3.5 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <CreditCard className="w-5 h-5" />
                 <h3 className="text-base font-extrabold">Transaction Details</h3>
@@ -1780,8 +2220,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-5 space-y-3 text-sm">
-              <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 dark:bg-slate-800/70 p-3.5 rounded-xl border border-slate-200 dark:border-slate-700">
+            <div className="p-4 space-y-3 text-sm overflow-y-auto">
+              <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 dark:bg-slate-800/70 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
                 <div>
                   <span className="text-slate-500 block">Student</span>
                   <span className="font-bold text-slate-900 dark:text-white">
@@ -1871,7 +2311,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                 <div className="text-xs font-extrabold uppercase tracking-wider text-slate-500 mb-1">
                   Paystack Gateway Metadata
                 </div>
-                <pre className="rounded-xl bg-slate-900 text-slate-100 p-3 text-xs overflow-x-auto max-h-48">
+                <pre className="rounded-xl bg-slate-900 text-slate-100 p-3 text-xs overflow-x-auto max-h-40">
                   {JSON.stringify(selectedPayment.gatewayResponse || {}, null, 2)}
                 </pre>
               </div>
@@ -1899,18 +2339,18 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
         </div>
       )}
 
-      {/* Admin Student Profile Modal (Student Course Registration History) */}
+      {/* Admin Student Profile Modal (Courses, Payments History, Exam History, Lifecycle Actions) */}
       {studentProfile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-slate-950/60 backdrop-blur-[1px]">
-          <div className="w-full max-w-3xl max-h-[90vh] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col overflow-hidden">
-            <div className="bg-[#0b337a] text-white px-5 py-4 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2.5">
-                <UserCheck className="w-5 h-5" />
-                <div>
-                  <h3 className="font-extrabold text-base">
-                    Student Course Registration History
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/60 backdrop-blur-[1px]">
+          <div className="w-full max-w-3xl max-h-[92dvh] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col overflow-hidden">
+            <div className="bg-[#0b337a] text-white px-4 py-3 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <UserCheck className="w-5 h-5 shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="font-extrabold text-sm sm:text-base truncate">
+                    Student Profile & Academic Record
                   </h3>
-                  <p className="text-xs text-blue-100">
+                  <p className="text-xs text-blue-100 truncate">
                     {studentProfile.student.fullName} · {studentProfile.student.email}
                   </p>
                 </div>
@@ -1918,15 +2358,87 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
               <button
                 type="button"
                 onClick={() => setStudentProfile(null)}
-                className="p-1.5 rounded-lg hover:bg-white/15"
+                className="p-1.5 rounded-lg hover:bg-white/15 shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+            <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-4">
+              {/* Quick Profile Actions */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  {studentProfile.student.accountStatus === 'suspended' ||
+                  !studentProfile.student.isActive ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-red-100 dark:bg-red-950/60 text-red-800 dark:text-red-300 text-xs font-extrabold">
+                      <Ban className="w-3.5 h-3.5" />
+                      Account Suspended
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-xs font-extrabold">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      Active Account
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNotifyTarget(studentProfile.student);
+                      setNotifyTitle('');
+                      setNotifyMessage('');
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-bold inline-flex items-center gap-1.5"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Send Notification</span>
+                  </button>
+
+                  {studentProfile.student.accountStatus === 'suspended' ||
+                  !studentProfile.student.isActive ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void handleReactivateUser(studentProfile.student)}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold inline-flex items-center gap-1.5"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Reactivate Account</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => {
+                        setSuspendTarget(studentProfile.student);
+                        setSuspendReason('');
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold inline-flex items-center gap-1.5"
+                    >
+                      <Ban className="w-3.5 h-3.5" />
+                      <span>Suspend Account</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setDeleteTarget(studentProfile.student);
+                      setDeleteConfirmationText('');
+                    }}
+                    className="px-3 py-1.5 rounded-lg border border-red-300 dark:border-red-800 text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 text-xs font-bold inline-flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Permanently Delete</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Student Metadata */}
-              <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/80 border border-[#d6e4fa] dark:border-slate-700 p-4 grid grid-cols-1 sm:grid-cols-5 gap-3 text-xs">
+              <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/80 border border-[#d6e4fa] dark:border-slate-700 p-3 grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
                 <div>
                   <span className="text-slate-500 block">Full Name</span>
                   <span className="font-extrabold text-slate-900 dark:text-white">
@@ -1947,7 +2459,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                 </div>
                 <div>
                   <span className="text-slate-500 block">Registration Date</span>
-                  <span className="font-semibold">
+                  <span className="font-semibold tabular-nums">
                     {new Date(studentProfile.student.createdAt).toLocaleDateString()}
                   </span>
                 </div>
@@ -1955,64 +2467,68 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                   <span className="text-slate-500 block">Account Status</span>
                   <span
                     className={`font-extrabold ${
-                      studentProfile.student.isActive
+                      studentProfile.student.isActive &&
+                      studentProfile.student.accountStatus !== 'suspended'
                         ? 'text-emerald-700 dark:text-emerald-400'
-                        : 'text-red-600'
+                        : 'text-red-600 dark:text-red-400'
                     }`}
                   >
-                    {studentProfile.student.isActive ? 'Active' : 'Disabled'}
+                    {studentProfile.student.isActive &&
+                    studentProfile.student.accountStatus !== 'suspended'
+                      ? 'Active'
+                      : 'Suspended'}
                   </span>
                 </div>
               </div>
 
-              {/* Payment Summary */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
-                <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-3">
-                  <div className="text-xl font-extrabold text-[#0b337a] dark:text-blue-400 tabular-nums">
+              {/* Payment & Academic Summary */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+                <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-2.5">
+                  <div className="text-lg font-extrabold text-[#0b337a] dark:text-blue-400 tabular-nums">
                     {studentProfile.summary.totalCoursesRegistered}
                   </div>
                   <div className="text-xs font-semibold text-slate-500">
                     Courses Registered
                   </div>
                 </div>
-                <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-3">
-                  <div className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-2.5">
+                  <div className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
                     {studentProfile.summary.totalSuccessfulPayments}
                   </div>
                   <div className="text-xs font-semibold text-slate-500">
                     Successful Payments
                   </div>
                 </div>
-                <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-3">
-                  <div className="text-xl font-extrabold text-[#082252] dark:text-white tabular-nums">
+                <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-2.5">
+                  <div className="text-lg font-extrabold text-[#082252] dark:text-white tabular-nums">
                     {formatCurrency(studentProfile.summary.totalAmountPaid, 'NGN')}
                   </div>
                   <div className="text-xs font-semibold text-slate-500">
-                    Total Amount Paid
+                    Total Paid
                   </div>
                 </div>
-                <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-3">
-                  <div className="text-xl font-extrabold text-amber-600 dark:text-amber-400 tabular-nums">
-                    {studentProfile.summary.outstandingCourseRegistrations}
+                <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-2.5">
+                  <div className="text-lg font-extrabold text-blue-700 dark:text-blue-400 tabular-nums">
+                    {studentProfile.summary.totalSubmittedExams ?? 0}
                   </div>
                   <div className="text-xs font-semibold text-slate-500">
-                    Outstanding Courses
+                    Submitted Exams
                   </div>
                 </div>
               </div>
 
               {/* Per-Course Checklist */}
               <div>
-                <h4 className="text-sm font-extrabold text-[#082252] dark:text-white mb-2.5">
-                  Registered Courses Checklist
+                <h4 className="text-xs sm:text-sm font-extrabold text-[#082252] dark:text-white mb-2">
+                  Registered Courses Status
                 </h4>
                 <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
                   {studentProfile.coursesStatus.map((cs) => (
                     <div
                       key={cs.courseId}
-                      className="px-4 py-2.5 flex items-center justify-between gap-3 text-sm"
+                      className="px-3.5 py-2 flex items-center justify-between gap-2 text-xs sm:text-sm"
                     >
-                      <div>
+                      <div className="min-w-0">
                         <span className="font-extrabold">
                           {cs.code} — {cs.title}
                         </span>
@@ -2021,13 +2537,13 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                         </span>
                       </div>
                       {cs.isRegistered ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-extrabold text-emerald-700 dark:text-emerald-400">
-                          <CheckCircle2 className="w-4 h-4" />
+                        <span className="inline-flex items-center gap-1 text-xs font-extrabold text-emerald-700 dark:text-emerald-400 shrink-0">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
                           Registered ✓
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-500">
-                          <Lock className="w-3.5 h-3.5" />
+                        <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 shrink-0">
+                          <Lock className="w-3 h-3" />
                           Not Registered
                         </span>
                       )}
@@ -2035,7 +2551,305 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({ onCatalogUpdated }) 
                   ))}
                 </div>
               </div>
+
+              {/* Payment History */}
+              <div>
+                <h4 className="text-xs sm:text-sm font-extrabold text-[#082252] dark:text-white mb-2">
+                  Payment History ({studentProfile.payments.length})
+                </h4>
+                {studentProfile.payments.length === 0 ? (
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 py-4 text-xs text-slate-500 text-center">
+                    No payment transactions recorded for this student yet.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-800/70 font-extrabold uppercase text-slate-500 border-b border-slate-200 dark:border-slate-800">
+                        <tr>
+                          <th className="px-3 py-2">Course</th>
+                          <th className="px-3 py-2">Reference</th>
+                          <th className="px-3 py-2">Amount</th>
+                          <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                        {studentProfile.payments.map((p) => (
+                          <tr key={p.id}>
+                            <td className="px-3 py-2 font-bold">
+                              {p.courseCode} — {p.courseTitle}
+                            </td>
+                            <td className="px-3 py-2 font-mono">{p.paymentReference}</td>
+                            <td className="px-3 py-2 font-extrabold tabular-nums">
+                              {formatCurrency(p.totalAmountCharged ?? p.amount, p.currency)}
+                            </td>
+                            <td className="px-3 py-2">
+                              <StatusBadge status={p.paymentStatus} />
+                            </td>
+                            <td className="px-3 py-2 text-slate-500 tabular-nums whitespace-nowrap">
+                              {new Date(p.paidAt || p.createdAt).toLocaleString()}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Examination History */}
+              <div>
+                <h4 className="text-xs sm:text-sm font-extrabold text-[#082252] dark:text-white mb-2">
+                  Examination History ({studentProfile.examHistory?.length ?? 0})
+                </h4>
+                {!studentProfile.examHistory || studentProfile.examHistory.length === 0 ? (
+                  <div className="rounded-xl border border-slate-200 dark:border-slate-800 px-3.5 py-4 text-xs text-slate-500 text-center">
+                    No CBT examinations attempted by this student yet.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 dark:bg-slate-800/70 font-extrabold uppercase text-slate-500 border-b border-slate-200 dark:border-slate-800">
+                        <tr>
+                          <th className="px-3 py-2">Course</th>
+                          <th className="px-3 py-2">Difficulty</th>
+                          <th className="px-3 py-2">Score</th>
+                          <th className="px-3 py-2">Status</th>
+                          <th className="px-3 py-2">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                        {studentProfile.examHistory.map((ex) => (
+                          <tr key={ex.id}>
+                            <td className="px-3 py-2 font-bold">
+                              {ex.courseCode ? `${ex.courseCode} — ` : ''}
+                              {ex.courseTitle || ex.examTitle}
+                            </td>
+                            <td className="px-3 py-2">{ex.difficultyFilter}</td>
+                            <td className="px-3 py-2 font-extrabold tabular-nums">
+                              {ex.scorePercentage !== null
+                                ? `${ex.scorePercentage}% (${ex.correctCount ?? 0}/${ex.totalQuestions})`
+                                : `— (${ex.totalQuestions} Qs)`}
+                            </td>
+                            <td className="px-3 py-2 capitalize font-semibold">
+                              {ex.status.replace('_', ' ')}
+                            </td>
+                            <td className="px-3 py-2 text-slate-500 tabular-nums whitespace-nowrap">
+                              {new Date(ex.submittedAt || ex.startedAt).toLocaleString()}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Suspend Account Confirmation Modal */}
+      {suspendTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/60 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden">
+            <div className="bg-amber-600 text-white px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Ban className="w-5 h-5" />
+                <h3 className="text-sm sm:text-base font-extrabold">Suspend Account</h3>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setSuspendTarget(null)}
+                className="p-1 rounded-lg hover:bg-white/15"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleConfirmSuspend} className="p-4 space-y-3">
+              <div className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 space-y-1">
+                <p>
+                  Suspending <strong>{suspendTarget.fullName}</strong> ({suspendTarget.email}) immediately blocks login, CBT exams, and new payments while preserving all course registrations, payment receipts, and exam history.
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Suspension Reason (optional)
+                </label>
+                <textarea
+                  rows={2}
+                  value={suspendReason}
+                  onChange={(e) => setSuspendReason(e.target.value)}
+                  placeholder="e.g. Account under administrative review..."
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs sm:text-sm"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setSuspendTarget(null)}
+                  className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold"
+                >
+                  {busy ? 'Suspending...' : 'Confirm Suspension'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Permanent Account Deletion Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/65 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900 shadow-2xl overflow-hidden">
+            <div className="bg-red-600 text-white px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5" />
+                <h3 className="text-sm sm:text-base font-extrabold">
+                  Permanently Delete Account
+                </h3>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setDeleteTarget(null)}
+                className="p-1 rounded-lg hover:bg-white/15"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleConfirmPermanentDelete} className="p-4 space-y-3">
+              <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 p-3 text-xs text-red-800 dark:text-red-200 space-y-1">
+                <div className="font-extrabold">This action cannot be undone.</div>
+                <p>
+                  Personal account data, registrations, exam sessions, and notifications for{' '}
+                  <strong>{deleteTarget.fullName}</strong> ({deleteTarget.email}) will be permanently removed. Financial payment records remain in anonymized audit form.
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Type <strong>DELETE</strong> or the user&apos;s email to confirm
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={deleteConfirmationText}
+                  onChange={(e) => setDeleteConfirmationText(e.target.value)}
+                  placeholder="Type DELETE to confirm"
+                  className="w-full rounded-xl border border-red-300 dark:border-red-800 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-bold"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setDeleteTarget(null)}
+                  className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    busy ||
+                    (deleteConfirmationText.trim().toUpperCase() !== 'DELETE' &&
+                      deleteConfirmationText.trim().toLowerCase() !==
+                        deleteTarget.email.toLowerCase())
+                  }
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-extrabold"
+                >
+                  {busy ? 'Deleting...' : 'Permanently Delete'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Individual Student Notification Composer Modal */}
+      {notifyTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/60 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden">
+            <div className="bg-[#0b337a] text-white px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-2 min-w-0">
+                <Send className="w-4 h-4 shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-base font-extrabold truncate">
+                    Send Notification
+                  </h3>
+                  <p className="text-[11px] text-blue-100 truncate">
+                    Recipient: {notifyTarget.fullName} ({notifyTarget.email})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setNotifyTarget(null)}
+                className="p-1 rounded-lg hover:bg-white/15"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSendStudentNotification} className="p-4 space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Notification Title <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  required
+                  minLength={2}
+                  maxLength={180}
+                  value={notifyTitle}
+                  onChange={(e) => setNotifyTitle(e.target.value)}
+                  placeholder="e.g. Exam Schedule Update"
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-semibold"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Message <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  required
+                  rows={4}
+                  minLength={2}
+                  maxLength={3000}
+                  value={notifyMessage}
+                  onChange={(e) => setNotifyMessage(e.target.value)}
+                  placeholder="Write a direct message for this student..."
+                  className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs sm:text-sm"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setNotifyTarget(null)}
+                  className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy || !notifyTitle.trim() || !notifyMessage.trim()}
+                  className="px-4 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] disabled:opacity-50 text-white text-xs font-extrabold inline-flex items-center gap-1.5"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{busy ? 'Sending...' : 'Send Notification'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -47,6 +47,10 @@ export const users = pgTable(
     examTarget: text('exam_target').notNull().default('Acadet CBT Examination'),
     whatsappNumber: text('whatsapp_number'),
     isActive: boolean('is_active').notNull().default(true),
+    accountStatus: text('account_status').notNull().default('active'),
+    suspendedReason: text('suspended_reason'),
+    suspendedAt: timestamp('suspended_at', { withTimezone: true }),
+    suspendedBy: uuid('suspended_by'),
     preferences: jsonb('preferences')
       .$type<UserPreferences>()
       .notNull()
@@ -58,7 +62,9 @@ export const users = pgTable(
     uniqueIndex('users_email_unique_idx').on(table.email),
     uniqueIndex('users_username_unique_idx').on(table.username),
     index('users_role_idx').on(table.role),
+    index('users_account_status_idx').on(table.accountStatus, table.isActive),
     check('users_role_check', sql`${table.role} IN ('student', 'admin', 'super_admin')`),
+    check('users_account_status_check', sql`${table.accountStatus} IN ('active', 'suspended')`),
   ]
 );
 
@@ -103,6 +109,7 @@ export const courses = pgTable(
     publicationStatus: text('publication_status').notNull().default('published'),
     examCategory: text('exam_category').notNull().default('Acadet CBT Examination'),
     defaultDurationMinutes: integer('default_duration_minutes').notNull().default(60),
+    whatsappGroupLink: text('whatsapp_group_link'),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -248,9 +255,8 @@ export const payments = pgTable(
   'payments',
   {
     id: uuid('id').defaultRandom().primaryKey(),
-    studentId: uuid('student_id')
-      .notNull()
-      .references(() => users.id, { onDelete: 'cascade' }),
+    studentId: uuid('student_id').references(() => users.id, { onDelete: 'set null' }),
+    deletedStudentRef: text('deleted_student_ref'),
     courseId: uuid('course_id')
       .notNull()
       .references(() => courses.id, { onDelete: 'restrict' }),
@@ -386,3 +392,54 @@ export const auditLogs = pgTable(
   },
   (table) => [index('audit_logs_actor_created_idx').on(table.actorUserId, table.createdAt)]
 );
+
+export const notifications = pgTable(
+  'notifications',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    recipientUserId: uuid('recipient_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    senderUserId: uuid('sender_user_id').references(() => users.id, { onDelete: 'set null' }),
+    senderName: text('sender_name').notNull().default('Acadet CBT Administration'),
+    notificationType: text('notification_type').notNull().default('admin_direct'),
+    title: text('title').notNull(),
+    message: text('message').notNull(),
+    courseId: uuid('course_id').references(() => courses.id, { onDelete: 'set null' }),
+    paymentId: uuid('payment_id').references(() => payments.id, { onDelete: 'set null' }),
+    actionLabel: text('action_label'),
+    actionUrl: text('action_url'),
+    idempotencyKey: text('idempotency_key'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('notifications_recipient_created_idx').on(table.recipientUserId, table.createdAt),
+    index('notifications_type_created_idx').on(table.notificationType, table.createdAt),
+    uniqueIndex('notifications_idempotency_unique_idx')
+      .on(table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} IS NOT NULL`),
+    check(
+      'notifications_type_check',
+      sql`${table.notificationType} IN ('admin_direct', 'payment_success', 'system')`
+    ),
+  ]
+);
+
+export const notificationReads = pgTable(
+  'notification_reads',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    notificationId: uuid('notification_id')
+      .notNull()
+      .references(() => notifications.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    readAt: timestamp('read_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('notification_reads_unique_idx').on(table.notificationId, table.userId),
+    index('notification_reads_user_idx').on(table.userId, table.readAt),
+  ]
+);
+

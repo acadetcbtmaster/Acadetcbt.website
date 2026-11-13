@@ -1,5 +1,6 @@
 import {
   BarChart3,
+  Bell,
   BookCheck,
   BookOpen,
   CreditCard,
@@ -18,6 +19,7 @@ export type WorkspaceTab =
   | 'home'
   | 'catalogue'
   | 'my-courses'
+  | 'notifications'
   | 'results'
   | 'materials'
   | 'practice'
@@ -29,6 +31,7 @@ interface WorkspaceSidebarProps {
   role: UserRole;
   mobileOpen: boolean;
   mobileOnly?: boolean;
+  unreadNotifications?: number;
   onCloseMobile: () => void;
   onSelectTab: (tab: WorkspaceTab) => void;
   onOpenSettings: () => void;
@@ -40,6 +43,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
   role,
   mobileOpen,
   mobileOnly = false,
+  unreadNotifications = 0,
   onCloseMobile,
   onSelectTab,
   onOpenSettings,
@@ -51,10 +55,17 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     id: WorkspaceTab | 'settings';
     label: string;
     icon: React.ComponentType<{ className?: string }>;
+    badge?: number;
   }> = [
     { id: 'home', label: 'Home', icon: Home },
     { id: 'catalogue', label: 'Course Registration', icon: CreditCard },
     { id: 'my-courses', label: 'My Registered Courses', icon: BookCheck },
+    {
+      id: 'notifications',
+      label: 'Notifications',
+      icon: Bell,
+      badge: unreadNotifications > 0 ? unreadNotifications : undefined,
+    },
     { id: 'practice', label: 'Course Examinations', icon: FileText },
     { id: 'results', label: 'Course Results', icon: BarChart3 },
     { id: 'materials', label: 'Study Materials', icon: BookOpen },
@@ -81,14 +92,21 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
                 }
                 afterClick?.();
               }}
-              className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-bold transition-colors min-h-[44px] ${
+              className={`w-full flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl text-sm font-bold transition-colors min-h-[42px] ${
                 isActive
                   ? 'bg-[#0a58ed] text-white shadow-sm'
                   : 'text-blue-100/90 hover:bg-white/10 hover:text-white'
               }`}
             >
-              <Icon className="w-5 h-5 shrink-0" />
-              <span className="truncate">{item.label}</span>
+              <span className="flex items-center gap-3 min-w-0">
+                <Icon className="w-5 h-5 shrink-0" />
+                <span className="truncate">{item.label}</span>
+              </span>
+              {item.badge !== undefined && (
+                <span className="px-1.5 py-0.5 rounded-full bg-red-500 text-white text-[11px] font-extrabold tabular-nums leading-none shrink-0">
+                  {item.badge > 99 ? '99+' : item.badge}
+                </span>
+              )}
             </button>
           );
         })}

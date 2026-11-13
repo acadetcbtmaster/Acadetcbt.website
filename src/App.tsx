@@ -7,6 +7,7 @@ import { ExamHall } from './components/cbt/ExamHall';
 import { HelpSupportView } from './components/cbt/HelpSupportView';
 import { HomeDashboard } from './components/cbt/HomeDashboard';
 import { MyRegisteredCoursesView } from './components/cbt/MyRegisteredCoursesView';
+import { NotificationsView } from './components/cbt/NotificationsView';
 import { PaymentVerificationBanner } from './components/cbt/PaymentVerificationBanner';
 import { PracticeExamsView } from './components/cbt/PracticeExamsView';
 import { ResultsView } from './components/cbt/ResultsView';
@@ -25,6 +26,7 @@ import type {
   GradedExamQuestion,
   PaymentVerifyOutcome,
   SafeUser,
+  StudentNotificationItem,
   UserPreferences,
 } from './types/cbt';
 
@@ -46,6 +48,9 @@ export default function App() {
   const [user, setUser] = useState<SafeUser | null>(null);
   const [courses, setCourses] = useState<CourseCatalogueItem[]>([]);
   const [announcements, setAnnouncements] = useState<AnnouncementItem[]>([]);
+  const [notifications, setNotifications] = useState<StudentNotificationItem[]>([]);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [suspensionNotice, setSuspensionNotice] = useState<string | null>(null);
   const [activity, setActivity] = useState<ActivitySummary | null>(null);
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null);
 
@@ -98,10 +103,11 @@ export default function App() {
 
   const loadWorkspaceData = useCallback(async (authenticatedUser: SafeUser | null) => {
     if (!authenticatedUser) return;
-    const [courseRes, annRes, actRes] = await Promise.allSettled([
+    const [courseRes, annRes, actRes, notifRes] = await Promise.allSettled([
       api.catalog.getCourses(),
       api.catalog.getAnnouncements(),
       api.catalog.getActivity(),
+      api.notifications.list(),
     ]);
 
     if (courseRes.status === 'fulfilled') {
@@ -125,6 +131,32 @@ export default function App() {
     if (actRes.status === 'fulfilled') {
       setActivity(actRes.value);
     }
+
+    if (notifRes.status === 'fulfilled') {
+      setNotifications(notifRes.value.notifications);
+      setUnreadNotifications(notifRes.value.unreadCount);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onSuspended = (event: Event) => {
+      const detail = (event as CustomEvent<{ message?: string }>).detail;
+      setSuspensionNotice(
+        detail?.message ||
+          'Your account has been suspended. Please contact Acadet CBT administration.'
+      );
+      setUser(null);
+      setActiveExam(null);
+      setLatestResult(null);
+      setCourses([]);
+      setAnnouncements([]);
+      setNotifications([]);
+      setUnreadNotifications(0);
+      setActivity(null);
+      setActiveTab('home');
+    };
+    window.addEventListener('acadet:account-suspended', onSuspended);
+    return () => window.removeEventListener('acadet:account-suspended', onSuspended);
   }, []);
 
   const verifyPaystackReturnReference = useCallback(
@@ -209,6 +241,7 @@ export default function App() {
   }, [activeExam]);
 
   const handleAuthenticated = async (signedInUser: SafeUser) => {
+    setSuspensionNotice(null);
     setUser(signedInUser);
     setActiveTab('home');
     await loadWorkspaceData(signedInUser);
@@ -230,10 +263,32 @@ export default function App() {
     setLatestResult(null);
     setCourses([]);
     setAnnouncements([]);
+    setNotifications([]);
+    setUnreadNotifications(0);
     setActivity(null);
     setCourseRequiredModalCourse(null);
     setPendingRegisterCourseId(null);
     setActiveTab('home');
+  };
+
+  const handleMarkNotificationRead = async (notificationId: string) => {
+    const res = await api.notifications.markRead(notificationId);
+    setNotifications((prev) => {
+      const next = prev.map((n) =>
+        n.id === notificationId ? { ...n, isRead: true, readAt: res.readAt } : n
+      );
+      setUnreadNotifications(next.filter((n) => !n.isRead).length);
+      return next;
+    });
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    await api.notifications.markAllRead();
+    const nowIso = new Date().toISOString();
+    setNotifications((prev) =>
+      prev.map((n) => (n.isRead ? n : { ...n, isRead: true, readAt: nowIso }))
+    );
+    setUnreadNotifications(0);
   };
 
   const handleSavePreferences = async (nextPrefs: UserPreferences) => {
@@ -357,6 +412,7 @@ export default function App() {
         dbConfigured={healthState.dbConfigured}
         dbConnected={healthState.dbConnected}
         dbError={healthState.dbError}
+        suspensionNotice={suspensionNotice}
       />
     );
   }
@@ -418,6 +474,8 @@ export default function App() {
             ? () => setActiveTab('admin')
             : undefined
         }
+        onOpenNotifications={() => setActiveTab('notifications')}
+        unreadNotifications={unreadNotifications}
         onLogout={handleLogout}
         onToggleMobileMenu={() => setMobileMenuOpen((prev) => !prev)}
       />
@@ -429,6 +487,7 @@ export default function App() {
             role={user.role}
             mobileOpen={mobileMenuOpen}
             mobileOnly
+            unreadNotifications={unreadNotifications}
             onCloseMobile={() => setMobileMenuOpen(false)}
             onSelectTab={setActiveTab}
             onOpenSettings={() => setSettingsOpen(true)}
@@ -459,13 +518,14 @@ export default function App() {
             activeTab={activeTab}
             role={user.role}
             mobileOpen={mobileMenuOpen}
+            unreadNotifications={unreadNotifications}
             onCloseMobile={() => setMobileMenuOpen(false)}
             onSelectTab={setActiveTab}
             onOpenSettings={() => setSettingsOpen(true)}
             onLogout={handleLogout}
           />
 
-          <main className="flex-1 min-w-0 p-3 sm:p-6">
+          <main className="flex-1 min-w-0 p-2.5 sm:p-5">
             <div className="max-w-7xl mx-auto">
               {activeTab === 'catalogue' && (
                 <CourseRegistrationView
@@ -486,6 +546,16 @@ export default function App() {
                   onStartExamForCourse={handleStartCourseExamQuick}
                   onBrowseCatalogue={() => setActiveTab('catalogue')}
                   refreshTrigger={myCoursesRefreshKey}
+                />
+              )}
+
+              {activeTab === 'notifications' && (
+                <NotificationsView
+                  notifications={notifications}
+                  unreadCount={unreadNotifications}
+                  onMarkRead={handleMarkNotificationRead}
+                  onMarkAllRead={handleMarkAllNotificationsRead}
+                  onStartCourseExam={handleStartCourseExamQuick}
                 />
               )}
 

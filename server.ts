@@ -13,6 +13,7 @@ import catalogRoutes from './src/server/routes/catalog.js';
 import examRoutes from './src/server/routes/exams.js';
 import healthRoutes from './src/server/routes/health.js';
 import materialRoutes from './src/server/routes/materials.js';
+import notificationRoutes from './src/server/routes/notifications.js';
 import paymentRoutes from './src/server/routes/payments.js';
 import resultRoutes from './src/server/routes/results.js';
 import webhookRoutes from './src/server/routes/webhooks.js';
@@ -44,6 +45,7 @@ export async function createApp(options?: { skipVite?: boolean }) {
   app.use('/api/exams', examRoutes);
   app.use('/api/results', resultRoutes);
   app.use('/api/materials', materialRoutes);
+  app.use('/api/notifications', notificationRoutes);
   app.use('/api/admin', adminRoutes);
 
   // Unknown API routes always return structured JSON 404

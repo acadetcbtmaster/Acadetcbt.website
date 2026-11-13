@@ -1,4 +1,6 @@
 export type UserRole = 'student' | 'admin' | 'super_admin';
+export type AccountStatus = 'active' | 'suspended';
+export type NotificationType = 'admin_direct' | 'payment_success' | 'system';
 export type DifficultyLevel = 'All Levels' | 'Easy' | 'Medium' | 'Hard';
 export type QuestionDifficulty = 'Easy' | 'Medium' | 'Hard';
 export type OptionLetter = 'A' | 'B' | 'C' | 'D';
@@ -28,6 +30,11 @@ export interface SafeUser {
   examTarget: string;
   whatsappNumber?: string | null;
   isActive: boolean;
+  accountStatus: AccountStatus;
+  suspendedReason?: string | null;
+  suspendedAt?: string | null;
+  registeredCoursesCount?: number;
+  submittedExamsCount?: number;
   preferences: UserPreferences;
   createdAt: string;
 }
@@ -62,6 +69,7 @@ export interface RegisteredCourseItem {
   description: string;
   examCategory: string;
   defaultDurationMinutes: number;
+  whatsappGroupLink?: string | null;
   registrationStatus: string;
   registeredAt: string;
   whatsappNumber?: string | null;
@@ -305,6 +313,7 @@ export interface AdminCourseItem {
   publicationStatus: PublicationStatus;
   examCategory: string;
   defaultDurationMinutes: number;
+  whatsappGroupLink?: string | null;
   isActive: boolean;
   createdAt: string;
   questionCount: number;
@@ -390,6 +399,57 @@ export interface AdminPaymentRecord {
   registrationStatus: string | null;
 }
 
+export interface StudentNotificationItem {
+  id: string;
+  notificationType: NotificationType;
+  title: string;
+  message: string;
+  senderName: string;
+  courseId: string | null;
+  courseCode: string | null;
+  courseTitle: string | null;
+  paymentId: string | null;
+  actionLabel: string | null;
+  actionUrl: string | null;
+  createdAt: string;
+  readAt: string | null;
+  isRead: boolean;
+}
+
+export interface AdminNotificationRecord {
+  id: string;
+  recipientUserId: string;
+  recipientName: string;
+  recipientEmail: string;
+  senderName: string;
+  notificationType: NotificationType;
+  title: string;
+  message: string;
+  courseCode: string | null;
+  courseTitle: string | null;
+  actionLabel: string | null;
+  actionUrl: string | null;
+  isRead: boolean;
+  readAt: string | null;
+  createdAt: string;
+}
+
+export interface StudentExamHistoryItem {
+  id: string;
+  courseId: string | null;
+  courseCode: string | null;
+  courseTitle: string | null;
+  examTitle: string;
+  difficultyFilter: string;
+  status: string;
+  totalQuestions: number;
+  correctCount: number | null;
+  scorePercentage: number | null;
+  timeSpentSeconds: number;
+  startedAt: string;
+  submittedAt: string | null;
+}
+
 export interface AdminStudentProfile {
   student: SafeUser;
   coursesStatus: Array<{
@@ -408,11 +468,13 @@ export interface AdminStudentProfile {
     amountPaid: number | null;
   }>;
   payments: StudentPaymentRecord[];
+  examHistory: StudentExamHistoryItem[];
   summary: {
     totalPublishedCourses: number;
     totalCoursesRegistered: number;
     totalSuccessfulPayments: number;
     totalAmountPaid: number;
+    totalSubmittedExams: number;
     outstandingCourseRegistrations: number;
   };
 }

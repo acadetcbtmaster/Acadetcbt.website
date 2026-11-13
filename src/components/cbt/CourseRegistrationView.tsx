@@ -130,41 +130,41 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
   };
 
   return (
-    <div className="space-y-5">
+    <div className="max-w-5xl mx-auto space-y-3.5">
       <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-sm overflow-hidden">
-        <div className="bg-[#0b337a] text-white px-5 py-3.5 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <BookOpen className="w-5 h-5 shrink-0" />
-            <div>
-              <h2 className="text-lg font-extrabold tracking-tight leading-tight">
+        <div className="bg-[#0b337a] text-white px-4 py-2.5 sm:px-5 sm:py-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <BookOpen className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-extrabold tracking-tight leading-tight">
                 Course Registration
               </h2>
-              <p className="text-xs text-blue-100">
-                Course Catalogue — Register and complete Paystack payment to unlock CBT examinations.
+              <p className="text-[11px] sm:text-xs text-blue-100 truncate">
+                Select a course and complete Paystack payment (₦2,350) to unlock CBT exams.
               </p>
             </div>
           </div>
 
-          <div className="text-xs font-bold text-blue-100 tabular-nums">
-            {courses.filter((c) => c.isRegistered).length} of {courses.length} Courses Registered
+          <div className="text-xs font-bold text-blue-100 tabular-nums shrink-0">
+            {courses.filter((c) => c.isRegistered).length}/{courses.length} Registered
           </div>
         </div>
 
-        <div className="p-4 sm:p-5 space-y-4">
-          {/* Search & Status Filter */}
-          <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+        <div className="p-3 sm:p-4 space-y-3">
+          {/* Compact Search & Status Filter */}
+          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between">
             <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by course code, title, or level..."
-                className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-[#dce6f5] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-[#0a58ed]"
+                placeholder="Search course code, title, or level..."
+                className="w-full pl-9 pr-3 py-2 rounded-xl border border-[#dce6f5] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs sm:text-sm min-h-[40px] focus:outline-none focus:ring-2 focus:ring-[#0a58ed]"
               />
             </div>
 
-            <div className="flex items-center gap-1 p-1 rounded-xl bg-[#eff5ff] dark:bg-slate-800 shrink-0">
+            <div className="flex items-center gap-1 p-1 rounded-xl bg-[#eff5ff] dark:bg-slate-800 shrink-0 overflow-x-auto">
               {(
                 [
                   { id: 'all', label: 'All Courses' },
@@ -176,7 +176,7 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                   key={tab.id}
                   type="button"
                   onClick={() => setStatusFilter(tab.id)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap ${
+                  className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap min-h-[34px] ${
                     statusFilter === tab.id
                       ? 'bg-[#0a58ed] text-white shadow-xs'
                       : 'text-slate-700 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-slate-700'
@@ -189,24 +189,24 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
           </div>
 
           {error && (
-            <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-4 py-3 text-sm font-medium text-red-700 dark:text-red-300 flex items-start gap-2">
+            <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-3 py-2 text-xs sm:text-sm font-medium text-red-700 dark:text-red-300 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
 
           {notice && (
-            <div className="rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 px-4 py-3 text-sm font-medium text-[#0b337a] dark:text-blue-200">
+            <div className="rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 px-3 py-2 text-xs sm:text-sm font-medium text-[#0b337a] dark:text-blue-200">
               {notice}
             </div>
           )}
 
           {filteredCourses.length === 0 ? (
-            <div className="py-12 text-center text-sm text-slate-500 dark:text-slate-400">
+            <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
               No published courses match your current filter.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {filteredCourses.map((course) => {
                 const isRegistered = course.isRegistered;
                 const isPending = !isRegistered && course.registrationState === 'pending';
@@ -215,65 +215,60 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                 return (
                   <div
                     key={course.id}
-                    className={`rounded-xl border p-4 sm:p-5 flex flex-col justify-between gap-4 transition-colors ${
+                    className={`rounded-xl border p-3.5 flex flex-col justify-between gap-2.5 transition-colors ${
                       isRegistered
                         ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-950/10'
                         : 'border-[#dce6f5] dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-[#0a58ed]/50'
                     }`}
                   >
-                    <div className="space-y-2.5">
-                      {/* Clean Metadata Line */}
-                      <div className="flex items-center justify-between gap-2 text-xs">
-                        <span className="font-extrabold text-[#0b337a] dark:text-blue-300 tracking-wide">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2 text-[11px]">
+                        <span className="font-extrabold text-[#0b337a] dark:text-blue-300 tracking-wide truncate">
                           {course.code} · {course.level}
                         </span>
-                        <span className="font-bold text-slate-500 dark:text-slate-400 tabular-nums">
-                          {course.questionCount} CBT Questions
+                        <span className="font-bold text-slate-500 dark:text-slate-400 tabular-nums shrink-0">
+                          {course.questionCount} Qs
                         </span>
                       </div>
 
-                      <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white leading-snug">
+                      <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white leading-snug">
                         {course.title}
                       </h3>
 
-                      <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 line-clamp-3 leading-relaxed">
+                      <p className="text-xs text-slate-600 dark:text-slate-400 line-clamp-2 leading-snug">
                         {course.description || course.examCategory}
                       </p>
                     </div>
 
-                    <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-                      <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center justify-between gap-2">
                         <div>
-                          <div className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                            Total Payable
-                          </div>
-                          <div className="text-lg font-extrabold text-[#082252] dark:text-white tabular-nums">
+                          <div className="text-base sm:text-lg font-extrabold text-[#082252] dark:text-white tabular-nums leading-tight">
                             {formatCurrency(2350, course.currency)}
                           </div>
-                          <div className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums">
-                            Course value: {formatCurrency(course.courseValue ?? 2300, course.currency)} · Charges absorbed by Acadet CBT
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums leading-tight">
+                            Value {formatCurrency(course.courseValue ?? 2300, course.currency)} · Charges absorbed
                           </div>
                         </div>
 
-                        {/* Clear Semantic Registration Status Indicator */}
-                        <div className="text-right">
+                        <div className="text-right shrink-0">
                           {isRegistered ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-emerald-700 dark:text-emerald-400">
-                              <CheckCircle2 className="w-4 h-4 shrink-0" />
+                            <span className="inline-flex items-center gap-1 text-xs font-extrabold text-emerald-700 dark:text-emerald-400">
+                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                               <span>Registered ✓</span>
                             </span>
                           ) : isPending ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-amber-600 dark:text-amber-400">
-                              <Clock className="w-4 h-4 shrink-0" />
-                              <span>Payment Pending</span>
+                            <span className="inline-flex items-center gap-1 text-xs font-extrabold text-amber-600 dark:text-amber-400">
+                              <Clock className="w-3.5 h-3.5 shrink-0" />
+                              <span>Pending</span>
                             </span>
                           ) : isFailed ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-red-600 dark:text-red-400">
-                              <AlertCircle className="w-4 h-4 shrink-0" />
-                              <span>Payment Failed</span>
+                            <span className="inline-flex items-center gap-1 text-xs font-extrabold text-red-600 dark:text-red-400">
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                              <span>Failed</span>
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 dark:text-slate-400">
+                            <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 dark:text-slate-400">
                               <Lock className="w-3.5 h-3.5 shrink-0" />
                               <span>Not Registered</span>
                             </span>
@@ -286,15 +281,15 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                           <button
                             type="button"
                             disabled
-                            className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 min-h-[42px] cursor-default"
+                            className="flex-1 py-2 px-2.5 rounded-xl bg-emerald-600 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 min-h-[40px] cursor-default"
                           >
-                            <CheckCircle2 className="w-4 h-4" />
+                            <CheckCircle2 className="w-3.5 h-3.5" />
                             <span>Registered ✓</span>
                           </button>
                           <button
                             type="button"
                             onClick={() => onStartCourseExam(course.id)}
-                            className="py-2.5 px-3.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-bold flex items-center justify-center gap-1.5 min-h-[42px]"
+                            className="py-2 px-3 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-bold flex items-center justify-center gap-1.5 min-h-[40px]"
                           >
                             <FileText className="w-3.5 h-3.5" />
                             <span>Start CBT</span>
@@ -309,7 +304,7 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                               setWhatsappNumber(user.whatsappNumber ?? '');
                               setConfirmCourse(course);
                             }}
-                            className="flex-1 py-2.5 px-4 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold shadow-xs flex items-center justify-center gap-2 min-h-[44px] transition-colors"
+                            className="flex-1 py-2 px-3 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold shadow-xs flex items-center justify-center gap-1.5 min-h-[40px] transition-colors"
                           >
                             <CreditCard className="w-4 h-4" />
                             <span>{isFailed ? 'Retry Registration' : 'Register Now'}</span>
@@ -323,7 +318,7 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                                 handleRecheckPending(course.latestPaymentReference!)
                               }
                               title="Verify pending payment status with Paystack"
-                              className="py-2.5 px-3 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center gap-1.5 min-h-[44px]"
+                              className="py-2 px-2.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center gap-1 min-h-[40px]"
                             >
                               <RefreshCw
                                 className={`w-3.5 h-3.5 ${
@@ -346,87 +341,85 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
         </div>
       </div>
 
-      {/* Step 1: Course Registration Confirmation Modal */}
+      {/* Step 1: Compact & Centered Course Registration Confirmation Modal */}
       {confirmCourse && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/55 backdrop-blur-[1px]">
-          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden">
-            <div className="bg-[#0b337a] text-white px-5 py-4 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <ShieldCheck className="w-5 h-5" />
-                <h3 className="text-base font-extrabold">Confirm Course Registration</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/60 backdrop-blur-[1px]">
+          <div className="w-full max-w-md max-h-[94dvh] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col overflow-hidden">
+            <div className="bg-[#0b337a] text-white px-4 py-2.5 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
+                <h3 className="text-sm sm:text-base font-extrabold truncate">
+                  Confirm Course Registration
+                </h3>
               </div>
               <button
                 type="button"
                 disabled={initializingPay}
                 onClick={() => setConfirmCourse(null)}
                 aria-label="Close registration confirmation"
-                className="p-1.5 rounded-lg hover:bg-white/15"
+                className="p-1 rounded-lg hover:bg-white/15 shrink-0"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="p-3.5 sm:p-4 space-y-2.5 overflow-y-auto flex-1">
               {error && (
-                <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-3.5 py-2.5 text-sm font-medium text-red-700 dark:text-red-300">
+                <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-3 py-2 text-xs font-medium text-red-700 dark:text-red-300">
                   {error}
                 </div>
               )}
 
-              <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/80 border border-[#d6e4fa] dark:border-slate-700 p-4 space-y-2.5 text-sm">
-                <div className="flex justify-between gap-3">
-                  <span className="text-slate-600 dark:text-slate-400">Student Name</span>
-                  <span className="font-bold text-slate-900 dark:text-white text-right">
+              {/* Compact Summary Grid */}
+              <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/80 border border-[#d6e4fa] dark:border-slate-700 p-3 space-y-1.5 text-xs sm:text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-slate-600 dark:text-slate-400">Student</span>
+                  <span className="font-bold text-slate-900 dark:text-white text-right truncate">
                     {user.fullName}
                   </span>
                 </div>
-                <div className="flex justify-between gap-3">
-                  <span className="text-slate-600 dark:text-slate-400">Student Email</span>
-                  <span className="font-semibold text-slate-800 dark:text-slate-200 text-right truncate">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="text-slate-600 dark:text-slate-400">Email</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-200 text-right truncate">
                     {user.email}
                   </span>
                 </div>
-                <div className="border-t border-[#d6e4fa] dark:border-slate-700 pt-2.5 flex justify-between gap-3">
-                  <span className="text-slate-600 dark:text-slate-400">Course Code</span>
-                  <span className="font-extrabold text-[#0b337a] dark:text-blue-300">
-                    {confirmCourse.code}
+
+                <div className="border-t border-[#d6e4fa] dark:border-slate-700 pt-1.5 flex items-start justify-between gap-2">
+                  <span className="text-slate-600 dark:text-slate-400 shrink-0">Course</span>
+                  <span className="font-extrabold text-[#0b337a] dark:text-blue-300 text-right leading-snug">
+                    {confirmCourse.code} — {confirmCourse.title}
                   </span>
                 </div>
-                <div className="flex justify-between gap-3">
-                  <span className="text-slate-600 dark:text-slate-400">Course Title</span>
-                  <span className="font-bold text-slate-900 dark:text-white text-right">
-                    {confirmCourse.title}
-                  </span>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <span className="text-slate-600 dark:text-slate-400">Course Registration Value</span>
+
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="text-slate-600 dark:text-slate-400">Course Value</span>
                   <span className="font-bold text-slate-900 dark:text-white tabular-nums">
                     {formatCurrency(confirmCourse.courseValue ?? 2300, confirmCourse.currency)}
                   </span>
                 </div>
-                <div className="flex justify-between gap-3">
-                  <span className="text-slate-600 dark:text-slate-400">Payment Processing Charges</span>
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="text-slate-600 dark:text-slate-400">Processing Charges</span>
                   <span className="font-bold text-emerald-700 dark:text-emerald-400 text-right">
                     Absorbed by Acadet CBT
                   </span>
                 </div>
-                <div className="border-t border-[#d6e4fa] dark:border-slate-700 pt-2.5 flex justify-between items-center gap-3">
+
+                <div className="border-t border-[#d6e4fa] dark:border-slate-700 pt-1.5 flex items-center justify-between gap-2">
                   <span className="font-extrabold text-[#082252] dark:text-white">
                     Total Amount Payable
                   </span>
-                  <span className="text-xl font-extrabold text-[#0a58ed] dark:text-blue-400 tabular-nums">
+                  <span className="text-lg font-extrabold text-[#0a58ed] dark:text-blue-400 tabular-nums">
                     {formatCurrency(2350, confirmCourse.currency)}
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-600 dark:text-slate-400 pt-1 leading-snug">
-                  Paystack processing fees are absorbed by Acadet CBT. You will be charged exactly ₦2,350.
-                </p>
               </div>
 
+              {/* Compact WhatsApp Number Field */}
               <div>
                 <label
                   htmlFor="course-reg-whatsapp"
-                  className="flex items-center gap-1.5 text-xs font-extrabold text-[#082252] dark:text-slate-200 mb-1.5"
+                  className="flex items-center gap-1.5 text-xs font-extrabold text-[#082252] dark:text-slate-200 mb-1"
                 >
                   <MessageCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                   <span>
@@ -445,36 +438,32 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                     if (error) setError(null);
                   }}
                   placeholder="Input your correct WhatsApp number (e.g. 08012345678)"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#c6daf7] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-semibold text-slate-900 dark:text-white tabular-nums min-h-[44px] focus:outline-none focus:ring-2 focus:ring-[#0a58ed]"
+                  className="w-full px-3 py-2 rounded-xl border border-[#c6daf7] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-semibold text-slate-900 dark:text-white tabular-nums min-h-[40px] focus:outline-none focus:ring-2 focus:ring-[#0a58ed]"
                 />
-                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                  Input your correct WhatsApp number for course updates and registration confirmation.
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 leading-tight">
+                  Paystack checkout redirects securely; CBT access unlocks right after verification.
                 </p>
               </div>
+            </div>
 
-              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
-                You will be redirected to Paystack secure checkout. Course examination access unlocks automatically once Paystack verifies your payment on the server.
-              </p>
-
-              <div className="flex items-center justify-end gap-3 pt-1">
-                <button
-                  type="button"
-                  disabled={initializingPay}
-                  onClick={() => setConfirmCourse(null)}
-                  className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 min-h-[44px]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  disabled={initializingPay}
-                  onClick={handlePayNow}
-                  className="px-5 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-sm font-extrabold shadow-sm flex items-center gap-2 min-h-[44px] disabled:opacity-60"
-                >
-                  <CreditCard className="w-4 h-4" />
-                  <span>{initializingPay ? 'Connecting to Paystack...' : 'PAY NOW'}</span>
-                </button>
-              </div>
+            <div className="px-3.5 sm:px-4 py-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/90 flex items-center justify-end gap-2.5 shrink-0">
+              <button
+                type="button"
+                disabled={initializingPay}
+                onClick={() => setConfirmCourse(null)}
+                className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 min-h-[40px]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={initializingPay}
+                onClick={handlePayNow}
+                className="flex-1 sm:flex-none px-5 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold shadow-sm flex items-center justify-center gap-1.5 min-h-[40px] disabled:opacity-60"
+              >
+                <CreditCard className="w-4 h-4" />
+                <span>{initializingPay ? 'Connecting to Paystack...' : 'PAY NOW'}</span>
+              </button>
             </div>
           </div>
         </div>

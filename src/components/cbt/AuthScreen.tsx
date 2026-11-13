@@ -9,6 +9,7 @@ interface AuthScreenProps {
   dbConfigured: boolean;
   dbConnected: boolean;
   dbError?: string;
+  suspensionNotice?: string | null;
 }
 
 export const AuthScreen: React.FC<AuthScreenProps> = ({
@@ -16,6 +17,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   dbConfigured,
   dbConnected,
   dbError,
+  suspensionNotice = null,
 }) => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [identifier, setIdentifier] = useState('');
@@ -71,11 +73,21 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         </div>
       </header>
 
-      <main className="flex-1 flex items-center justify-center p-4 sm:p-6">
-        <div className="w-full max-w-md space-y-4">
+      <main className="flex-1 flex items-center justify-center p-3 sm:p-5">
+        <div className="w-full max-w-md space-y-3">
+          {suspensionNotice && (
+            <div className="rounded-xl border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/50 px-3.5 py-2.5 text-red-800 dark:text-red-200 text-xs sm:text-sm flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-red-600 dark:text-red-400" />
+              <div>
+                <div className="font-extrabold">Account Suspended</div>
+                <p className="mt-0.5 leading-snug">{suspensionNotice}</p>
+              </div>
+            </div>
+          )}
+
           {(!dbConfigured || !dbConnected) && (
-            <div className="rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 text-amber-900 dark:text-amber-200 text-sm flex items-start gap-2.5">
-              <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+            <div className="rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 px-3.5 py-2.5 text-amber-900 dark:text-amber-200 text-xs sm:text-sm flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
               <div>
                 <div className="font-bold">
                   {!dbConfigured
@@ -92,18 +104,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           )}
 
           <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-lg overflow-hidden">
-            <div className="bg-[#0b337a] px-6 py-5 text-white">
-              <h2 className="text-xl font-extrabold tracking-tight">
+            <div className="bg-[#0b337a] px-4 sm:px-5 py-3.5 text-white">
+              <h2 className="text-lg sm:text-xl font-extrabold tracking-tight">
                 {mode === 'login' ? 'Student & Staff Sign In' : 'Create Student Account'}
               </h2>
-              <p className="text-xs text-blue-100 mt-1">
+              <p className="text-xs text-blue-100 mt-0.5">
                 {mode === 'login'
                   ? 'Sign in to access practice exams, verified results, and study materials.'
                   : 'Register to save exam attempts, track trends, and customize your CBT workspace.'}
               </p>
             </div>
 
-            <div className="p-6 space-y-5">
+            <div className="p-4 sm:p-5 space-y-3.5">
               <div className="grid grid-cols-2 rounded-xl bg-slate-100 dark:bg-slate-800 p-1">
                 <button
                   type="button"

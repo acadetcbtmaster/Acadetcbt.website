@@ -160,6 +160,7 @@ router.get('/my-courses', requireAuth, async (req, res) => {
         description: courses.description,
         examCategory: courses.examCategory,
         defaultDurationMinutes: courses.defaultDurationMinutes,
+        whatsappGroupLink: courses.whatsappGroupLink,
         registrationStatus: courseRegistrations.registrationStatus,
         registeredAt: courseRegistrations.registeredAt,
         whatsappNumber: sql<string | null>`COALESCE(${courseRegistrations.whatsappNumber}, ${payments.whatsappNumber})`,

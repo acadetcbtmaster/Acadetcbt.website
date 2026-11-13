@@ -17,6 +17,10 @@ import {
 import { writeAuditLog } from '../lib/audit.js';
 import { sanitizeUser } from '../lib/jwt.js';
 import {
+  createStudentNotification,
+  normalizeWhatsappGroupLink,
+} from '../lib/notifications.js';
+import {
   buildMaterialObjectKey,
   deleteObjectKey,
   ObjectStorageNotConfiguredError,
@@ -51,6 +55,20 @@ const upload = multer({
 
 router.use(requireAuth, requireRole('admin', 'super_admin'));
 
+const whatsappGroupLinkSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .nullable()
+  .optional()
+  .refine(
+    (val) => {
+      if (!val || val.trim() === '') return true;
+      return normalizeWhatsappGroupLink(val) !== null;
+    },
+    { message: 'WhatsApp group link must be a valid URL starting with https:// or http://' }
+  );
+
 const courseCreateSchema = z.object({
   code: z.string().trim().min(2).max(30),
   title: z.string().trim().min(2).max(160),
@@ -61,6 +79,7 @@ const courseCreateSchema = z.object({
   publicationStatus: z.enum(['draft', 'published', 'archived']).default('published'),
   examCategory: z.string().trim().min(2).max(120).default('Acadet CBT Examination'),
   defaultDurationMinutes: z.coerce.number().int().min(5).max(240).default(60),
+  whatsappGroupLink: whatsappGroupLinkSchema,
 });
 
 const courseUpdateSchema = courseCreateSchema.partial();
@@ -167,6 +186,7 @@ router.get('/courses', async (_req, res) => {
       publicationStatus: 'draft' | 'published' | 'archived';
       examCategory: string;
       defaultDurationMinutes: number;
+      whatsappGroupLink: string | null;
       isActive: boolean;
       createdAt: Date;
       questionCount: number;
@@ -186,6 +206,7 @@ router.get('/courses', async (_req, res) => {
         c.publication_status AS "publicationStatus",
         c.exam_category AS "examCategory",
         c.default_duration_minutes AS "defaultDurationMinutes",
+        c.whatsapp_group_link AS "whatsappGroupLink",
         c.is_active AS "isActive",
         c.created_at AS "createdAt",
         (
@@ -251,6 +272,7 @@ router.post('/courses', async (req, res) => {
         publicationStatus: parsed.publicationStatus,
         examCategory: parsed.examCategory,
         defaultDurationMinutes: parsed.defaultDurationMinutes,
+        whatsappGroupLink: normalizeWhatsappGroupLink(parsed.whatsappGroupLink),
         isActive: parsed.publicationStatus === 'published',
       })
       .returning();
@@ -309,6 +331,9 @@ router.patch('/courses/:id', async (req, res) => {
     if (parsed.examCategory !== undefined) updateValues.examCategory = parsed.examCategory;
     if (parsed.defaultDurationMinutes !== undefined) {
       updateValues.defaultDurationMinutes = parsed.defaultDurationMinutes;
+    }
+    if (parsed.whatsappGroupLink !== undefined) {
+      updateValues.whatsappGroupLink = normalizeWhatsappGroupLink(parsed.whatsappGroupLink);
     }
 
     const [updated] = await db
@@ -982,7 +1007,7 @@ router.get('/payments', async (req, res) => {
       values.push(`%${search.toLowerCase()}%`);
       const idx = values.length;
       clauses.push(
-        `(LOWER(u.full_name) LIKE $${idx} OR LOWER(u.email) LIKE $${idx} OR LOWER(p.payment_reference) LIKE $${idx} OR LOWER(COALESCE(p.whatsapp_number, u.whatsapp_number, '')) LIKE $${idx})`
+        `(LOWER(COALESCE(u.full_name, '')) LIKE $${idx} OR LOWER(COALESCE(u.email, '')) LIKE $${idx} OR LOWER(COALESCE(p.deleted_student_ref, '')) LIKE $${idx} OR LOWER(p.payment_reference) LIKE $${idx} OR LOWER(COALESCE(p.whatsapp_number, u.whatsapp_number, '')) LIKE $${idx})`
       );
     }
     if (dateFrom) {
@@ -1027,9 +1052,9 @@ router.get('/payments', async (req, res) => {
     }>(
       `SELECT
          p.id,
-         u.id AS "studentId",
-         u.full_name AS "studentName",
-         u.email AS "studentEmail",
+         COALESCE(u.id::text, p.deleted_student_ref, 'deleted-user') AS "studentId",
+         COALESCE(u.full_name, 'Deleted Student (' || COALESCE(p.deleted_student_ref, 'Anonymized') || ')') AS "studentName",
+         COALESCE(u.email, 'anonymized@deleted.local') AS "studentEmail",
          COALESCE(p.whatsapp_number, u.whatsapp_number) AS "whatsappNumber",
          c.id AS "courseId",
          c.code AS "courseCode",
@@ -1055,7 +1080,7 @@ router.get('/payments', async (req, res) => {
          cr.id AS "registrationId",
          cr.registration_status AS "registrationStatus"
        FROM payments p
-       INNER JOIN users u ON u.id = p.student_id
+       LEFT JOIN users u ON u.id = p.student_id
        INNER JOIN courses c ON c.id = p.course_id
        LEFT JOIN course_registrations cr ON cr.payment_id = p.id
        ${whereSql}
@@ -1186,12 +1211,98 @@ router.delete('/announcements/:id', async (req, res) => {
   }
 });
 
-// User Management + Student Course Registration History Profile
-router.get('/users', async (_req, res) => {
+// User Management + Student Lifecycle (Search, Filters, Profile + Exam History, Suspend, Reactivate, Permanent Delete, Notifications)
+router.get('/users', async (req, res) => {
   try {
-    const db = getDb();
-    const rows = await db.select().from(users).orderBy(desc(users.createdAt)).limit(250);
-    res.json({ users: rows.map(sanitizeUser) });
+    const pool = getPool();
+    const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
+    const status = typeof req.query.status === 'string' ? req.query.status.trim().toLowerCase() : '';
+
+    const clauses: string[] = [];
+    const values: unknown[] = [];
+
+    if (search) {
+      values.push(`%${search}%`);
+      const idx = values.length;
+      clauses.push(
+        `(LOWER(u.full_name) LIKE $${idx} OR LOWER(u.email) LIKE $${idx} OR LOWER(u.username) LIKE $${idx} OR LOWER(COALESCE(u.whatsapp_number, '')) LIKE $${idx})`
+      );
+    }
+
+    if (status === 'active') {
+      clauses.push(`(u.is_active = TRUE AND u.account_status = 'active')`);
+    } else if (status === 'suspended') {
+      clauses.push(`(u.is_active = FALSE OR u.account_status = 'suspended')`);
+    }
+
+    const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const resDb = await pool.query<{
+      id: string;
+      fullName: string;
+      email: string;
+      username: string;
+      role: string;
+      examTarget: string;
+      whatsappNumber: string | null;
+      isActive: boolean;
+      accountStatus: string;
+      suspendedReason: string | null;
+      suspendedAt: Date | null;
+      preferences: Record<string, unknown> | null;
+      createdAt: Date;
+      registeredCoursesCount: number;
+      submittedExamsCount: number;
+    }>(
+      `SELECT
+         u.id,
+         u.full_name AS "fullName",
+         u.email,
+         u.username,
+         u.role,
+         u.exam_target AS "examTarget",
+         u.whatsapp_number AS "whatsappNumber",
+         u.is_active AS "isActive",
+         u.account_status AS "accountStatus",
+         u.suspended_reason AS "suspendedReason",
+         u.suspended_at AS "suspendedAt",
+         u.preferences,
+         u.created_at AS "createdAt",
+         (
+           SELECT COUNT(*)::int FROM course_registrations cr
+           WHERE cr.student_id = u.id AND cr.registration_status = 'active'
+         ) AS "registeredCoursesCount",
+         (
+           SELECT COUNT(*)::int FROM exam_sessions es
+           WHERE es.user_id = u.id AND es.status = 'submitted'
+         ) AS "submittedExamsCount"
+       FROM users u
+       ${whereSql}
+       ORDER BY u.created_at DESC
+       LIMIT 300`,
+      values
+    );
+
+    res.json({
+      users: resDb.rows.map((r) => ({
+        ...sanitizeUser({
+          id: r.id,
+          fullName: r.fullName,
+          email: r.email,
+          username: r.username,
+          role: r.role,
+          examTarget: r.examTarget,
+          whatsappNumber: r.whatsappNumber,
+          isActive: r.isActive,
+          accountStatus: r.accountStatus,
+          suspendedReason: r.suspendedReason,
+          suspendedAt: r.suspendedAt,
+          preferences: r.preferences as never,
+          createdAt: r.createdAt,
+        }),
+        registeredCoursesCount: r.registeredCoursesCount,
+        submittedExamsCount: r.submittedExamsCount,
+      })),
+    });
   } catch (err) {
     handleApiError(res, err, 'listing users');
   }
@@ -1307,6 +1418,44 @@ router.get('/users/:id/profile', async (req, res) => {
       [studentId]
     );
 
+    const examHistoryRes = await pool.query<{
+      id: string;
+      courseId: string | null;
+      courseCode: string | null;
+      courseTitle: string | null;
+      examTitle: string;
+      difficultyFilter: string;
+      status: string;
+      totalQuestions: number;
+      correctCount: number | null;
+      scorePercentage: number | null;
+      timeSpentSeconds: number;
+      startedAt: Date;
+      submittedAt: Date | null;
+    }>(
+      `SELECT
+         es.id,
+         es.course_id AS "courseId",
+         c.code AS "courseCode",
+         COALESCE(c.title, s.name) AS "courseTitle",
+         es.exam_title AS "examTitle",
+         es.difficulty_filter AS "difficultyFilter",
+         es.status,
+         es.total_questions AS "totalQuestions",
+         es.correct_count AS "correctCount",
+         es.score_percentage AS "scorePercentage",
+         es.time_spent_seconds AS "timeSpentSeconds",
+         es.started_at AS "startedAt",
+         es.submitted_at AS "submittedAt"
+       FROM exam_sessions es
+       LEFT JOIN courses c ON c.id = es.course_id
+       LEFT JOIN subjects s ON s.id = es.subject_id
+       WHERE es.user_id = $1
+       ORDER BY es.started_at DESC
+       LIMIT 100`,
+      [studentId]
+    );
+
     const coursesStatus = coursesStatusRes.rows.map((r) => ({
       courseId: r.courseId,
       code: r.code,
@@ -1338,16 +1487,19 @@ router.get('/users/:id/profile', async (req, res) => {
     const successfulPayments = studentPayments.filter((p) => p.paymentStatus === 'successful');
     const totalAmountPaid = successfulPayments.reduce((acc, p) => acc + p.amount, 0);
     const totalCoursesRegistered = coursesStatus.filter((c) => c.isRegistered).length;
+    const submittedExams = examHistoryRes.rows.filter((e) => e.status === 'submitted');
 
     res.json({
       student: sanitizeUser(userRow),
       coursesStatus,
       payments: studentPayments,
+      examHistory: examHistoryRes.rows,
       summary: {
         totalPublishedCourses: coursesStatus.length,
         totalCoursesRegistered,
         totalSuccessfulPayments: successfulPayments.length,
         totalAmountPaid,
+        totalSubmittedExams: submittedExams.length,
         outstandingCourseRegistrations: Math.max(
           0,
           coursesStatus.length - totalCoursesRegistered
@@ -1368,9 +1520,26 @@ router.patch('/users/:id', async (req, res) => {
     }
 
     const db = getDb();
+    const updatePayload: Record<string, unknown> = {
+      ...parsed,
+      updatedAt: new Date(),
+    };
+
+    if (parsed.isActive !== undefined) {
+      updatePayload.accountStatus = parsed.isActive ? 'active' : 'suspended';
+      if (parsed.isActive) {
+        updatePayload.suspendedReason = null;
+        updatePayload.suspendedAt = null;
+        updatePayload.suspendedBy = null;
+      } else {
+        updatePayload.suspendedAt = new Date();
+        updatePayload.suspendedBy = req.user!.id;
+      }
+    }
+
     const [updated] = await db
       .update(users)
-      .set({ ...parsed, updatedAt: new Date() })
+      .set(updatePayload)
       .where(eq(users.id, req.params.id))
       .returning();
 
@@ -1391,6 +1560,396 @@ router.patch('/users/:id', async (req, res) => {
     res.json({ user: sanitizeUser(updated) });
   } catch (err) {
     handleApiError(res, err, 'updating user');
+  }
+});
+
+router.post('/users/:id/suspend', async (req, res) => {
+  try {
+    const bodySchema = z.object({
+      reason: z.string().trim().max(500).optional(),
+    });
+    const parsed = bodySchema.parse(req.body ?? {});
+    const targetId = req.params.id;
+
+    if (targetId === req.user!.id) {
+      res.status(400).json({ error: 'You cannot suspend your own active account.' });
+      return;
+    }
+
+    const pool = getPool();
+    const targetRes = await pool.query<{ id: string; role: string; email: string }>(
+      `SELECT id, role, email FROM users WHERE id = $1 LIMIT 1`,
+      [targetId]
+    );
+    const target = targetRes.rows[0];
+    if (!target) {
+      res.status(404).json({ error: 'User account not found.' });
+      return;
+    }
+
+    if (target.role === 'super_admin') {
+      const otherAdmins = await pool.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM users WHERE role = 'super_admin' AND is_active = TRUE AND account_status = 'active' AND id <> $1`,
+        [targetId]
+      );
+      if ((otherAdmins.rows[0]?.count ?? 0) === 0) {
+        res.status(409).json({
+          error: 'Cannot suspend the last active Super Admin account.',
+        });
+        return;
+      }
+    }
+
+    const db = getDb();
+    const [updated] = await db
+      .update(users)
+      .set({
+        isActive: false,
+        accountStatus: 'suspended',
+        suspendedReason: parsed.reason?.trim() || 'Suspended by Acadet CBT administration.',
+        suspendedAt: new Date(),
+        suspendedBy: req.user!.id,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, targetId))
+      .returning();
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.user.suspend',
+      entityType: 'user',
+      entityId: targetId,
+      metadata: {
+        targetEmail: target.email,
+        reason: updated.suspendedReason,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      user: sanitizeUser(updated),
+      message: `Account for ${updated.fullName} has been suspended.`,
+    });
+  } catch (err) {
+    handleApiError(res, err, 'suspending account');
+  }
+});
+
+router.post('/users/:id/reactivate', async (req, res) => {
+  try {
+    const targetId = req.params.id;
+    const db = getDb();
+
+    const [updated] = await db
+      .update(users)
+      .set({
+        isActive: true,
+        accountStatus: 'active',
+        suspendedReason: null,
+        suspendedAt: null,
+        suspendedBy: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, targetId))
+      .returning();
+
+    if (!updated) {
+      res.status(404).json({ error: 'User account not found.' });
+      return;
+    }
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.user.reactivate',
+      entityType: 'user',
+      entityId: updated.id,
+      metadata: {
+        targetEmail: updated.email,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      user: sanitizeUser(updated),
+      message: `Account for ${updated.fullName} has been reactivated.`,
+    });
+  } catch (err) {
+    handleApiError(res, err, 'reactivating account');
+  }
+});
+
+router.delete('/users/:id', async (req, res) => {
+  const deleteSchema = z.object({
+    confirmation: z.string().trim().optional(),
+    confirmEmail: z.string().trim().optional(),
+  });
+
+  try {
+    const parsed = deleteSchema.parse(req.body ?? {});
+    const targetId = req.params.id;
+
+    if (targetId === req.user!.id) {
+      res.status(400).json({ error: 'You cannot permanently delete your own account.' });
+      return;
+    }
+
+    const pool = getPool();
+    const client = await pool.connect();
+
+    let deletedSummary: {
+      deletedId: string;
+      deletedStudentRef: string;
+      targetEmail: string;
+      targetRole: string;
+      anonymizedPaymentsCount: number;
+    };
+
+    try {
+      await client.query('BEGIN');
+
+      const targetRes = await client.query<{
+        id: string;
+        email: string;
+        full_name: string;
+        role: string;
+      }>(
+        `SELECT id, email, full_name, role FROM users WHERE id = $1 FOR UPDATE`,
+        [targetId]
+      );
+
+      const target = targetRes.rows[0];
+      if (!target) {
+        await client.query('ROLLBACK');
+        res.status(404).json({ error: 'Account not found.' });
+        return;
+      }
+
+      if (target.role !== 'student' && req.user!.role !== 'super_admin') {
+        await client.query('ROLLBACK');
+        res.status(403).json({
+          error: 'Only a Super Admin can permanently delete administrator accounts.',
+        });
+        return;
+      }
+
+      const confirmedByWord = parsed.confirmation?.toUpperCase() === 'DELETE';
+      const confirmedByEmail =
+        Boolean(parsed.confirmEmail) &&
+        parsed.confirmEmail!.toLowerCase() === target.email.toLowerCase();
+
+      if (!confirmedByWord && !confirmedByEmail) {
+        await client.query('ROLLBACK');
+        res.status(400).json({
+          error: 'Explicit deletion confirmation is required (type DELETE or the exact account email).',
+        });
+        return;
+      }
+
+      if (target.role === 'super_admin') {
+        const otherActiveSuperAdmins = await client.query<{ count: number }>(
+          `SELECT COUNT(*)::int AS count
+           FROM users
+           WHERE role = 'super_admin'
+             AND is_active = TRUE
+             AND account_status = 'active'
+             AND id <> $1`,
+          [targetId]
+        );
+        if ((otherActiveSuperAdmins.rows[0]?.count ?? 0) === 0) {
+          await client.query('ROLLBACK');
+          res.status(409).json({
+            code: 'CANNOT_DELETE_LAST_SUPER_ADMIN',
+            error: 'Cannot permanently delete the last active Super Admin account.',
+          });
+          return;
+        }
+      }
+
+      const deletedStudentRef = `DEL-${target.id.slice(0, 8).toUpperCase()}`;
+
+      // 1. Delete dependent personal academic records safely before anonymizing payments
+      await client.query(`DELETE FROM course_registrations WHERE student_id = $1`, [targetId]);
+      await client.query(`DELETE FROM exam_sessions WHERE user_id = $1`, [targetId]);
+      await client.query(`DELETE FROM notification_reads WHERE user_id = $1`, [targetId]);
+      await client.query(`DELETE FROM notifications WHERE recipient_user_id = $1`, [targetId]);
+
+      // 2. Preserve financial ledger rows in anonymized form per retention policy
+      const payAnonRes = await client.query(
+        `UPDATE payments
+         SET student_id = NULL,
+             whatsapp_number = NULL,
+             deleted_student_ref = $2,
+             gateway_response = jsonb_strip_nulls(COALESCE(gateway_response, '{}'::jsonb) - 'metadata'),
+             updated_at = NOW()
+         WHERE student_id = $1`,
+        [targetId, deletedStudentRef]
+      );
+
+      // 3. Remove personal user account record
+      await client.query(`DELETE FROM users WHERE id = $1`, [targetId]);
+
+      await client.query('COMMIT');
+
+      deletedSummary = {
+        deletedId: target.id,
+        deletedStudentRef,
+        targetEmail: target.email,
+        targetRole: target.role,
+        anonymizedPaymentsCount: payAnonRes.rowCount ?? 0,
+      };
+    } catch (txErr) {
+      await client.query('ROLLBACK');
+      throw txErr;
+    } finally {
+      client.release();
+    }
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.user.permanent_delete',
+      entityType: 'user',
+      entityId: deletedSummary.deletedId,
+      metadata: {
+        deletedStudentRef: deletedSummary.deletedStudentRef,
+        deletedRole: deletedSummary.targetRole,
+        anonymizedPaymentsCount: deletedSummary.anonymizedPaymentsCount,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      deletedId: deletedSummary.deletedId,
+      deletedStudentRef: deletedSummary.deletedStudentRef,
+      anonymizedPaymentsCount: deletedSummary.anonymizedPaymentsCount,
+      message: 'Account permanently deleted. Financial records retained in anonymized form.',
+    });
+  } catch (err) {
+    handleApiError(res, err, 'permanently deleting account');
+  }
+});
+
+router.post('/users/:id/notifications', async (req, res) => {
+  try {
+    const schema = z.object({
+      title: z.string().trim().min(2, 'Notification title is required').max(180),
+      message: z.string().trim().min(2, 'Notification message is required').max(3000),
+    });
+    const parsed = schema.parse(req.body);
+    const targetId = req.params.id;
+
+    const db = getDb();
+    const [recipient] = await db
+      .select({ id: users.id, fullName: users.fullName, email: users.email })
+      .from(users)
+      .where(eq(users.id, targetId))
+      .limit(1);
+
+    if (!recipient) {
+      res.status(404).json({ error: 'Student account not found.' });
+      return;
+    }
+
+    const created = await createStudentNotification({
+      recipientUserId: recipient.id,
+      senderUserId: req.user!.id,
+      senderName: req.user!.fullName,
+      notificationType: 'admin_direct',
+      title: parsed.title,
+      message: parsed.message,
+    });
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.notification.send',
+      entityType: 'notification',
+      entityId: created?.id || null,
+      metadata: {
+        recipientUserId: recipient.id,
+        recipientEmail: recipient.email,
+        title: parsed.title,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.status(201).json({
+      notification: created,
+      message: `Notification sent to ${recipient.fullName}.`,
+    });
+  } catch (err) {
+    handleApiError(res, err, 'sending student notification');
+  }
+});
+
+router.get('/notifications', async (req, res) => {
+  try {
+    const pool = getPool();
+    const search = typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
+    const type = typeof req.query.type === 'string' ? req.query.type.trim() : '';
+
+    const clauses: string[] = [];
+    const values: unknown[] = [];
+
+    if (search) {
+      values.push(`%${search}%`);
+      const idx = values.length;
+      clauses.push(
+        `(LOWER(n.title) LIKE $${idx} OR LOWER(n.message) LIKE $${idx} OR LOWER(u.full_name) LIKE $${idx} OR LOWER(u.email) LIKE $${idx})`
+      );
+    }
+
+    if (type && ['admin_direct', 'payment_success', 'system'].includes(type)) {
+      values.push(type);
+      clauses.push(`n.notification_type = $${values.length}`);
+    }
+
+    const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const result = await pool.query<{
+      id: string;
+      recipientUserId: string;
+      recipientName: string;
+      recipientEmail: string;
+      senderName: string;
+      notificationType: 'admin_direct' | 'payment_success' | 'system';
+      title: string;
+      message: string;
+      courseCode: string | null;
+      courseTitle: string | null;
+      actionLabel: string | null;
+      actionUrl: string | null;
+      isRead: boolean;
+      readAt: Date | null;
+      createdAt: Date;
+    }>(
+      `SELECT
+         n.id,
+         n.recipient_user_id AS "recipientUserId",
+         u.full_name AS "recipientName",
+         u.email AS "recipientEmail",
+         n.sender_name AS "senderName",
+         n.notification_type AS "notificationType",
+         n.title,
+         n.message,
+         c.code AS "courseCode",
+         c.title AS "courseTitle",
+         n.action_label AS "actionLabel",
+         n.action_url AS "actionUrl",
+         (nr.id IS NOT NULL) AS "isRead",
+         nr.read_at AS "readAt",
+         n.created_at AS "createdAt"
+       FROM notifications n
+       INNER JOIN users u ON u.id = n.recipient_user_id
+       LEFT JOIN courses c ON c.id = n.course_id
+       LEFT JOIN notification_reads nr
+         ON nr.notification_id = n.id AND nr.user_id = n.recipient_user_id
+       ${whereSql}
+       ORDER BY n.created_at DESC
+       LIMIT 200`,
+      values
+    );
+
+    res.json({ notifications: result.rows });
+  } catch (err) {
+    handleApiError(res, err, 'listing notifications');
   }
 });
 

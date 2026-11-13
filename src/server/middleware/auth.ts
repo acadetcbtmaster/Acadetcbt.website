@@ -81,8 +81,20 @@ export async function requireAuth(
       .where(eq(users.id, payload.sub))
       .limit(1);
 
-    if (!foundUser || !foundUser.isActive) {
-      res.status(401).json({ error: 'Your account session is invalid or deactivated.' });
+    if (!foundUser) {
+      res.status(401).json({ error: 'Your account session is invalid. Please sign in again.' });
+      return;
+    }
+
+    if (!foundUser.isActive || foundUser.accountStatus === 'suspended') {
+      const reasonSuffix = foundUser.suspendedReason
+        ? ` Reason: ${foundUser.suspendedReason}`
+        : '';
+      res.status(403).json({
+        error: `Your account has been suspended. Please contact Acadet CBT administration.${reasonSuffix}`,
+        code: 'ACCOUNT_SUSPENDED',
+        reason: foundUser.suspendedReason ?? null,
+      });
       return;
     }
 
@@ -119,7 +131,7 @@ export async function optionalAuth(
       .where(eq(users.id, payload.sub))
       .limit(1);
 
-    if (foundUser && foundUser.isActive) {
+    if (foundUser && foundUser.isActive && foundUser.accountStatus !== 'suspended') {
       req.user = sanitizeUser(foundUser);
     }
   } catch {

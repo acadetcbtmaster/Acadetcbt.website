@@ -1,4 +1,5 @@
 import {
+  Bell,
   CheckCircle2,
   ChevronDown,
   Clock,
@@ -19,6 +20,8 @@ interface TopHeaderProps {
   onSelectCourse: (courseId: string) => void;
   onNavigateHome: () => void;
   onOpenAdmin?: () => void;
+  onOpenNotifications?: () => void;
+  unreadNotifications?: number;
   onLogout: () => void;
   onToggleMobileMenu?: () => void;
   examMode?: {
@@ -43,6 +46,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onSelectCourse,
   onNavigateHome,
   onOpenAdmin,
+  onOpenNotifications,
+  unreadNotifications = 0,
   onLogout,
   onToggleMobileMenu,
   examMode,
@@ -196,64 +201,83 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
             </button>
           </div>
         ) : (
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => setProfileOpen((p) => !p)}
-              className="flex items-center gap-2.5 px-2 py-1.5 rounded-xl hover:bg-white/10 transition-colors min-h-[44px]"
-            >
-              <div className="w-9 h-9 rounded-full bg-white/15 border border-white/40 flex items-center justify-center shrink-0">
-                <UserIcon className="w-5 h-5 text-white" />
-              </div>
-              <div className="text-left leading-tight hidden sm:block">
-                <div className="text-sm font-bold flex items-center gap-1">
-                  <span>Hello, {firstName}</span>
-                  <ChevronDown className="w-3.5 h-3.5 opacity-80" />
-                </div>
-                <div className="text-xs italic text-blue-100/90">Good luck!</div>
-              </div>
-            </button>
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            {onOpenNotifications && (
+              <button
+                type="button"
+                onClick={onOpenNotifications}
+                aria-label="Open Notification Centre"
+                title="Notifications"
+                className="relative p-2 rounded-xl hover:bg-white/10 transition-colors min-w-[42px] min-h-[42px] flex items-center justify-center"
+              >
+                <Bell className="w-5 h-5 text-white" />
+                {unreadNotifications > 0 && (
+                  <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-extrabold tabular-nums flex items-center justify-center leading-none shadow-xs">
+                    {unreadNotifications > 9 ? '9+' : unreadNotifications}
+                  </span>
+                )}
+              </button>
+            )}
 
-            {profileOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-40"
-                  onClick={() => setProfileOpen(false)}
-                />
-                <div className="absolute right-0 mt-2 w-60 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xl border border-slate-200 dark:border-slate-700 py-2 z-50">
-                  <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800">
-                    <div className="text-sm font-bold truncate">{user.fullName}</div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                      {user.email}
-                    </div>
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setProfileOpen((p) => !p)}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-white/10 transition-colors min-h-[42px]"
+              >
+                <div className="w-9 h-9 rounded-full bg-white/15 border border-white/40 flex items-center justify-center shrink-0">
+                  <UserIcon className="w-5 h-5 text-white" />
+                </div>
+                <div className="text-left leading-tight hidden sm:block">
+                  <div className="text-sm font-bold flex items-center gap-1">
+                    <span>Hello, {firstName}</span>
+                    <ChevronDown className="w-3.5 h-3.5 opacity-80" />
                   </div>
-                  {isAdmin && onOpenAdmin && (
+                  <div className="text-xs italic text-blue-100/90">Good luck!</div>
+                </div>
+              </button>
+
+              {profileOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setProfileOpen(false)}
+                  />
+                  <div className="absolute right-0 mt-2 w-60 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-xl border border-slate-200 dark:border-slate-700 py-2 z-50">
+                    <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800">
+                      <div className="text-sm font-bold truncate">{user.fullName}</div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
+                        {user.email}
+                      </div>
+                    </div>
+                    {isAdmin && onOpenAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProfileOpen(false);
+                          onOpenAdmin();
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-sm font-semibold text-[#0b337a] dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 flex items-center gap-2"
+                      >
+                        <Shield className="w-4 h-4" />
+                        <span>Admin Console</span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => {
                         setProfileOpen(false);
-                        onOpenAdmin();
+                        onLogout();
                       }}
-                      className="w-full text-left px-4 py-2.5 text-sm font-semibold text-[#0b337a] dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800 flex items-center gap-2"
+                      className="w-full text-left px-4 py-2.5 text-sm font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 flex items-center gap-2"
                     >
-                      <Shield className="w-4 h-4" />
-                      <span>Admin Console</span>
+                      <LogOut className="w-4 h-4" />
+                      <span>Sign Out</span>
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProfileOpen(false);
-                      onLogout();
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-sm font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 flex items-center gap-2"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    <span>Sign Out</span>
-                  </button>
-                </div>
-              </>
-            )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>

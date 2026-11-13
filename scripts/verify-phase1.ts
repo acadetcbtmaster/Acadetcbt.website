@@ -19,6 +19,8 @@ async function verifyPhase1() {
     'payments',
     'courseRegistrations',
     'paymentWebhookEvents',
+    'notifications',
+    'notificationReads',
   ] as const;
 
   for (const key of expectedTables) {
@@ -94,6 +96,27 @@ async function verifyPhase1() {
     assert.ok(
       sqlContent4.includes(col),
       `SQL migration 0004 must add ${col} on payments`
+    );
+  }
+
+  const sqlPath5 = path.resolve(
+    process.cwd(),
+    'migrations/0005_user_lifecycle_notifications_group_links.sql'
+  );
+  const sqlContent5 = await fs.readFile(sqlPath5, 'utf-8');
+  for (const snippet of [
+    'account_status',
+    'suspended_reason',
+    'whatsapp_group_link',
+    'deleted_student_ref',
+    'ON DELETE SET NULL',
+    'CREATE TABLE IF NOT EXISTS notifications',
+    'CREATE TABLE IF NOT EXISTS notification_reads',
+    'notifications_idempotency_unique_idx',
+  ]) {
+    assert.ok(
+      sqlContent5.includes(snippet),
+      `SQL migration 0005 missing expected definition: ${snippet}`
     );
   }
 

@@ -168,8 +168,13 @@ router.post('/login', requireDb, async (req, res) => {
       return;
     }
 
-    if (!found.isActive) {
-      res.status(403).json({ error: 'This account has been deactivated. Please contact support.' });
+    if (!found.isActive || found.accountStatus === 'suspended') {
+      const reasonSuffix = found.suspendedReason ? ` Reason: ${found.suspendedReason}` : '';
+      res.status(403).json({
+        error: `Your account has been suspended. Please contact Acadet CBT administration.${reasonSuffix}`,
+        code: 'ACCOUNT_SUSPENDED',
+        reason: found.suspendedReason ?? null,
+      });
       return;
     }
 
