@@ -145,6 +145,16 @@ async function verifyUpgrade() {
   assert.equal(withoutLink.actionLabel, null);
   assert.ok(!withoutLink.message.includes('chat.whatsapp.com'));
 
+  // Paystack dashboard "Pass fees to customers" recovery math (238579 charged, 3579 fee -> 235000 settled)
+  const passThroughRec = reconcileCoursePayment({
+    totalChargedKobo: 238579,
+    currency: 'NGN',
+    gatewayReportedFeesKobo: 3579,
+  });
+  assert.equal(passThroughRec.netSettlementKobo, 235000);
+  assert.equal(passThroughRec.coversCourseValue, true);
+  assert.equal(passThroughRec.reconciliationStatus, 'reconciled');
+
   console.log('[Upgrade Verification] Auditing payment settlement & user lifecycle protections...');
   const settlementSrc = await fs.readFile(
     path.resolve(process.cwd(), 'src/server/lib/paymentSettlement.ts'),
@@ -155,8 +165,9 @@ async function verifyUpgrade() {
     'Settlement must lock payment row with SELECT ... FOR UPDATE'
   );
   assert.ok(
-    settlementSrc.includes('actualKobo > TOTAL_STUDENT_PAYABLE_KOBO'),
-    'Settlement must reject charges above TOTAL_STUDENT_PAYABLE_KOBO (₦2,350)'
+    settlementSrc.includes('actualKobo > TOTAL_STUDENT_PAYABLE_KOBO') &&
+      settlementSrc.includes('isPaystackFeePassThrough'),
+    'Settlement must reject unauthorized charges above TOTAL_STUDENT_PAYABLE_KOBO while permitting exact Paystack pass-through recovery'
   );
   assert.ok(
     settlementSrc.includes('actualKobo !== expectedKobo'),

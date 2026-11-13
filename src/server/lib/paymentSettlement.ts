@@ -226,15 +226,28 @@ export async function settlePaystackTransaction(params: {
     if (gatewayStatus === 'success') {
       const expectedKobo = nairaToKobo(pRow.total_amount_charged || pRow.amount);
       const actualKobo = Number(paystackData.amount);
+      const reportedFeesKobo =
+        typeof paystackData.fees === 'number' && Number.isFinite(paystackData.fees)
+          ? Math.round(paystackData.fees)
+          : null;
 
-      if (!Number.isFinite(actualKobo) || actualKobo > TOTAL_STUDENT_PAYABLE_KOBO) {
+      // Detect Paystack dashboard "Pass fees to customers" gross-up (e.g. 235000 -> 238579 with fees = 3579)
+      const isPaystackFeePassThrough =
+        reportedFeesKobo !== null &&
+        reportedFeesKobo > 0 &&
+        expectedKobo === TOTAL_STUDENT_PAYABLE_KOBO &&
+        Number.isFinite(actualKobo) &&
+        actualKobo > TOTAL_STUDENT_PAYABLE_KOBO &&
+        Math.abs(actualKobo - reportedFeesKobo - expectedKobo) <= 1;
+
+      if (!Number.isFinite(actualKobo) || (actualKobo > TOTAL_STUDENT_PAYABLE_KOBO && !isPaystackFeePassThrough)) {
         throw new PaymentValidationError(
-          `Student charge exceeds maximum allowed ₦2,350 (${TOTAL_STUDENT_PAYABLE_KOBO} kobo): received ${actualKobo} kobo.`,
+          `Student charge exceeds maximum allowed ₦2,350 (${TOTAL_STUDENT_PAYABLE_KOBO} kobo): received ${actualKobo} kobo. In Paystack Dashboard → Settings → Preferences → Transaction fees, uncheck "Pass fees to customers" so Acadet CBT absorbs the charges.`,
           400
         );
       }
 
-      if (actualKobo !== expectedKobo) {
+      if (actualKobo !== expectedKobo && !isPaystackFeePassThrough) {
         throw new PaymentValidationError(
           `Payment amount mismatch: expected ${expectedKobo} kobo, received ${actualKobo} kobo.`,
           400
@@ -277,10 +290,7 @@ export async function settlePaystackTransaction(params: {
         currency: actualCurrency,
         channel: paystackData.channel || paystackData.authorization?.channel || null,
         countryCode: paystackData.authorization?.country_code || null,
-        gatewayReportedFeesKobo:
-          typeof paystackData.fees === 'number' && Number.isFinite(paystackData.fees)
-            ? paystackData.fees
-            : null,
+        gatewayReportedFeesKobo: reportedFeesKobo,
       });
 
       const paidAt = paystackData.paid_at ? new Date(paystackData.paid_at) : new Date();
@@ -296,6 +306,9 @@ export async function settlePaystackTransaction(params: {
       const resolvedWhatsapp = pRow.whatsapp_number || metaWhatsapp || null;
       const resolvedChannel =
         paystackData.channel || paystackData.authorization?.channel || null;
+      const resolvedFeeBearer = isPaystackFeePassThrough
+        ? 'Customer (Paystack Pass-Through)'
+        : FEE_ABSORBER_LABEL;
 
       const updatedPay = await client.query<LockedPaymentRow>(
         `UPDATE payments
@@ -329,7 +342,7 @@ export async function settlePaystackTransaction(params: {
           reconciliation.netSettlementNaira.toFixed(2),
           reconciliation.settlementVarianceNaira.toFixed(2),
           reconciliation.reconciliationStatus,
-          FEE_ABSORBER_LABEL,
+          resolvedFeeBearer,
           resolvedChannel,
         ]
       );
