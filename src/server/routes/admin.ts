@@ -739,7 +739,9 @@ async function queryAdminRegistrations(filters: {
   if (filters.search) {
     values.push(`%${filters.search.toLowerCase()}%`);
     const idx = values.length;
-    clauses.push(`(LOWER(u.full_name) LIKE $${idx} OR LOWER(u.email) LIKE $${idx})`);
+    clauses.push(
+      `(LOWER(u.full_name) LIKE $${idx} OR LOWER(u.email) LIKE $${idx} OR LOWER(COALESCE(cr.whatsapp_number, p.whatsapp_number, u.whatsapp_number, '')) LIKE $${idx})`
+    );
   }
   if (filters.courseId) {
     values.push(filters.courseId);
@@ -764,6 +766,7 @@ async function queryAdminRegistrations(filters: {
     studentId: string;
     studentName: string;
     studentEmail: string;
+    whatsappNumber: string | null;
     courseId: string;
     courseCode: string;
     courseTitle: string;
@@ -783,6 +786,7 @@ async function queryAdminRegistrations(filters: {
        u.id AS "studentId",
        u.full_name AS "studentName",
        u.email AS "studentEmail",
+       COALESCE(cr.whatsapp_number, p.whatsapp_number, u.whatsapp_number) AS "whatsappNumber",
        c.id AS "courseId",
        c.code AS "courseCode",
        c.title AS "courseTitle",
@@ -848,6 +852,7 @@ router.get('/registrations/export', async (req, res) => {
       'Registration ID',
       'Student Name',
       'Email',
+      'WhatsApp Number',
       'Course Code',
       'Course Title',
       'Amount',
@@ -863,6 +868,7 @@ router.get('/registrations/export', async (req, res) => {
         escapeCsv(r.id),
         escapeCsv(r.studentName),
         escapeCsv(r.studentEmail),
+        escapeCsv(r.whatsappNumber || ''),
         escapeCsv(r.courseCode),
         escapeCsv(r.courseTitle),
         escapeCsv(r.amount),
@@ -915,7 +921,7 @@ router.get('/payments', async (req, res) => {
       values.push(`%${search.toLowerCase()}%`);
       const idx = values.length;
       clauses.push(
-        `(LOWER(u.full_name) LIKE $${idx} OR LOWER(u.email) LIKE $${idx} OR LOWER(p.payment_reference) LIKE $${idx})`
+        `(LOWER(u.full_name) LIKE $${idx} OR LOWER(u.email) LIKE $${idx} OR LOWER(p.payment_reference) LIKE $${idx} OR LOWER(COALESCE(p.whatsapp_number, u.whatsapp_number, '')) LIKE $${idx})`
       );
     }
     if (dateFrom) {
@@ -933,6 +939,7 @@ router.get('/payments', async (req, res) => {
       studentId: string;
       studentName: string;
       studentEmail: string;
+      whatsappNumber: string | null;
       courseId: string;
       courseCode: string;
       courseTitle: string;
@@ -953,6 +960,7 @@ router.get('/payments', async (req, res) => {
          u.id AS "studentId",
          u.full_name AS "studentName",
          u.email AS "studentEmail",
+         COALESCE(p.whatsapp_number, u.whatsapp_number) AS "whatsappNumber",
          c.id AS "courseId",
          c.code AS "courseCode",
          c.title AS "courseTitle",
@@ -1129,6 +1137,7 @@ router.get('/users/:id/profile', async (req, res) => {
       currency: string;
       registrationStatus: string | null;
       registeredAt: Date | null;
+      whatsappNumber: string | null;
       paymentStatus: string | null;
       paymentReference: string | null;
       amountPaid: string | null;
@@ -1142,6 +1151,7 @@ router.get('/users/:id/profile', async (req, res) => {
          c.currency,
          cr.registration_status AS "registrationStatus",
          cr.registered_at AS "registeredAt",
+         COALESCE(cr.whatsapp_number, p.whatsapp_number) AS "whatsappNumber",
          p.payment_status AS "paymentStatus",
          p.payment_reference AS "paymentReference",
          p.amount::text AS "amountPaid"
@@ -1162,6 +1172,7 @@ router.get('/users/:id/profile', async (req, res) => {
       courseTitle: string;
       paymentReference: string;
       gateway: string;
+      whatsappNumber: string | null;
       amount: string;
       currency: string;
       paymentStatus: string;
@@ -1175,6 +1186,7 @@ router.get('/users/:id/profile', async (req, res) => {
          c.title AS "courseTitle",
          p.payment_reference AS "paymentReference",
          p.gateway,
+         p.whatsapp_number AS "whatsappNumber",
          p.amount::text AS "amount",
          p.currency,
          p.payment_status AS "paymentStatus",
@@ -1196,6 +1208,7 @@ router.get('/users/:id/profile', async (req, res) => {
       currency: r.currency,
       isRegistered: r.registrationStatus === 'active' && r.paymentStatus === 'successful',
       registeredAt: r.registeredAt,
+      whatsappNumber: r.whatsappNumber,
       paymentStatus: r.paymentStatus,
       paymentReference: r.paymentReference,
       amountPaid: r.amountPaid ? Number(r.amountPaid) : null,

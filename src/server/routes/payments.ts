@@ -2,7 +2,7 @@ import { and, desc, eq } from 'drizzle-orm';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import { getDb } from '../../db/index.js';
-import { courseRegistrations, courses, payments } from '../../db/schema.js';
+import { courseRegistrations, courses, payments, users } from '../../db/schema.js';
 import { writeAuditLog } from '../lib/audit.js';
 import {
   PaymentValidationError,
@@ -22,8 +22,21 @@ import { handleApiError, requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
+const WHATSAPP_NUMBER_REGEX = /^\+?\d{10,15}$/;
+
+function normalizeWhatsappNumber(value: string): string {
+  return value.trim().replace(/[\s()-]/g, '');
+}
+
 const initSchema = z.object({
   courseId: z.string().uuid('Valid courseId is required'),
+  whatsappNumber: z
+    .string('Please input your correct WhatsApp number.')
+    .transform(normalizeWhatsappNumber)
+    .refine((val) => WHATSAPP_NUMBER_REGEX.test(val), {
+      message:
+        'Please input your correct WhatsApp number (10 to 15 digits, e.g. 08012345678).',
+    }),
 });
 
 const verifyBodySchema = z.object({
@@ -121,6 +134,15 @@ router.post('/initialize', requireAuth, async (req, res) => {
     const currency = (course.currency || 'NGN').toUpperCase();
     const callbackUrl = resolveCallbackUrl(req);
 
+    // Save latest verified/entered WhatsApp number on student's profile for convenience
+    await db
+      .update(users)
+      .set({
+        whatsappNumber: parsed.whatsappNumber,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, student.id));
+
     // Create pending payment record first with the authoritative DB fee snapshot
     const [pendingPayment] = await db
       .insert(payments)
@@ -129,6 +151,7 @@ router.post('/initialize', requireAuth, async (req, res) => {
         courseId: course.id,
         paymentReference: reference,
         gateway: 'paystack',
+        whatsappNumber: parsed.whatsappNumber,
         amount: course.registrationFee,
         currency,
         paymentStatus: 'pending',
@@ -146,6 +169,7 @@ router.post('/initialize', requireAuth, async (req, res) => {
         metadata: {
           student_id: student.id,
           student_name: student.fullName,
+          whatsapp_number: parsed.whatsappNumber,
           course_id: course.id,
           course_code: course.code,
           course_title: course.title,
@@ -184,6 +208,7 @@ router.post('/initialize', requireAuth, async (req, res) => {
         reference,
         courseId: course.id,
         courseCode: course.code,
+        whatsappNumber: parsed.whatsappNumber,
         amount: course.registrationFee,
         currency,
       },
@@ -312,6 +337,7 @@ router.get('/my', requireAuth, async (req, res) => {
         courseTitle: courses.title,
         paymentReference: payments.paymentReference,
         gateway: payments.gateway,
+        whatsappNumber: payments.whatsappNumber,
         amount: payments.amount,
         currency: payments.currency,
         paymentStatus: payments.paymentStatus,

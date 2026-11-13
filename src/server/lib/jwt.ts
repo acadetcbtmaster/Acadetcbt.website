@@ -18,6 +18,7 @@ export interface SafeUser {
   username: string;
   role: UserRole;
   examTarget: string;
+  whatsappNumber: string | null;
   isActive: boolean;
   preferences: UserPreferences;
   createdAt: Date;
@@ -89,6 +90,7 @@ export function sanitizeUser(row: {
   username: string;
   role: string;
   examTarget: string;
+  whatsappNumber?: string | null;
   isActive: boolean;
   preferences: UserPreferences | null;
   createdAt: Date;
@@ -100,6 +102,7 @@ export function sanitizeUser(row: {
     username: row.username,
     role: (row.role as UserRole) || 'student',
     examTarget: row.examTarget,
+    whatsappNumber: row.whatsappNumber ?? null,
     isActive: row.isActive,
     preferences: {
       ...DEFAULT_USER_PREFERENCES,

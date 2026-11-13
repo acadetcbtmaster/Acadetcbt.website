@@ -13,6 +13,7 @@ export interface SettlementOutcome {
     courseId: string;
     paymentReference: string;
     gateway: string;
+    whatsappNumber: string | null;
     amount: string;
     currency: string;
     paymentStatus: string;
@@ -25,6 +26,7 @@ export interface SettlementOutcome {
     studentId: string;
     courseId: string;
     paymentId: string;
+    whatsappNumber: string | null;
     registrationStatus: string;
     registeredAt: Date;
   } | null;
@@ -72,6 +74,7 @@ export async function settlePaystackTransaction(params: {
       course_id: string;
       payment_reference: string;
       gateway: string;
+      whatsapp_number: string | null;
       amount: string;
       currency: string;
       payment_status: string;
@@ -79,7 +82,7 @@ export async function settlePaystackTransaction(params: {
       paid_at: Date | null;
       created_at: Date;
     }>(
-      `SELECT id, student_id, course_id, payment_reference, gateway, amount::text, currency, payment_status, gateway_transaction_id, paid_at, created_at
+      `SELECT id, student_id, course_id, payment_reference, gateway, whatsapp_number, amount::text, currency, payment_status, gateway_transaction_id, paid_at, created_at
        FROM payments
        WHERE payment_reference = $1
        FOR UPDATE`,
@@ -113,10 +116,11 @@ export async function settlePaystackTransaction(params: {
         student_id: string;
         course_id: string;
         payment_id: string;
+        whatsapp_number: string | null;
         registration_status: string;
         registered_at: Date;
       }>(
-        `SELECT id, student_id, course_id, payment_id, registration_status, registered_at
+        `SELECT id, student_id, course_id, payment_id, whatsapp_number, registration_status, registered_at
          FROM course_registrations
          WHERE student_id = $1 AND course_id = $2 AND registration_status = 'active'
          LIMIT 1`,
@@ -135,6 +139,7 @@ export async function settlePaystackTransaction(params: {
           courseId: pRow.course_id,
           paymentReference: pRow.payment_reference,
           gateway: pRow.gateway,
+          whatsappNumber: pRow.whatsapp_number,
           amount: pRow.amount,
           currency: pRow.currency,
           paymentStatus: pRow.payment_status,
@@ -148,6 +153,7 @@ export async function settlePaystackTransaction(params: {
               studentId: existingReg.rows[0].student_id,
               courseId: existingReg.rows[0].course_id,
               paymentId: existingReg.rows[0].payment_id,
+              whatsappNumber: existingReg.rows[0].whatsapp_number,
               registrationStatus: existingReg.rows[0].registration_status,
               registeredAt: existingReg.rows[0].registered_at,
             }
@@ -207,12 +213,19 @@ export async function settlePaystackTransaction(params: {
           ? String(paystackData.id)
           : null;
 
+      const metaWhatsapp =
+        typeof paystackData.metadata?.whatsapp_number === 'string'
+          ? paystackData.metadata.whatsapp_number.trim()
+          : null;
+      const resolvedWhatsapp = pRow.whatsapp_number || metaWhatsapp || null;
+
       const updatedPay = await client.query<{
         id: string;
         student_id: string;
         course_id: string;
         payment_reference: string;
         gateway: string;
+        whatsapp_number: string | null;
         amount: string;
         currency: string;
         payment_status: string;
@@ -225,10 +238,11 @@ export async function settlePaystackTransaction(params: {
              gateway_transaction_id = $2,
              gateway_response = $3::jsonb,
              paid_at = $4,
+             whatsapp_number = COALESCE(whatsapp_number, $5),
              updated_at = NOW()
          WHERE id = $1
-         RETURNING id, student_id, course_id, payment_reference, gateway, amount::text, currency, payment_status, gateway_transaction_id, paid_at, created_at`,
-        [pRow.id, gatewayTxId, JSON.stringify(paystackData), paidAt]
+         RETURNING id, student_id, course_id, payment_reference, gateway, whatsapp_number, amount::text, currency, payment_status, gateway_transaction_id, paid_at, created_at`,
+        [pRow.id, gatewayTxId, JSON.stringify(paystackData), paidAt, resolvedWhatsapp]
       );
 
       // Check if student already has an active registration for this course (concurrency guard)
@@ -237,10 +251,11 @@ export async function settlePaystackTransaction(params: {
         student_id: string;
         course_id: string;
         payment_id: string;
+        whatsapp_number: string | null;
         registration_status: string;
         registered_at: Date;
       }>(
-        `SELECT id, student_id, course_id, payment_id, registration_status, registered_at
+        `SELECT id, student_id, course_id, payment_id, whatsapp_number, registration_status, registered_at
          FROM course_registrations
          WHERE student_id = $1 AND course_id = $2 AND registration_status = 'active'
          LIMIT 1`,
@@ -254,14 +269,15 @@ export async function settlePaystackTransaction(params: {
           student_id: string;
           course_id: string;
           payment_id: string;
+          whatsapp_number: string | null;
           registration_status: string;
           registered_at: Date;
         }>(
-          `INSERT INTO course_registrations (student_id, course_id, payment_id, registration_status, registered_at)
-           VALUES ($1, $2, $3, 'active', NOW())
+          `INSERT INTO course_registrations (student_id, course_id, payment_id, whatsapp_number, registration_status, registered_at)
+           VALUES ($1, $2, $3, $4, 'active', NOW())
            ON CONFLICT (payment_id) DO NOTHING
-           RETURNING id, student_id, course_id, payment_id, registration_status, registered_at`,
-          [pRow.student_id, pRow.course_id, pRow.id]
+           RETURNING id, student_id, course_id, payment_id, whatsapp_number, registration_status, registered_at`,
+          [pRow.student_id, pRow.course_id, pRow.id, resolvedWhatsapp]
         );
         regRow = insertedReg.rows[0] || null;
       }
@@ -280,6 +296,7 @@ export async function settlePaystackTransaction(params: {
           courseId: finalP.course_id,
           paymentReference: finalP.payment_reference,
           gateway: finalP.gateway,
+          whatsappNumber: finalP.whatsapp_number,
           amount: finalP.amount,
           currency: finalP.currency,
           paymentStatus: finalP.payment_status,
@@ -293,6 +310,7 @@ export async function settlePaystackTransaction(params: {
               studentId: regRow.student_id,
               courseId: regRow.course_id,
               paymentId: regRow.payment_id,
+              whatsappNumber: regRow.whatsapp_number,
               registrationStatus: regRow.registration_status,
               registeredAt: regRow.registered_at,
             }
@@ -318,6 +336,7 @@ export async function settlePaystackTransaction(params: {
         course_id: string;
         payment_reference: string;
         gateway: string;
+        whatsapp_number: string | null;
         amount: string;
         currency: string;
         payment_status: string;
@@ -331,7 +350,7 @@ export async function settlePaystackTransaction(params: {
              gateway_response = $3::jsonb,
              updated_at = NOW()
          WHERE id = $1
-         RETURNING id, student_id, course_id, payment_reference, gateway, amount::text, currency, payment_status, gateway_transaction_id, paid_at, created_at`,
+         RETURNING id, student_id, course_id, payment_reference, gateway, whatsapp_number, amount::text, currency, payment_status, gateway_transaction_id, paid_at, created_at`,
         [
           pRow.id,
           paystackData.id ? String(paystackData.id) : null,
@@ -352,6 +371,7 @@ export async function settlePaystackTransaction(params: {
           courseId: finalP.course_id,
           paymentReference: finalP.payment_reference,
           gateway: finalP.gateway,
+          whatsappNumber: finalP.whatsapp_number,
           amount: finalP.amount,
           currency: finalP.currency,
           paymentStatus: finalP.payment_status,
@@ -378,6 +398,7 @@ export async function settlePaystackTransaction(params: {
         course_id: string;
         payment_reference: string;
         gateway: string;
+        whatsapp_number: string | null;
         amount: string;
         currency: string;
         payment_status: string;
@@ -390,7 +411,7 @@ export async function settlePaystackTransaction(params: {
              gateway_response = $2::jsonb,
              updated_at = NOW()
          WHERE id = $1
-         RETURNING id, student_id, course_id, payment_reference, gateway, amount::text, currency, payment_status, gateway_transaction_id, paid_at, created_at`,
+         RETURNING id, student_id, course_id, payment_reference, gateway, whatsapp_number, amount::text, currency, payment_status, gateway_transaction_id, paid_at, created_at`,
         [pRow.id, JSON.stringify(paystackData)]
       );
       const finalP = updatedPay.rows[0];
@@ -407,6 +428,7 @@ export async function settlePaystackTransaction(params: {
           courseId: finalP.course_id,
           paymentReference: finalP.payment_reference,
           gateway: finalP.gateway,
+          whatsappNumber: finalP.whatsapp_number,
           amount: finalP.amount,
           currency: finalP.currency,
           paymentStatus: finalP.payment_status,

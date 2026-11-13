@@ -63,6 +63,19 @@ async function verifyPhase1() {
     'Migration 0002 must add registration_fee on courses'
   );
 
+  const sqlPath3 = path.resolve(
+    process.cwd(),
+    'migrations/0003_whatsapp_number_course_registration.sql'
+  );
+  const sqlContent3 = await fs.readFile(sqlPath3, 'utf-8');
+  for (const tbl of ['users', 'payments', 'course_registrations']) {
+    assert.ok(
+      sqlContent3.includes(`ALTER TABLE ${tbl}`) &&
+        sqlContent3.includes('whatsapp_number'),
+      `SQL migration 0003 must add whatsapp_number on ${tbl}`
+    );
+  }
+
   assert.ok(
     sqlContent1.includes("CHECK (correct_option IN ('A', 'B', 'C', 'D'))"),
     'Missing check constraint on correct_option'

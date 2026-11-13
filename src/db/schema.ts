@@ -45,6 +45,7 @@ export const users = pgTable(
     passwordHash: text('password_hash').notNull(),
     role: text('role').notNull().default('student'),
     examTarget: text('exam_target').notNull().default('Acadet CBT Examination'),
+    whatsappNumber: text('whatsapp_number'),
     isActive: boolean('is_active').notNull().default(true),
     preferences: jsonb('preferences')
       .$type<UserPreferences>()
@@ -248,6 +249,7 @@ export const payments = pgTable(
       .references(() => courses.id, { onDelete: 'restrict' }),
     paymentReference: text('payment_reference').notNull(),
     gateway: text('gateway').notNull().default('paystack'),
+    whatsappNumber: text('whatsapp_number'),
     amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
     currency: text('currency').notNull().default('NGN'),
     paymentStatus: text('payment_status').notNull().default('pending'),
@@ -287,6 +289,7 @@ export const courseRegistrations = pgTable(
     paymentId: uuid('payment_id')
       .notNull()
       .references(() => payments.id, { onDelete: 'restrict' }),
+    whatsappNumber: text('whatsapp_number'),
     registrationStatus: text('registration_status').notNull().default('active'),
     registeredAt: timestamp('registered_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

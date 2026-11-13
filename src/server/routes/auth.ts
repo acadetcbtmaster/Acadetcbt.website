@@ -37,6 +37,13 @@ const loginSchema = z.object({
 const updateProfileSchema = z.object({
   fullName: z.string().trim().min(2).max(120).optional(),
   examTarget: z.string().trim().min(2).max(120).optional(),
+  whatsappNumber: z
+    .string()
+    .transform((v) => v.trim().replace(/[\s()-]/g, ''))
+    .refine((v) => /^\+?\d{10,15}$/.test(v), {
+      message: 'Please input your correct WhatsApp number (10 to 15 digits).',
+    })
+    .optional(),
 });
 
 const updatePreferencesSchema = z.object({
@@ -218,6 +225,7 @@ router.patch('/me', requireAuth, async (req, res) => {
       .set({
         ...(parsed.fullName ? { fullName: parsed.fullName } : {}),
         ...(parsed.examTarget ? { examTarget: parsed.examTarget } : {}),
+        ...(parsed.whatsappNumber ? { whatsappNumber: parsed.whatsappNumber } : {}),
         updatedAt: new Date(),
       })
       .where(eq(users.id, req.user!.id))

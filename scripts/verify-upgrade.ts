@@ -81,6 +81,31 @@ async function verifyUpgrade() {
     'TEST 6: Schema must enforce 1-payment-per-registration and 1-active-registration-per-course'
   );
 
+  const paymentsRouteSrc = await fs.readFile(
+    path.resolve(process.cwd(), 'src/server/routes/payments.ts'),
+    'utf-8'
+  );
+  assert.ok(
+    paymentsRouteSrc.includes('whatsappNumber') &&
+      paymentsRouteSrc.includes('WHATSAPP_NUMBER_REGEX') &&
+      paymentsRouteSrc.includes('whatsapp_number'),
+    'Payments initialization must validate and persist WhatsApp number'
+  );
+  assert.ok(
+    settlementSrc.includes('whatsapp_number') &&
+      settlementSrc.includes('whatsappNumber'),
+    'Payment settlement must carry whatsapp_number into course_registrations'
+  );
+  const courseRegViewSrc = await fs.readFile(
+    path.resolve(process.cwd(), 'src/components/cbt/CourseRegistrationView.tsx'),
+    'utf-8'
+  );
+  assert.ok(
+    courseRegViewSrc.includes('Input your correct WhatsApp number') &&
+      courseRegViewSrc.includes('course-reg-whatsapp'),
+    'CourseRegistrationView must require students to input their correct WhatsApp number'
+  );
+
   console.log('[Upgrade Verification] Auditing UI components for Course terminology...');
   const uiFiles = [
     'src/components/cbt/WorkspaceSidebar.tsx',

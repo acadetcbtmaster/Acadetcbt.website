@@ -25,6 +25,7 @@ export interface SafeUser {
   username: string;
   role: UserRole;
   examTarget: string;
+  whatsappNumber?: string | null;
   isActive: boolean;
   preferences: UserPreferences;
   createdAt: string;
@@ -61,6 +62,7 @@ export interface RegisteredCourseItem {
   defaultDurationMinutes: number;
   registrationStatus: string;
   registeredAt: string;
+  whatsappNumber?: string | null;
   paymentId: string;
   paymentReference: string;
   paymentStatus: PaymentStatus;
@@ -208,6 +210,7 @@ export interface PaymentVerifyOutcome {
     courseId: string;
     paymentReference: string;
     gateway: string;
+    whatsappNumber?: string | null;
     amount: string;
     currency: string;
     paymentStatus: PaymentStatus;
@@ -220,6 +223,7 @@ export interface PaymentVerifyOutcome {
     studentId: string;
     courseId: string;
     paymentId: string;
+    whatsappNumber?: string | null;
     registrationStatus: string;
     registeredAt: string;
   } | null;
@@ -239,6 +243,7 @@ export interface StudentPaymentRecord {
   courseTitle: string;
   paymentReference: string;
   gateway: string;
+  whatsappNumber?: string | null;
   amount: number;
   currency: string;
   paymentStatus: PaymentStatus;
@@ -301,6 +306,7 @@ export interface AdminRegistrationItem {
   studentId: string;
   studentName: string;
   studentEmail: string;
+  whatsappNumber?: string | null;
   courseId: string;
   courseCode: string;
   courseTitle: string;
@@ -321,6 +327,7 @@ export interface AdminPaymentRecord {
   studentId: string;
   studentName: string;
   studentEmail: string;
+  whatsappNumber?: string | null;
   courseId: string;
   courseCode: string;
   courseTitle: string;
@@ -348,6 +355,7 @@ export interface AdminStudentProfile {
     currency: string;
     isRegistered: boolean;
     registeredAt: string | null;
+    whatsappNumber?: string | null;
     paymentStatus: PaymentStatus | null;
     paymentReference: string | null;
     amountPaid: number | null;

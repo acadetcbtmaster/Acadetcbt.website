@@ -6,6 +6,7 @@ import {
   CreditCard,
   FileText,
   Lock,
+  MessageCircle,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -21,6 +22,7 @@ interface CourseRegistrationViewProps {
   onRefreshCatalog: () => Promise<void>;
   onStartCourseExam: (courseId: string) => void;
   onPaymentVerifiedNavigate?: () => void;
+  onWhatsappUpdated?: (whatsappNumber: string) => void;
   initialRegisterCourseId?: string | null;
   onClearInitialRegisterCourseId?: () => void;
 }
@@ -42,6 +44,7 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
   courses,
   onRefreshCatalog,
   onStartCourseExam,
+  onWhatsappUpdated,
   initialRegisterCourseId = null,
   onClearInitialRegisterCourseId,
 }) => {
@@ -52,6 +55,7 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
       ? courses.find((c) => c.id === initialRegisterCourseId && !c.isRegistered) || null
       : null
   );
+  const [whatsappNumber, setWhatsappNumber] = useState<string>(user.whatsappNumber ?? '');
   const [initializingPay, setInitializingPay] = useState(false);
   const [verifyingRef, setVerifyingRef] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -62,10 +66,11 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
       const target = courses.find((c) => c.id === initialRegisterCourseId && !c.isRegistered);
       if (target) {
         setConfirmCourse(target);
+        setWhatsappNumber((prev) => prev || user.whatsappNumber || '');
       }
       onClearInitialRegisterCourseId?.();
     }
-  }, [initialRegisterCourseId, courses, onClearInitialRegisterCourseId]);
+  }, [initialRegisterCourseId, courses, onClearInitialRegisterCourseId, user.whatsappNumber]);
 
   const filteredCourses = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -84,11 +89,20 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
 
   const handlePayNow = async () => {
     if (!confirmCourse) return;
+    const normalizedWhatsapp = whatsappNumber.trim().replace(/[\s()-]/g, '');
+    if (!/^\+?\d{10,15}$/.test(normalizedWhatsapp)) {
+      setError(
+        'Please input your correct WhatsApp number (10 to 15 digits, e.g. 08012345678 or +2348012345678).'
+      );
+      return;
+    }
+
     setInitializingPay(true);
     setError(null);
     setNotice(null);
     try {
-      const init = await api.payments.initialize(confirmCourse.id);
+      onWhatsappUpdated?.(normalizedWhatsapp);
+      const init = await api.payments.initialize(confirmCourse.id, normalizedWhatsapp);
       window.location.assign(init.authorizationUrl);
     } catch (err) {
       setError(
@@ -289,6 +303,7 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                             type="button"
                             onClick={() => {
                               setError(null);
+                              setWhatsappNumber(user.whatsappNumber ?? '');
                               setConfirmCourse(course);
                             }}
                             className="flex-1 py-2.5 px-4 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold shadow-xs flex items-center justify-center gap-2 min-h-[44px] transition-colors"
@@ -394,6 +409,35 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                     {formatCurrency(confirmCourse.registrationFee, confirmCourse.currency)}
                   </span>
                 </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="course-reg-whatsapp"
+                  className="flex items-center gap-1.5 text-xs font-extrabold text-[#082252] dark:text-slate-200 mb-1.5"
+                >
+                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>
+                    WhatsApp Number <span className="text-red-500">*</span>
+                  </span>
+                </label>
+                <input
+                  id="course-reg-whatsapp"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  required
+                  value={whatsappNumber}
+                  onChange={(e) => {
+                    setWhatsappNumber(e.target.value);
+                    if (error) setError(null);
+                  }}
+                  placeholder="Input your correct WhatsApp number (e.g. 08012345678)"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#c6daf7] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-semibold text-slate-900 dark:text-white tabular-nums min-h-[44px] focus:outline-none focus:ring-2 focus:ring-[#0a58ed]"
+                />
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  Input your correct WhatsApp number for course updates and registration confirmation.
+                </p>
               </div>
 
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">

@@ -473,6 +473,9 @@ export default function App() {
                   courses={courses}
                   onRefreshCatalog={() => loadWorkspaceData(user)}
                   onStartCourseExam={handleStartCourseExamQuick}
+                  onWhatsappUpdated={(whatsappNumber) =>
+                    setUser((prev) => (prev ? { ...prev, whatsappNumber } : prev))
+                  }
                   initialRegisterCourseId={pendingRegisterCourseId}
                   onClearInitialRegisterCourseId={() => setPendingRegisterCourseId(null)}
                 />

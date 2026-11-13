@@ -161,7 +161,11 @@ export const api = {
 
     me: () => request<{ user: SafeUser }>('/api/auth/me'),
 
-    updateProfile: (payload: { fullName?: string; examTarget?: string }) =>
+    updateProfile: (payload: {
+      fullName?: string;
+      examTarget?: string;
+      whatsappNumber?: string;
+    }) =>
       request<{ user: SafeUser }>('/api/auth/me', {
         method: 'PATCH',
         body: JSON.stringify(payload),
@@ -187,10 +191,10 @@ export const api = {
     getConfig: () =>
       request<{ configured: boolean; publicKey: string | null }>('/api/payments/config'),
 
-    initialize: (courseId: string) =>
+    initialize: (courseId: string, whatsappNumber: string) =>
       request<PaymentInitializeResponse>('/api/payments/initialize', {
         method: 'POST',
-        body: JSON.stringify({ courseId }),
+        body: JSON.stringify({ courseId, whatsappNumber }),
       }),
 
     verify: (reference: string) =>

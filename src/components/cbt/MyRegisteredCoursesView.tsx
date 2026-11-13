@@ -136,6 +136,14 @@ export const MyRegisteredCoursesView: React.FC<MyRegisteredCoursesViewProps> = (
                         })}
                       </span>
                     </div>
+                    {item.whatsappNumber && (
+                      <div className="flex items-center justify-between">
+                        <span>WhatsApp Number:</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-200 tabular-nums">
+                          {item.whatsappNumber}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between">
                       <span>Available Questions:</span>
                       <span className="font-bold text-slate-800 dark:text-slate-200 tabular-nums">
