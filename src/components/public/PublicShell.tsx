@@ -33,15 +33,15 @@ interface PublicShellProps {
 
 const NAV_LINKS: Array<{ path: PublicRoutePath; label: string }> = [
   { path: '/', label: 'Home' },
-  { path: '/about', label: 'About' },
   { path: '/courses', label: 'Courses' },
+  { path: '/about', label: 'About' },
   { path: '/how-it-works', label: 'How It Works' },
   { path: '/founder', label: 'Founder' },
+  { path: '/faq', label: 'FAQ' },
   { path: '/contact', label: 'Contact' },
 ];
 
 const FOOTER_SUPPORT_LINKS: Array<{ path: PublicRoutePath; label: string }> = [
-  { path: '/faq', label: 'FAQ' },
   { path: '/privacy', label: 'Privacy Policy' },
   { path: '/terms', label: 'Terms of Use' },
 ];
@@ -101,7 +101,7 @@ export const PublicShell: React.FC<PublicShellProps> = ({
             onClick={(e) => handleLinkClick(e, '/')}
             className="flex items-center gap-2.5 shrink-0 group focus:outline-none focus-visible:ring-2 focus-visible:ring-white rounded-lg"
           >
-            <AcadetCrest className="w-9 h-9 sm:w-10 sm:h-10" />
+            <AcadetCrest className="w-9 h-9 sm:w-10 sm:h-10" priority />
             <span className="text-lg sm:text-xl font-extrabold tracking-tight whitespace-nowrap shrink-0">
               {branding.siteName}
             </span>

@@ -94,7 +94,8 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
     const ogImage = toAbs(branding.logoUrl, '/acadet-logo.png');
     const favicon48 = toAbs(branding.faviconUrl, '/favicon-48x48.png');
 
-    let title = branding.seoTitle || `${branding.siteName} | ${branding.tagline}`;
+    let title =
+      branding.seoTitle || 'Acadet CBT – Online CBT Practice and Learning Platform';
     let description = branding.seoDescription || branding.siteDescription;
     let keywords = branding.seoKeywords;
     let robots: 'index, follow' | 'noindex, nofollow' =
@@ -108,25 +109,25 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
       robots = 'noindex, nofollow';
     } else if (!isPrivateAppRoute) {
       if (norm === '/about') {
-        title = `About ${branding.siteName} | ${branding.tagline}`;
+        title = `About ${branding.siteName} | Online CBT Practice & Learning Hub`;
         description =
-          'Learn about Acadet CBT and Acadet Learning Hub — our goals, commitment, and accessible computer-based examination preparation platform.';
+          'Learn about Acadet CBT and Acadet Learning Hub — our mission, student-centered goals, and commitment to accessible computer-based examination practice in Nigeria.';
       } else if (norm === '/courses') {
-        title = `Available Courses | ${branding.siteName}`;
+        title = `Available Courses & CBT Practice | ${branding.siteName}`;
         description =
-          'Explore published courses on Acadet CBT, transparent ₦2,350 course registration, Paystack verification, and CBT exam practice.';
+          'Browse published 100 Level university tutorial and JAMB UTME CBT preparation courses on Acadet CBT, fixed ₦2,350 course registration, and timed exam access.';
       } else if (norm === '/how-it-works') {
-        title = `How It Works | ${branding.siteName}`;
+        title = `How It Works | ${branding.siteName} Registration & CBT Access`;
         description =
-          'How students register on Acadet CBT, pay securely with Paystack, download study materials, and take timed CBT examinations.';
+          'Step-by-step guide to creating an Acadet CBT student account, registering courses securely with Paystack, downloading study materials, and taking CBT exams.';
       } else if (norm === '/faq') {
         title = `Frequently Asked Questions (FAQ) | ${branding.siteName}`;
         description =
           'Answers to common student questions on Acadet CBT course registration, fixed ₦2,350 pricing, Paystack reference verification, official receipts, and CBT exams.';
       } else if (norm === '/contact') {
-        title = `Contact ${branding.siteName} | Support & Inquiries`;
+        title = `Contact ${branding.siteName} | Student Support`;
         description =
-          'Contact Acadet CBT support for course registration assistance, Paystack verification, or academic guidance.';
+          'Get in touch with Acadet CBT support for course registration assistance, Paystack verification help, or university tutorial inquiries in Nigeria.';
       } else if (norm === '/privacy') {
         title = `Privacy Policy | ${branding.siteName}`;
         description =
@@ -147,10 +148,14 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
     }
 
     const canonicalUrl = isNotFoundRoute ? null : `${origin}${norm === '/' ? '/' : norm}`;
+    const siteName = branding.siteName || 'Acadet CBT';
     document.title = title;
+    upsertMeta('name', 'application-name', siteName);
     upsertMeta('name', 'description', description);
     upsertMeta('name', 'keywords', keywords);
     upsertMeta('name', 'robots', robots);
+    upsertMeta('property', 'og:site_name', siteName);
+    upsertMeta('property', 'og:locale', 'en_NG');
     upsertMeta('property', 'og:title', title);
     upsertMeta('property', 'og:description', description);
     upsertMeta('property', 'og:type', ogType);
@@ -175,8 +180,9 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
     const orgSchema: Record<string, unknown> = {
       '@context': 'https://schema.org',
       '@type': 'Organization',
-      name: branding.siteName || 'Acadet CBT',
-      alternateName: 'Acadet Learning Hub',
+      '@id': `${origin}/#organization`,
+      name: siteName,
+      alternateName: ['Acadet Learning Hub', 'Acadet CBT Nigeria'],
       url: origin,
       logo: {
         '@type': 'ImageObject',
@@ -184,6 +190,17 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
       },
       image: ogImage,
       description: branding.siteDescription,
+      areaServed: {
+        '@type': 'Country',
+        name: 'Nigeria',
+      },
+      knowsAbout: [
+        'Online CBT Practice',
+        'JAMB UTME Examination Preparation',
+        '100 Level University Tutorials',
+        'Computer-Based Testing',
+        'Academic Study Materials',
+      ],
       founder: {
         '@type': 'Person',
         name: founder.fullName,
@@ -199,14 +216,47 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
       ...(sameAs.length > 0 ? { sameAs } : {}),
     };
 
-    let scriptEl = document.getElementById('acadet-org-jsonld') as HTMLScriptElement | null;
-    if (!scriptEl) {
-      scriptEl = document.createElement('script');
-      scriptEl.id = 'acadet-org-jsonld';
-      scriptEl.type = 'application/ld+json';
-      document.head.appendChild(scriptEl);
+    const websiteSchema: Record<string, unknown> = {
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      '@id': `${origin}/#website`,
+      name: siteName,
+      alternateName: ['Acadet Learning Hub', 'Acadet CBT Nigeria'],
+      url: `${origin}/`,
+      description: branding.seoDescription || branding.siteDescription,
+      inLanguage: 'en-NG',
+      publisher: {
+        '@id': `${origin}/#organization`,
+      },
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: {
+          '@type': 'EntryPoint',
+          urlTemplate: `${origin}/courses?q={search_term_string}`,
+        },
+        'query-input': 'required name=search_term_string',
+      },
+    };
+
+    let orgScriptEl = document.getElementById('acadet-org-jsonld') as HTMLScriptElement | null;
+    if (!orgScriptEl) {
+      orgScriptEl = document.createElement('script');
+      orgScriptEl.id = 'acadet-org-jsonld';
+      orgScriptEl.type = 'application/ld+json';
+      document.head.appendChild(orgScriptEl);
     }
-    scriptEl.textContent = JSON.stringify(orgSchema);
+    orgScriptEl.textContent = JSON.stringify(orgSchema);
+
+    let websiteScriptEl = document.getElementById(
+      'acadet-website-jsonld'
+    ) as HTMLScriptElement | null;
+    if (!websiteScriptEl) {
+      websiteScriptEl = document.createElement('script');
+      websiteScriptEl.id = 'acadet-website-jsonld';
+      websiteScriptEl.type = 'application/ld+json';
+      document.head.appendChild(websiteScriptEl);
+    }
+    websiteScriptEl.textContent = JSON.stringify(websiteSchema);
   }, [pathname, branding, founder, isPrivateAppRoute, isNotFoundRoute]);
 
   return null;

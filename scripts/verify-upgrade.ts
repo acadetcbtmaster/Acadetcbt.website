@@ -24,8 +24,15 @@ import {
   DEFAULT_FOUNDER_PROFILE,
   DEFAULT_SITE_BRANDING,
   buildOrganizationJsonLd,
+  buildWebsiteJsonLd,
   getSeoMetaForPath,
 } from '../src/server/lib/branding.js';
+import {
+  CBT_RECOMMENDED_MIN_QUESTIONS,
+  getCourseCbtReadiness,
+  isQuestionBreakdownReconciled,
+  normalizeQuestionDifficulty,
+} from '../src/server/lib/questionStats.js';
 
 async function verifyUpgrade() {
   console.log('[Upgrade Verification] Checking standardized pricing & Paystack fee reconciliation...');
@@ -352,6 +359,11 @@ async function verifyUpgrade() {
   const icoBuf = await fs.readFile(path.resolve(process.cwd(), 'public/favicon.ico'));
   assert.equal(icoBuf.subarray(0, 4).toString('hex'), '00000100', 'public/favicon.ico must have valid ICO header');
 
+  assert.equal(
+    DEFAULT_SITE_BRANDING.seoTitle,
+    'Acadet CBT – Online CBT Practice and Learning Platform'
+  );
+
   const orgJsonLd = buildOrganizationJsonLd(
     'https://acadetcbt.website',
     DEFAULT_SITE_BRANDING,
@@ -359,10 +371,29 @@ async function verifyUpgrade() {
   ) as Record<string, unknown>;
   assert.equal(orgJsonLd['@type'], 'Organization');
   assert.equal(orgJsonLd.name, 'Acadet CBT');
-  assert.equal(orgJsonLd.alternateName, 'Acadet Learning Hub');
+  assert.ok(Array.isArray(orgJsonLd.alternateName) && orgJsonLd.alternateName.includes('Acadet Learning Hub'));
   assert.equal((orgJsonLd.founder as Record<string, unknown>)?.name, 'ISAIAH (MENMEX)');
   assert.equal('aggregateRating' in orgJsonLd, false, 'Organization JSON-LD must never include fake ratings');
   assert.equal('review' in orgJsonLd, false, 'Organization JSON-LD must never include fake reviews');
+
+  const websiteJsonLd = buildWebsiteJsonLd(
+    'https://acadetcbt.website',
+    DEFAULT_SITE_BRANDING
+  ) as Record<string, unknown>;
+  assert.equal(websiteJsonLd['@type'], 'WebSite');
+  assert.equal(websiteJsonLd.name, 'Acadet CBT');
+  assert.equal(websiteJsonLd.url, 'https://acadetcbt.website/');
+  assert.equal(websiteJsonLd.inLanguage, 'en-NG');
+  assert.equal('aggregateRating' in websiteJsonLd, false);
+
+  const homeSeo = getSeoMetaForPath(
+    '/',
+    'https://acadetcbt.website',
+    DEFAULT_SITE_BRANDING,
+    DEFAULT_FOUNDER_PROFILE
+  );
+  assert.equal(homeSeo.title, 'Acadet CBT – Online CBT Practice and Learning Platform');
+  assert.equal(homeSeo.jsonLd.length, 2);
 
   const founderSeo = getSeoMetaForPath(
     '/founder',
@@ -372,6 +403,7 @@ async function verifyUpgrade() {
   );
   assert.equal(founderSeo.ogType, 'profile');
   assert.equal(founderSeo.robots, 'index, follow');
+  assert.equal(founderSeo.jsonLd.length, 3);
 
   console.log('[Upgrade Verification] Auditing UI components for Course terminology...');
   const uiFiles = [
@@ -391,6 +423,7 @@ async function verifyUpgrade() {
     'src/components/cbt/PaymentVerificationView.tsx',
     'src/components/cbt/PaymentHistoryView.tsx',
     'src/components/cbt/PaymentVerificationBanner.tsx',
+    'src/components/cbt/QuestionStatsDashboard.tsx',
     'src/components/cbt/AdminConsole.tsx',
     'src/components/cbt/AuthScreen.tsx',
     'src/components/cbt/ExamHall.tsx',
@@ -409,6 +442,56 @@ async function verifyUpgrade() {
       `Found user-facing "Subject" label in ${relPath}`
     );
   }
+
+  console.log('[Upgrade Verification] Auditing Question Statistics Dashboard & Difficulty Breakdown logic...');
+  assert.equal(normalizeQuestionDifficulty('Easy'), 'Easy');
+  assert.equal(normalizeQuestionDifficulty('  medium '), 'Medium');
+  assert.equal(normalizeQuestionDifficulty('Hard'), 'Hard');
+  assert.equal(normalizeQuestionDifficulty('difficult'), 'Hard');
+  assert.equal(normalizeQuestionDifficulty('unknown'), 'Uncategorized');
+
+  assert.equal(CBT_RECOMMENDED_MIN_QUESTIONS, 20);
+  assert.equal(getCourseCbtReadiness(0).status, 'empty');
+  assert.equal(getCourseCbtReadiness(19).status, 'low');
+  assert.equal(getCourseCbtReadiness(20).status, 'ready');
+  assert.equal(getCourseCbtReadiness(20).ready, true);
+
+  assert.equal(
+    isQuestionBreakdownReconciled({
+      questionCount: 300,
+      easyCount: 100,
+      mediumCount: 120,
+      hardCount: 80,
+      uncategorizedCount: 0,
+    }),
+    true
+  );
+  assert.equal(
+    isQuestionBreakdownReconciled({
+      questionCount: 300,
+      easyCount: 100,
+      mediumCount: 100,
+      hardCount: 80,
+      uncategorizedCount: 0,
+    }),
+    false
+  );
+
+  assert.ok(
+    adminRoutesSrc.includes("router.get('/questions/stats'") &&
+      adminRoutesSrc.includes('easyCount') &&
+      adminRoutesSrc.includes('mediumCount') &&
+      adminRoutesSrc.includes('hardCount') &&
+      adminRoutesSrc.includes('uncategorizedCount') &&
+      adminRoutesSrc.includes('admin.question.update'),
+    'admin.ts must expose real-time PostgreSQL difficulty stats and audit-logged question updates'
+  );
+  assert.ok(
+    adminConsoleSrc.includes('QuestionStatsDashboard') &&
+      adminConsoleSrc.includes('Update Question') &&
+      adminConsoleSrc.includes('Question Breakdown'),
+    'AdminConsole must render QuestionStatsDashboard, course Question Breakdown, and Question Edit UI'
+  );
 
   console.log('[Upgrade Verification] Testing HTTP webhook signature rejection, SEO endpoints & auth gates...');
   process.env.PAYSTACK_WEBHOOK_SECRET = 'test_webhook_secret_12345';
@@ -522,9 +605,23 @@ async function verifyUpgrade() {
           `Expected index, follow meta on ${pubPath}`
         );
         assert.ok(
+          pageHtml.includes('<meta property="og:site_name" content="Acadet CBT" />'),
+          `Expected og:site_name on ${pubPath}`
+        );
+        assert.ok(
+          pageHtml.includes('id="acadet-org-jsonld"') && pageHtml.includes('id="acadet-website-jsonld"'),
+          `Expected Organization and WebSite JSON-LD scripts on ${pubPath}`
+        );
+        assert.ok(
           pageHtml.includes(`<link rel="canonical" href="${baseUrl}${pubPath === '/' ? '/' : pubPath}"`),
           `Expected canonical tag on ${pubPath}`
         );
+        if (pubPath === '/') {
+          assert.ok(
+            pageHtml.includes('<title>Acadet CBT – Online CBT Practice and Learning Platform</title>'),
+            'Homepage HTML must serve updated Acadet CBT SEO title'
+          );
+        }
       }
 
       // Legacy /404.html, nonexistent routes, and nonexistent assets must return real HTTP 404 (not 200 or redirect)
@@ -591,6 +688,9 @@ async function verifyUpgrade() {
       }
     );
     assert.ok(verifResolveRes.status === 401 || verifResolveRes.status === 503);
+
+    const qStatsRes = await fetch(`${baseUrl}/api/admin/questions/stats`);
+    assert.ok(qStatsRes.status === 401 || qStatsRes.status === 503);
   } finally {
     delete process.env.PAYSTACK_WEBHOOK_SECRET;
     server.closeAllConnections();

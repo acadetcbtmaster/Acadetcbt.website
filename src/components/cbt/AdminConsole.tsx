@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   Archive,
   Ban,
+  BarChart3,
   Bell,
   BookCheck,
   BookOpen,
@@ -36,7 +37,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api, getClientAuthToken } from '../../lib/api';
 import type {
   AccountStatus,
@@ -49,6 +50,7 @@ import type {
   AdminRegistrationItem,
   AdminStudentProfile,
   AnnouncementItem,
+  CourseQuestionStatsItem,
   FounderProfileData,
   MaterialCategory,
   NotificationType,
@@ -60,6 +62,7 @@ import type {
   PaymentVerificationResult,
   PublicationStatus,
   QuestionDifficulty,
+  QuestionStatsSummary,
   ReconciliationStatus,
   SafeUser,
   SiteBrandingData,
@@ -75,6 +78,7 @@ import {
 import { CopyReferenceButton } from './CopyReferenceButton';
 import { formatCurrency } from './CourseRegistrationView';
 import { PaymentReceiptModal } from './PaymentReceiptModal';
+import { QuestionStatsDashboard } from './QuestionStatsDashboard';
 
 interface AdminConsoleProps {
   onCatalogUpdated: () => Promise<void>;
@@ -283,7 +287,20 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
   const [notifyTitle, setNotifyTitle] = useState('');
   const [notifyMessage, setNotifyMessage] = useState('');
 
-  // Question form
+  // Question Stats & Bank filtering/editing
+  const [questionStatsSummary, setQuestionStatsSummary] =
+    useState<QuestionStatsSummary | null>(null);
+  const [courseQuestionStats, setCourseQuestionStats] = useState<CourseQuestionStatsItem[]>([]);
+  const [statsRefreshing, setStatsRefreshing] = useState(false);
+  const [selectedStatsCourseId, setSelectedStatsCourseId] = useState('');
+  const [selectedCourseDetailId, setSelectedCourseDetailId] = useState<string | null>(null);
+  const [qFilterDifficulty, setQFilterDifficulty] = useState<QuestionDifficulty | ''>('');
+  const [qFilterStatus, setQFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
+  const [qFilterSearch, setQFilterSearch] = useState('');
+  const questionFormRef = useRef<HTMLFormElement | null>(null);
+
+  // Question form (create / edit)
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
   const [qCourseId, setQCourseId] = useState('');
   const [qText, setQText] = useState('');
   const [qOptA, setQOptA] = useState('');
@@ -294,6 +311,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
   const [qDiff, setQDiff] = useState<QuestionDifficulty>('Medium');
   const [qTopic, setQTopic] = useState('General');
   const [qExplanation, setQExplanation] = useState('');
+  const [qIsActive, setQIsActive] = useState(true);
 
   // AI Draft form
   const [aiTopic, setAiTopic] = useState('');
@@ -396,11 +414,38 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     }
   };
 
+  const loadQuestionStats = async () => {
+    setStatsRefreshing(true);
+    try {
+      const res = await api.admin.getQuestionStats();
+      setQuestionStatsSummary(res.summary);
+      setCourseQuestionStats(res.courses);
+    } finally {
+      setStatsRefreshing(false);
+    }
+  };
+
+  const loadFilteredQuestions = async (
+    nextCourseId: string = selectedStatsCourseId,
+    nextDifficulty: QuestionDifficulty | '' = qFilterDifficulty,
+    nextStatus: 'all' | 'active' | 'inactive' = qFilterStatus,
+    nextSearch: string = qFilterSearch
+  ) => {
+    const res = await api.admin.listQuestions({
+      courseId: nextCourseId || undefined,
+      difficulty: nextDifficulty || undefined,
+      status: nextStatus,
+      search: nextSearch.trim() || undefined,
+    });
+    setQuestions(res.questions);
+  };
+
   const loadAllAdminData = async () => {
     const [
       ov,
       cRes,
       qRes,
+      qStatsRes,
       matRes,
       annRes,
       usrRes,
@@ -413,7 +458,13 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     ] = await Promise.allSettled([
       api.admin.getOverview(),
       api.admin.listCourses(),
-      api.admin.listQuestions(),
+      api.admin.listQuestions({
+        courseId: selectedStatsCourseId || undefined,
+        difficulty: qFilterDifficulty || undefined,
+        status: qFilterStatus,
+        search: qFilterSearch.trim() || undefined,
+      }),
+      api.admin.getQuestionStats(),
       api.materials.list(),
       api.admin.listAnnouncements(),
       api.admin.listUsers({
@@ -451,6 +502,11 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
 
     if (qRes.status === 'fulfilled') setQuestions(qRes.value.questions);
     else errors.push(qRes.reason instanceof Error ? qRes.reason.message : 'questions');
+
+    if (qStatsRes.status === 'fulfilled') {
+      setQuestionStatsSummary(qStatsRes.value.summary);
+      setCourseQuestionStats(qStatsRes.value.courses);
+    }
 
     if (matRes.status === 'fulfilled') setMaterials(matRes.value.materials);
     else errors.push(matRes.reason instanceof Error ? matRes.reason.message : 'materials');
@@ -910,31 +966,96 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     }
   };
 
-  const handleCreateQuestion = async (e: React.FormEvent) => {
+  const resetQuestionForm = (keepCourse = true) => {
+    setEditingQuestionId(null);
+    if (!keepCourse && courses[0]) setQCourseId(courses[0].id);
+    setQText('');
+    setQOptA('');
+    setQOptB('');
+    setQOptC('');
+    setQOptD('');
+    setQCorrect('A');
+    setQDiff('Medium');
+    setQTopic('General');
+    setQExplanation('');
+    setQIsActive(true);
+  };
+
+  const startEditQuestion = (q: AdminQuestionItem) => {
+    setEditingQuestionId(q.id);
+    if (q.courseId) setQCourseId(q.courseId);
+    setQText(q.questionText);
+    setQOptA(q.optionA);
+    setQOptB(q.optionB);
+    setQOptC(q.optionC);
+    setQOptD(q.optionD);
+    setQCorrect(q.correctOption);
+    setQDiff(q.difficulty);
+    setQTopic(q.topic || 'General');
+    setQExplanation(q.explanation || '');
+    setQIsActive(q.isActive);
+    setFeedback(null);
+    questionFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  const handleSelectStatsCourse = (courseId: string) => {
+    setSelectedStatsCourseId(courseId);
+    if (courseId) setQCourseId(courseId);
+    void loadFilteredQuestions(courseId, qFilterDifficulty, qFilterStatus, qFilterSearch);
+  };
+
+  const handleQuickAddForCourse = (courseId: string) => {
+    resetQuestionForm(true);
+    setQCourseId(courseId);
+    setSelectedStatsCourseId(courseId);
+    void loadFilteredQuestions(courseId, qFilterDifficulty, qFilterStatus, qFilterSearch);
+    questionFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  const handleSaveQuestion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!qCourseId) return;
     setBusy(true);
     setFeedback(null);
     try {
-      await api.admin.createQuestion({
-        courseId: qCourseId,
-        questionText: qText,
-        optionA: qOptA,
-        optionB: qOptB,
-        optionC: qOptC,
-        optionD: qOptD,
-        correctOption: qCorrect,
-        difficulty: qDiff,
-        topic: qTopic,
-        explanation: qExplanation,
-      });
-      setQText('');
-      setQOptA('');
-      setQOptB('');
-      setQOptC('');
-      setQOptD('');
-      setQExplanation('');
-      setFeedback({ type: 'ok', text: 'Question saved to PostgreSQL.' });
+      if (editingQuestionId) {
+        await api.admin.updateQuestion(editingQuestionId, {
+          courseId: qCourseId,
+          questionText: qText,
+          optionA: qOptA,
+          optionB: qOptB,
+          optionC: qOptC,
+          optionD: qOptD,
+          correctOption: qCorrect,
+          difficulty: qDiff,
+          topic: qTopic,
+          explanation: qExplanation,
+          isActive: qIsActive,
+        });
+        resetQuestionForm(true);
+        setFeedback({
+          type: 'ok',
+          text: 'Question updated and difficulty statistics synchronized.',
+        });
+      } else {
+        await api.admin.createQuestion({
+          courseId: qCourseId,
+          questionText: qText,
+          optionA: qOptA,
+          optionB: qOptB,
+          optionC: qOptC,
+          optionD: qOptD,
+          correctOption: qCorrect,
+          difficulty: qDiff,
+          topic: qTopic,
+          explanation: qExplanation,
+        });
+        resetQuestionForm(true);
+        setFeedback({
+          type: 'ok',
+          text: 'Question saved to PostgreSQL and statistics updated.',
+        });
+      }
       await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
     } catch (err) {
       setFeedback({
@@ -960,7 +1081,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       setAiTopic('');
       setFeedback({
         type: 'ok',
-        text: `Generated and saved ${res.questions.length} questions into PostgreSQL.`,
+        text: `Generated and saved ${res.questions.length} ${qDiff === 'Hard' ? 'Difficult (Hard)' : qDiff} questions into PostgreSQL.`,
       });
       await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
     } catch (err) {
@@ -1306,7 +1427,11 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 { label: 'Courses', val: overview?.totalCourses ?? 0 },
                 { label: 'Active Registrations', val: overview?.totalActiveRegistrations ?? 0 },
                 { label: 'Successful Payments', val: overview?.totalSuccessfulPayments ?? 0 },
-                { label: 'CBT Questions', val: overview?.totalQuestions ?? 0 },
+                {
+                  label: 'CBT Questions (Active)',
+                  val: overview?.totalActiveQuestions ?? overview?.totalQuestions ?? 0,
+                  sub: `Easy ${overview?.totalEasyQuestions ?? 0} · Med ${overview?.totalMediumQuestions ?? 0} · Diff ${overview?.totalHardQuestions ?? 0}`,
+                },
                 { label: 'Study Materials', val: overview?.totalMaterials ?? 0 },
                 { label: 'Submitted Exams', val: overview?.totalSubmittedExams ?? 0 },
                 {
@@ -1324,6 +1449,11 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                   <div className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1">
                     {stat.label}
                   </div>
+                  {'sub' in stat && stat.sub && (
+                    <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-1 tabular-nums">
+                      {stat.sub}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1503,6 +1633,108 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
               </div>
             </form>
 
+            {selectedCourseDetailId && (() => {
+              const detailCourse = courses.find((item) => item.id === selectedCourseDetailId);
+              if (!detailCourse) return null;
+              const total = detailCourse.questionCount;
+              const pctOf = (v: number) => (total > 0 ? Math.round((v / total) * 100) : 0);
+              return (
+                <div className="rounded-xl border border-[#0a58ed]/40 bg-[#f8fbff] dark:bg-slate-900 p-4 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2.5">
+                    <div>
+                      <div className="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+                        <span className="text-[#0b337a] dark:text-blue-300 font-extrabold">
+                          {detailCourse.code}
+                        </span>
+                        <span aria-hidden="true">·</span>
+                        <span>{detailCourse.level}</span>
+                        <span aria-hidden="true">·</span>
+                        <span>{detailCourse.cbtReady ? 'CBT Ready (20+)' : 'Low Bank (< 20)'}</span>
+                      </div>
+                      <h4 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white mt-0.5">
+                        {detailCourse.title} — Question Statistics Breakdown
+                      </h4>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSection('questions');
+                          handleSelectStatsCourse(detailCourse.id);
+                        }}
+                        className="px-3 py-2 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-bold flex items-center gap-1.5 min-h-[38px]"
+                      >
+                        <BarChart3 className="w-3.5 h-3.5" />
+                        <span>Manage Questions</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCourseDetailId(null)}
+                        className="px-2.5 py-2 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/60 p-3">
+                      <div className="text-xs font-bold text-slate-500 dark:text-slate-400">
+                        Total Questions
+                      </div>
+                      <div className="text-xl font-extrabold text-[#082252] dark:text-white tabular-nums">
+                        {detailCourse.questionCount}
+                      </div>
+                      {detailCourse.inactiveCount > 0 && (
+                        <div className="text-[11px] text-slate-500 tabular-nums">
+                          +{detailCourse.inactiveCount} inactive
+                        </div>
+                      )}
+                    </div>
+                    <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/60 bg-white dark:bg-slate-800/60 p-3">
+                      <div className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                        Easy
+                      </div>
+                      <div className="text-xl font-extrabold text-emerald-700 dark:text-emerald-400 tabular-nums">
+                        {detailCourse.easyCount}
+                      </div>
+                      <div className="text-[11px] text-slate-500 tabular-nums">
+                        {pctOf(detailCourse.easyCount)}% of bank
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-amber-200 dark:border-amber-900/60 bg-white dark:bg-slate-800/60 p-3">
+                      <div className="text-xs font-bold text-amber-700 dark:text-amber-300">
+                        Medium
+                      </div>
+                      <div className="text-xl font-extrabold text-amber-700 dark:text-amber-400 tabular-nums">
+                        {detailCourse.mediumCount}
+                      </div>
+                      <div className="text-[11px] text-slate-500 tabular-nums">
+                        {pctOf(detailCourse.mediumCount)}% of bank
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-rose-200 dark:border-rose-900/60 bg-white dark:bg-slate-800/60 p-3">
+                      <div className="text-xs font-bold text-rose-700 dark:text-rose-300">
+                        Difficult
+                      </div>
+                      <div className="text-xl font-extrabold text-rose-700 dark:text-rose-400 tabular-nums">
+                        {detailCourse.hardCount}
+                      </div>
+                      <div className="text-[11px] text-slate-500 tabular-nums">
+                        {pctOf(detailCourse.hardCount)}% of bank
+                      </div>
+                    </div>
+                  </div>
+
+                  {detailCourse.uncategorizedCount > 0 && (
+                    <div className="text-xs font-semibold text-amber-700 dark:text-amber-400 tabular-nums">
+                      Note: {detailCourse.uncategorizedCount} active question(s) have no matching Easy/Medium/Difficult label.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 dark:bg-slate-800/70 text-xs font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
@@ -1512,116 +1744,186 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                     <th className="px-4 py-3">Value / Payable</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Group Invite</th>
-                    <th className="px-4 py-3">Questions</th>
+                    <th className="px-4 py-3">Question Breakdown</th>
                     <th className="px-4 py-3">Registrations</th>
                     <th className="px-4 py-3">Revenue</th>
                     <th className="px-4 py-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                  {courses.map((c) => (
-                    <tr key={c.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
-                      <td className="px-4 py-3">
-                        <div className="font-extrabold text-slate-900 dark:text-white">
-                          {c.code} — {c.title}
-                        </div>
-                        {c.description && (
-                          <div className="text-xs text-slate-500 line-clamp-1">
-                            {c.description}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                        {c.level}
-                      </td>
-                      <td className="px-4 py-3 tabular-nums">
-                        <div className="font-extrabold text-[#082252] dark:text-blue-300">
-                          {formatCurrency(2350, c.currency)}
-                        </div>
-                        <div className="text-[11px] text-slate-500">
-                          Value: {formatCurrency(c.courseValue ?? 2300, c.currency)}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => handleTogglePublication(c)}
-                          className={`px-2.5 py-1 rounded-md text-xs font-extrabold capitalize ${
-                            c.publicationStatus === 'published'
-                              ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
-                              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
-                          }`}
-                          title="Click to toggle Published/Draft"
-                        >
-                          {c.publicationStatus}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 text-xs">
-                        {c.whatsappGroupLink ? (
-                          <a
-                            href={c.whatsappGroupLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400 hover:underline"
-                          >
-                            <MessageCircle className="w-3.5 h-3.5" />
-                            <span>Configured</span>
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        ) : (
-                          <span className="text-slate-400 font-medium">None</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 tabular-nums font-semibold">
-                        {c.questionCount}
-                      </td>
-                      <td className="px-4 py-3 tabular-nums font-bold">
-                        {c.totalRegistrations}
-                      </td>
-                      <td className="px-4 py-3 tabular-nums font-extrabold text-emerald-700 dark:text-emerald-400">
-                        {formatCurrency(c.totalRevenue, c.currency)}
-                      </td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => startEditCourse(c)}
-                          className="p-1.5 text-[#0a58ed] hover:bg-blue-50 dark:hover:bg-slate-800 rounded-lg mr-1"
-                          title="Edit course"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={async () => {
-                            setBusy(true);
-                            setFeedback(null);
-                            try {
-                              await api.admin.deleteCourse(c.id);
-                              setFeedback({ type: 'ok', text: `Deleted course "${c.code}".` });
-                              await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
-                            } catch (err) {
-                              setFeedback({
-                                type: 'err',
-                                text:
-                                  err instanceof Error
-                                    ? err.message
-                                    : 'Failed to delete course.',
-                              });
-                            } finally {
-                              setBusy(false);
+                  {courses.map((c) => {
+                    const isDetailOpen = selectedCourseDetailId === c.id;
+                    return (
+                      <tr
+                        key={c.id}
+                        className={`transition-colors ${
+                          isDetailOpen
+                            ? 'bg-[#eff5ff]/80 dark:bg-blue-950/20'
+                            : 'hover:bg-slate-50/70 dark:hover:bg-slate-800/40'
+                        }`}
+                      >
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedCourseDetailId(isDetailOpen ? null : c.id)
                             }
-                          }}
-                          className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg disabled:opacity-50"
-                          title="Safe delete course"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                            className="text-left group"
+                            title="Click to view question difficulty distribution"
+                          >
+                            <div className="font-extrabold text-slate-900 dark:text-white group-hover:text-[#0a58ed] transition-colors">
+                              {c.code} — {c.title}
+                            </div>
+                            {c.description && (
+                              <div className="text-xs text-slate-500 line-clamp-1">
+                                {c.description}
+                              </div>
+                            )}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                          {c.level}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums">
+                          <div className="font-extrabold text-[#082252] dark:text-blue-300">
+                            {formatCurrency(2350, c.currency)}
+                          </div>
+                          <div className="text-[11px] text-slate-500">
+                            Value: {formatCurrency(c.courseValue ?? 2300, c.currency)}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => handleTogglePublication(c)}
+                            className={`px-2.5 py-1 rounded-md text-xs font-extrabold capitalize ${
+                              c.publicationStatus === 'published'
+                                ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
+                                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                            }`}
+                            title="Click to toggle Published/Draft"
+                          >
+                            {c.publicationStatus}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3 text-xs">
+                          {c.whatsappGroupLink ? (
+                            <a
+                              href={c.whatsappGroupLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 font-bold text-emerald-700 dark:text-emerald-400 hover:underline"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              <span>Configured</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          ) : (
+                            <span className="text-slate-400 font-medium">None</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedCourseDetailId(isDetailOpen ? null : c.id)
+                            }
+                            className="text-left hover:opacity-90"
+                            title="Inspect Easy, Medium & Difficult question counts"
+                          >
+                            <div className="flex items-center gap-1.5 font-extrabold text-[#082252] dark:text-white text-xs">
+                              <span>Total: {c.questionCount}</span>
+                              <span
+                                className={
+                                  c.cbtReady
+                                    ? 'text-emerald-700 dark:text-emerald-400'
+                                    : c.questionCount > 0
+                                      ? 'text-amber-700 dark:text-amber-400'
+                                      : 'text-rose-700 dark:text-rose-400'
+                                }
+                              >
+                                · {c.cbtReady ? 'CBT Ready' : c.questionCount > 0 ? 'Low Bank' : 'Empty'}
+                              </span>
+                            </div>
+                            <div className="text-[11px] font-semibold text-slate-600 dark:text-slate-400 mt-0.5 whitespace-nowrap">
+                              <span className="text-emerald-700 dark:text-emerald-400">
+                                Easy {c.easyCount ?? 0}
+                              </span>
+                              <span aria-hidden="true"> · </span>
+                              <span className="text-amber-700 dark:text-amber-400">
+                                Med {c.mediumCount ?? 0}
+                              </span>
+                              <span aria-hidden="true"> · </span>
+                              <span className="text-rose-700 dark:text-rose-400">
+                                Diff {c.hardCount ?? 0}
+                              </span>
+                              {(c.uncategorizedCount ?? 0) > 0 && (
+                                <span className="text-slate-500"> · Uncat {c.uncategorizedCount}</span>
+                              )}
+                            </div>
+                          </button>
+                        </td>
+                        <td className="px-4 py-3 tabular-nums font-bold">
+                          {c.totalRegistrations}
+                        </td>
+                        <td className="px-4 py-3 tabular-nums font-extrabold text-emerald-700 dark:text-emerald-400">
+                          {formatCurrency(c.totalRevenue, c.currency)}
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedCourseDetailId(isDetailOpen ? null : c.id)
+                            }
+                            className="p-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg mr-1"
+                            title="Question breakdown"
+                          >
+                            <BarChart3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => startEditCourse(c)}
+                            className="p-1.5 text-[#0a58ed] hover:bg-blue-50 dark:hover:bg-slate-800 rounded-lg mr-1"
+                            title="Edit course"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={async () => {
+                              setBusy(true);
+                              setFeedback(null);
+                              try {
+                                await api.admin.deleteCourse(c.id);
+                                if (selectedCourseDetailId === c.id) {
+                                  setSelectedCourseDetailId(null);
+                                }
+                                setFeedback({ type: 'ok', text: `Deleted course "${c.code}".` });
+                                await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+                              } catch (err) {
+                                setFeedback({
+                                  type: 'err',
+                                  text:
+                                    err instanceof Error
+                                      ? err.message
+                                      : 'Failed to delete course.',
+                                });
+                              } finally {
+                                setBusy(false);
+                              }
+                            }}
+                            className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg disabled:opacity-50"
+                            title="Safe delete course"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -2409,7 +2711,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
           </div>
         )}
 
-        {/* QUESTIONS */}
+        {/* QUESTIONS & QUESTION STATISTICS DASHBOARD */}
         {section === 'questions' && (
           <div className="space-y-5">
             {courses.length === 0 && (
@@ -2417,12 +2719,30 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 No courses found yet. Create a course in the Courses tab before adding questions.
               </div>
             )}
-            <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/70 border border-[#d6e4fa] dark:border-slate-700 p-4 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              <Sparkles className="w-5 h-5 text-[#0a58ed] shrink-0" />
+
+            <QuestionStatsDashboard
+              summary={questionStatsSummary}
+              courseStats={courseQuestionStats}
+              selectedCourseId={selectedStatsCourseId}
+              onSelectCourse={handleSelectStatsCourse}
+              onQuickAddForCourse={handleQuickAddForCourse}
+              onRefresh={async () => {
+                await Promise.all([loadQuestionStats(), loadFilteredQuestions()]);
+              }}
+              refreshing={statsRefreshing}
+            />
+
+            <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/70 border border-[#d6e4fa] dark:border-slate-700 p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
+              <div className="flex items-center gap-2 shrink-0">
+                <Sparkles className="w-5 h-5 text-[#0a58ed]" />
+                <span className="text-xs font-extrabold text-[#082252] dark:text-white whitespace-nowrap">
+                  AI Question Generator
+                </span>
+              </div>
               <select
                 value={qCourseId}
                 onChange={(e) => setQCourseId(e.target.value)}
-                className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-semibold"
+                className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-semibold min-h-[40px]"
               >
                 {courses.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -2430,12 +2750,22 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                   </option>
                 ))}
               </select>
+              <select
+                aria-label="AI question difficulty"
+                value={qDiff}
+                onChange={(e) => setQDiff(e.target.value as QuestionDifficulty)}
+                className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-semibold min-h-[40px]"
+              >
+                <option value="Easy">Difficulty: Easy</option>
+                <option value="Medium">Difficulty: Medium</option>
+                <option value="Hard">Difficulty: Difficult (Hard)</option>
+              </select>
               <input
                 type="text"
                 placeholder="Topic for AI generation (e.g. Algorithms)"
                 value={aiTopic}
                 onChange={(e) => setAiTopic(e.target.value)}
-                className="flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                className="flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm min-h-[40px]"
               />
               <input
                 type="number"
@@ -2443,27 +2773,44 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 max={10}
                 value={aiCount}
                 onChange={(e) => setAiCount(Number(e.target.value))}
-                className="w-20 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                className="w-20 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm tabular-nums min-h-[40px]"
               />
               <button
                 type="button"
                 disabled={busy || !aiTopic.trim() || !qCourseId}
                 onClick={handleGenerateQuestions}
-                className="px-4 py-2 rounded-lg bg-[#0b337a] hover:bg-[#072459] text-white text-xs font-bold whitespace-nowrap disabled:opacity-50"
+                className="px-4 py-2 rounded-lg bg-[#0b337a] hover:bg-[#072459] text-white text-xs font-bold whitespace-nowrap disabled:opacity-50 min-h-[40px]"
               >
                 Generate via AI
               </button>
             </div>
 
             <form
-              onSubmit={handleCreateQuestion}
+              ref={questionFormRef}
+              onSubmit={handleSaveQuestion}
               className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3"
             >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-extrabold text-[#082252] dark:text-white">
+                  {editingQuestionId ? 'Edit CBT Question' : 'Upload New CBT Question'}
+                </h3>
+                {editingQuestionId && (
+                  <button
+                    type="button"
+                    onClick={() => resetQuestionForm(true)}
+                    className="text-xs font-bold text-slate-500 hover:text-slate-900 dark:hover:text-white flex items-center gap-1"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    <span>Cancel Edit</span>
+                  </button>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <select
                   value={qCourseId}
                   onChange={(e) => setQCourseId(e.target.value)}
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm min-h-[40px]"
                 >
                   {courses.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -2474,20 +2821,18 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 <select
                   value={qDiff}
                   onChange={(e) => setQDiff(e.target.value as QuestionDifficulty)}
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-semibold min-h-[40px]"
                 >
-                  {(['Easy', 'Medium', 'Hard'] as const).map((d) => (
-                    <option key={d} value={d}>
-                      Difficulty: {d}
-                    </option>
-                  ))}
+                  <option value="Easy">Difficulty: Easy</option>
+                  <option value="Medium">Difficulty: Medium</option>
+                  <option value="Hard">Difficulty: Difficult (Hard)</option>
                 </select>
                 <input
                   type="text"
                   placeholder="Topic"
                   value={qTopic}
                   onChange={(e) => setQTopic(e.target.value)}
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm min-h-[40px]"
                 />
               </div>
 
@@ -2506,28 +2851,28 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                   placeholder="Option A"
                   value={qOptA}
                   onChange={(e) => setQOptA(e.target.value)}
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm min-h-[40px]"
                 />
                 <input
                   required
                   placeholder="Option B"
                   value={qOptB}
                   onChange={(e) => setQOptB(e.target.value)}
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm min-h-[40px]"
                 />
                 <input
                   required
                   placeholder="Option C"
                   value={qOptC}
                   onChange={(e) => setQOptC(e.target.value)}
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm min-h-[40px]"
                 />
                 <input
                   required
                   placeholder="Option D"
                   value={qOptD}
                   onChange={(e) => setQOptD(e.target.value)}
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm min-h-[40px]"
                 />
               </div>
 
@@ -2535,7 +2880,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 <select
                   value={qCorrect}
                   onChange={(e) => setQCorrect(e.target.value as OptionLetter)}
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-bold"
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-bold min-h-[40px]"
                 >
                   {(['A', 'B', 'C', 'D'] as const).map((letter) => (
                     <option key={letter} value={letter}>
@@ -2547,56 +2892,239 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                   placeholder="Explanation (shown only after submission)"
                   value={qExplanation}
                   onChange={(e) => setQExplanation(e.target.value)}
-                  className="sm:col-span-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  className="sm:col-span-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm min-h-[40px]"
                 />
               </div>
 
-              <button
-                type="submit"
-                disabled={busy || !qCourseId}
-                className="px-4 py-2 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white text-sm font-bold"
-              >
-                Save Question
-              </button>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                {editingQuestionId ? (
+                  <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={qIsActive}
+                      onChange={(e) => setQIsActive(e.target.checked)}
+                      className="rounded border-slate-300 text-[#0a58ed] focus:ring-[#0a58ed]"
+                    />
+                    <span>Active in live CBT examination bank</span>
+                  </label>
+                ) : (
+                  <span className="text-xs text-slate-500 dark:text-slate-400">
+                    New questions are automatically categorized and synced to course statistics.
+                  </span>
+                )}
+
+                <button
+                  type="submit"
+                  disabled={busy || !qCourseId}
+                  className="px-4 py-2 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white text-sm font-bold flex items-center gap-1.5 min-h-[40px]"
+                >
+                  {editingQuestionId ? (
+                    <>
+                      <Save className="w-4 h-4" />
+                      <span>Update Question</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      <span>Save Question</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </form>
 
-            <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden max-h-96 overflow-y-auto">
-              {questions.map((q) => (
-                <div key={q.id} className="px-4 py-3 flex items-start justify-between gap-3 text-sm">
-                  <div className="min-w-0">
-                    <div className="font-bold text-slate-900 dark:text-white">
-                      [{q.courseCode} · {q.difficulty}] {q.questionText}
-                    </div>
-                    <div className="text-xs text-slate-500 mt-1">
-                      {q.courseTitle} · Correct: {q.correctOption} · Topic: {q.topic}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={async () => {
-                      setBusy(true);
-                      setFeedback(null);
-                      try {
-                        await api.admin.deleteQuestion(q.id);
-                        setFeedback({ type: 'ok', text: 'Question deleted.' });
-                        await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
-                      } catch (err) {
-                        setFeedback({
-                          type: 'err',
-                          text: err instanceof Error ? err.message : 'Failed to delete question.',
-                        });
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg shrink-0 disabled:opacity-50"
-                    title="Delete question"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+            {/* Question Bank Explorer & Filters */}
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+              <div className="bg-slate-50 dark:bg-slate-800/70 px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2">
+                  <h4 className="text-sm font-extrabold text-[#082252] dark:text-white">
+                    Question Bank
+                  </h4>
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 tabular-nums">
+                    ({questions.length} shown)
+                  </span>
                 </div>
-              ))}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap items-center gap-2">
+                  <select
+                    aria-label="Filter questions by course"
+                    value={selectedStatsCourseId}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedStatsCourseId(val);
+                      if (val) setQCourseId(val);
+                      void loadFilteredQuestions(val, qFilterDifficulty, qFilterStatus, qFilterSearch);
+                    }}
+                    className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-bold min-h-[38px]"
+                  >
+                    <option value="">All Courses</option>
+                    {courses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code} ({c.questionCount})
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    aria-label="Filter questions by difficulty"
+                    value={qFilterDifficulty}
+                    onChange={(e) => {
+                      const val = e.target.value as QuestionDifficulty | '';
+                      setQFilterDifficulty(val);
+                      void loadFilteredQuestions(selectedStatsCourseId, val, qFilterStatus, qFilterSearch);
+                    }}
+                    className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-bold min-h-[38px]"
+                  >
+                    <option value="">All Difficulties</option>
+                    <option value="Easy">Easy</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Hard">Difficult (Hard)</option>
+                  </select>
+
+                  <select
+                    aria-label="Filter questions by status"
+                    value={qFilterStatus}
+                    onChange={(e) => {
+                      const val = e.target.value as 'all' | 'active' | 'inactive';
+                      setQFilterStatus(val);
+                      void loadFilteredQuestions(selectedStatsCourseId, qFilterDifficulty, val, qFilterSearch);
+                    }}
+                    className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-bold min-h-[38px]"
+                  >
+                    <option value="all">Active &amp; Inactive</option>
+                    <option value="active">Active Only</option>
+                    <option value="inactive">Inactive Only</option>
+                  </select>
+
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={qFilterSearch}
+                      onChange={(e) => setQFilterSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          void loadFilteredQuestions(
+                            selectedStatsCourseId,
+                            qFilterDifficulty,
+                            qFilterStatus,
+                            qFilterSearch
+                          );
+                        }
+                      }}
+                      placeholder="Search question or topic..."
+                      className="flex-1 sm:w-44 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs min-h-[38px]"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void loadFilteredQuestions(
+                          selectedStatsCourseId,
+                          qFilterDifficulty,
+                          qFilterStatus,
+                          qFilterSearch
+                        )
+                      }
+                      className="px-3 py-1.5 rounded-lg bg-[#0b337a] hover:bg-[#072459] text-white text-xs font-bold min-h-[38px]"
+                    >
+                      Filter
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="divide-y divide-slate-200 dark:divide-slate-800 max-h-[28rem] overflow-y-auto">
+                {questions.length === 0 ? (
+                  <div className="py-8 px-4 text-center text-sm text-slate-500 dark:text-slate-400">
+                    No questions found matching your filters.
+                  </div>
+                ) : (
+                  questions.map((q) => {
+                    const diffLabel = q.difficulty === 'Hard' ? 'Difficult (Hard)' : q.difficulty;
+                    const diffTextCls =
+                      q.difficulty === 'Easy'
+                        ? 'text-emerald-700 dark:text-emerald-400'
+                        : q.difficulty === 'Medium'
+                          ? 'text-amber-700 dark:text-amber-400'
+                          : 'text-rose-700 dark:text-rose-400';
+                    return (
+                      <div
+                        key={q.id}
+                        className={`px-4 py-3 flex items-start justify-between gap-3 text-sm ${
+                          editingQuestionId === q.id ? 'bg-[#eff5ff]/70 dark:bg-blue-950/30' : ''
+                        }`}
+                      >
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold">
+                            <span className="text-[#0b337a] dark:text-blue-300">{q.courseCode}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className={diffTextCls}>{diffLabel}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="text-slate-500 dark:text-slate-400">{q.topic}</span>
+                            {!q.isActive && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="text-slate-500">Inactive</span>
+                              </>
+                            )}
+                          </div>
+                          <div className="font-bold text-slate-900 dark:text-white">
+                            {q.questionText}
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400">
+                            {q.courseTitle} · Correct: {q.correctOption}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => startEditQuestion(q)}
+                            className="p-2 text-[#0a58ed] hover:bg-blue-50 dark:hover:bg-slate-800 rounded-lg disabled:opacity-50"
+                            title="Edit question"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={async () => {
+                              setBusy(true);
+                              setFeedback(null);
+                              try {
+                                await api.admin.deleteQuestion(q.id);
+                                if (editingQuestionId === q.id) {
+                                  resetQuestionForm(true);
+                                }
+                                setFeedback({
+                                  type: 'ok',
+                                  text: 'Question deleted and course statistics updated.',
+                                });
+                                await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+                              } catch (err) {
+                                setFeedback({
+                                  type: 'err',
+                                  text:
+                                    err instanceof Error
+                                      ? err.message
+                                      : 'Failed to delete question.',
+                                });
+                              } finally {
+                                setBusy(false);
+                              }
+                            }}
+                            className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg disabled:opacity-50"
+                            title="Delete question"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
           </div>
         )}

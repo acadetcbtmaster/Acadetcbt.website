@@ -69,6 +69,9 @@ export const FounderView: React.FC<FounderViewProps> = ({ onNavigate }) => {
                 <img
                   src={founder.photoUrl!}
                   alt={`${founder.fullName}, ${founder.positionTitle}`}
+                  width={176}
+                  height={176}
+                  decoding="async"
                   referrerPolicy="no-referrer"
                   onError={() => setPhotoFailed(true)}
                   className="w-full h-full object-cover"

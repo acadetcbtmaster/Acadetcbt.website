@@ -49,12 +49,12 @@ export const DEFAULT_SITE_BRANDING: SiteBrandingData = {
   siteName: 'Acadet CBT',
   tagline: '...Learn, Practice, Excel',
   siteDescription:
-    'Acadet CBT is an online computer-based testing and academic preparation platform helping students study course materials, practise examination questions, and track performance.',
-  seoTitle: 'Acadet CBT | Online CBT Practice, Courses & Exam Preparation',
+    'Acadet CBT is an online CBT practice and learning platform in Nigeria helping students prepare with JAMB UTME tests, 100 Level university tutorials, course study materials, and instant performance analytics.',
+  seoTitle: 'Acadet CBT – Online CBT Practice and Learning Platform',
   seoDescription:
-    'Acadet CBT and Acadet Learning Hub provide realistic online CBT practice, JAMB CBT practice, structured courses, study materials, and instant performance analytics.',
+    'Acadet CBT is an online CBT practice and learning platform in Nigeria for JAMB UTME preparation, 100 Level university tutorials, courses, and study materials.',
   seoKeywords:
-    'Acadet CBT, Acadet Learning Hub, JAMB CBT Practice, Online CBT Practice, Computer-Based Examination, Online Examination Practice',
+    'Acadet CBT, Acadet Learning Hub, online CBT practice Nigeria, JAMB CBT practice, UTME CBT practice, 100 Level university tutorials, computer-based test practice, university exam preparation Nigeria, online course registration, CBT study materials',
   logoUrl: '/acadet-logo.png',
   faviconUrl: '/favicon-48x48.png',
   contactEmail: 'support@acadetcbt.website',
@@ -426,8 +426,9 @@ export function buildOrganizationJsonLd(
   return {
     '@context': 'https://schema.org',
     '@type': 'Organization',
+    '@id': `${cleanBase}/#organization`,
     name: branding.siteName || 'Acadet CBT',
-    alternateName: 'Acadet Learning Hub',
+    alternateName: ['Acadet Learning Hub', 'Acadet CBT Nigeria'],
     url: cleanBase,
     logo: {
       '@type': 'ImageObject',
@@ -435,6 +436,17 @@ export function buildOrganizationJsonLd(
     },
     image: logoAbs,
     description: branding.siteDescription,
+    areaServed: {
+      '@type': 'Country',
+      name: 'Nigeria',
+    },
+    knowsAbout: [
+      'Online CBT Practice',
+      'JAMB UTME Examination Preparation',
+      '100 Level University Tutorials',
+      'Computer-Based Testing',
+      'Academic Study Materials',
+    ],
     founder: {
       '@type': 'Person',
       name: founder.fullName,
@@ -443,6 +455,34 @@ export function buildOrganizationJsonLd(
     },
     contactPoint,
     ...(sameAs.length > 0 ? { sameAs } : {}),
+  };
+}
+
+export function buildWebsiteJsonLd(
+  baseUrl: string,
+  branding: SiteBrandingData
+): Record<string, unknown> {
+  const cleanBase = baseUrl.replace(/\/+$/, '');
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    '@id': `${cleanBase}/#website`,
+    name: branding.siteName || 'Acadet CBT',
+    alternateName: ['Acadet Learning Hub', 'Acadet CBT Nigeria'],
+    url: `${cleanBase}/`,
+    description: branding.seoDescription || branding.siteDescription,
+    inLanguage: 'en-NG',
+    publisher: {
+      '@id': `${cleanBase}/#organization`,
+    },
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: {
+        '@type': 'EntryPoint',
+        urlTemplate: `${cleanBase}/courses?q={search_term_string}`,
+      },
+      'query-input': 'required name=search_term_string',
+    },
   };
 }
 
@@ -455,6 +495,7 @@ export interface RouteSeoMeta {
   ogType: 'website' | 'profile';
   ogImage: string;
   faviconUrl: string;
+  siteName: string;
   jsonLd: Array<Record<string, unknown>>;
   isNotFound?: boolean;
 }
@@ -467,13 +508,15 @@ export function getSeoMetaForPath(
 ): RouteSeoMeta {
   const cleanBase = baseUrl.replace(/\/+$/, '');
   const norm = normalizeAppPath(pathname);
+  const siteName = branding.siteName || 'Acadet CBT';
   const orgJsonLd = buildOrganizationJsonLd(cleanBase, branding, founder);
+  const websiteJsonLd = buildWebsiteJsonLd(cleanBase, branding);
   const ogImage = toAbsoluteAssetUrl(cleanBase, branding.logoUrl, '/acadet-logo.png');
   const faviconUrl = toAbsoluteAssetUrl(cleanBase, branding.faviconUrl, '/favicon-48x48.png');
 
   if (norm === '/') {
     return {
-      title: branding.seoTitle || `${branding.siteName} | Online CBT Practice & Exam Preparation`,
+      title: branding.seoTitle || 'Acadet CBT – Online CBT Practice and Learning Platform',
       description: branding.seoDescription,
       keywords: branding.seoKeywords,
       canonicalUrl: `${cleanBase}/`,
@@ -481,43 +524,46 @@ export function getSeoMetaForPath(
       ogType: 'website',
       ogImage,
       faviconUrl,
-      jsonLd: [orgJsonLd],
+      siteName,
+      jsonLd: [orgJsonLd, websiteJsonLd],
     };
   }
 
   if (norm === '/about') {
     return {
-      title: `About ${branding.siteName} | ${branding.tagline}`,
+      title: `About ${siteName} | Online CBT Practice & Learning Hub`,
       description:
-        'Learn about Acadet CBT and Acadet Learning Hub — our mission, student-centered goals, and commitment to accessible computer-based examination practice.',
+        'Learn about Acadet CBT and Acadet Learning Hub — our mission, student-centered goals, and commitment to accessible computer-based examination practice in Nigeria.',
       keywords: branding.seoKeywords,
       canonicalUrl: `${cleanBase}/about`,
       robots: 'index, follow',
       ogType: 'website',
       ogImage,
       faviconUrl,
-      jsonLd: [orgJsonLd],
+      siteName,
+      jsonLd: [orgJsonLd, websiteJsonLd],
     };
   }
 
   if (norm === '/courses') {
     return {
-      title: `Available Courses | ${branding.siteName}`,
+      title: `Available Courses & CBT Practice | ${siteName}`,
       description:
-        'Browse published university and JAMB CBT preparation courses on Acadet CBT, transparent ₦2,350 course registration, and timed examination access.',
+        'Browse published 100 Level university tutorial and JAMB UTME CBT preparation courses on Acadet CBT, fixed ₦2,350 course registration, and timed exam access.',
       keywords: branding.seoKeywords,
       canonicalUrl: `${cleanBase}/courses`,
       robots: 'index, follow',
       ogType: 'website',
       ogImage,
       faviconUrl,
-      jsonLd: [orgJsonLd],
+      siteName,
+      jsonLd: [orgJsonLd, websiteJsonLd],
     };
   }
 
   if (norm === '/how-it-works') {
     return {
-      title: `How It Works | ${branding.siteName} Registration & CBT Access`,
+      title: `How It Works | ${siteName} Registration & CBT Access`,
       description:
         'Step-by-step guide to creating an Acadet CBT student account, registering courses securely with Paystack, downloading study materials, and taking CBT exams.',
       keywords: branding.seoKeywords,
@@ -526,13 +572,14 @@ export function getSeoMetaForPath(
       ogType: 'website',
       ogImage,
       faviconUrl,
-      jsonLd: [orgJsonLd],
+      siteName,
+      jsonLd: [orgJsonLd, websiteJsonLd],
     };
   }
 
   if (norm === '/faq') {
     return {
-      title: `Frequently Asked Questions (FAQ) | ${branding.siteName}`,
+      title: `Frequently Asked Questions (FAQ) | ${siteName}`,
       description:
         'Answers to common student questions on Acadet CBT course registration, fixed ₦2,350 pricing, Paystack reference verification, official receipts, and CBT exams.',
       keywords: `Acadet CBT FAQ, Course Registration FAQ, Paystack Payment Verification, ${branding.seoKeywords}`,
@@ -541,28 +588,30 @@ export function getSeoMetaForPath(
       ogType: 'website',
       ogImage,
       faviconUrl,
-      jsonLd: [orgJsonLd],
+      siteName,
+      jsonLd: [orgJsonLd, websiteJsonLd],
     };
   }
 
   if (norm === '/contact') {
     return {
-      title: `Contact ${branding.siteName} | Student Support`,
+      title: `Contact ${siteName} | Student Support`,
       description:
-        'Get in touch with Acadet CBT support for course registration assistance, Paystack verification help, or academic platform inquiries.',
+        'Get in touch with Acadet CBT support for course registration assistance, Paystack verification help, or university tutorial inquiries in Nigeria.',
       keywords: branding.seoKeywords,
       canonicalUrl: `${cleanBase}/contact`,
       robots: 'index, follow',
       ogType: 'website',
       ogImage,
       faviconUrl,
-      jsonLd: [orgJsonLd],
+      siteName,
+      jsonLd: [orgJsonLd, websiteJsonLd],
     };
   }
 
   if (norm === '/privacy') {
     return {
-      title: `Privacy Policy | ${branding.siteName}`,
+      title: `Privacy Policy | ${siteName}`,
       description:
         'Read how Acadet CBT protects student account information, WhatsApp contact numbers, Paystack payment verification records, and examination results.',
       keywords: `Acadet CBT Privacy Policy, Student Data Protection, ${branding.seoKeywords}`,
@@ -571,13 +620,14 @@ export function getSeoMetaForPath(
       ogType: 'website',
       ogImage,
       faviconUrl,
-      jsonLd: [orgJsonLd],
+      siteName,
+      jsonLd: [orgJsonLd, websiteJsonLd],
     };
   }
 
   if (norm === '/terms') {
     return {
-      title: `Terms of Use | ${branding.siteName}`,
+      title: `Terms of Use | ${siteName}`,
       description:
         'Review Acadet CBT terms of use covering student accounts, ₦2,350 course registration, Paystack payment verification, and computer-based examination conduct.',
       keywords: `Acadet CBT Terms of Use, Course Registration Policy, ${branding.seoKeywords}`,
@@ -586,7 +636,8 @@ export function getSeoMetaForPath(
       ogType: 'website',
       ogImage,
       faviconUrl,
-      jsonLd: [orgJsonLd],
+      siteName,
+      jsonLd: [orgJsonLd, websiteJsonLd],
     };
   }
 
@@ -606,7 +657,8 @@ export function getSeoMetaForPath(
       url: `${cleanBase}/founder`,
       worksFor: {
         '@type': 'Organization',
-        name: branding.siteName,
+        '@id': `${cleanBase}/#organization`,
+        name: siteName,
         url: cleanBase,
       },
       ...(founder.photoUrl ? { image: founderPhotoAbs } : {}),
@@ -622,7 +674,8 @@ export function getSeoMetaForPath(
       ogType: 'profile',
       ogImage: founderPhotoAbs,
       faviconUrl,
-      jsonLd: [orgJsonLd, personJsonLd],
+      siteName,
+      jsonLd: [orgJsonLd, websiteJsonLd, personJsonLd],
     };
   }
 
@@ -634,7 +687,7 @@ export function getSeoMetaForPath(
           ? 'Create Student Account'
           : branding.tagline;
     return {
-      title: `${pageLabel} | ${branding.siteName}`,
+      title: `${pageLabel} | ${siteName}`,
       description: branding.seoDescription,
       keywords: branding.seoKeywords,
       canonicalUrl: `${cleanBase}${norm}`,
@@ -642,13 +695,14 @@ export function getSeoMetaForPath(
       ogType: 'website',
       ogImage,
       faviconUrl,
-      jsonLd: [orgJsonLd],
+      siteName,
+      jsonLd: [orgJsonLd, websiteJsonLd],
     };
   }
 
   // Genuine 404 routes never advertise a canonical link or indexable meta
   return {
-    title: `Page Not Found (404) | ${branding.siteName}`,
+    title: `Page Not Found (404) | ${siteName}`,
     description:
       'The requested page could not be found on Acadet CBT. Explore available courses, frequently asked questions, or return to the homepage.',
     keywords: branding.seoKeywords,
@@ -657,7 +711,8 @@ export function getSeoMetaForPath(
     ogType: 'website',
     ogImage,
     faviconUrl,
-    jsonLd: [orgJsonLd],
+    siteName,
+    jsonLd: [orgJsonLd, websiteJsonLd],
     isNotFound: true,
   };
 }
@@ -670,15 +725,28 @@ function escapeHtmlAttr(value: string): string {
     .replace(/>/g, '&gt;');
 }
 
+function escapeHtmlText(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 export function injectSeoIntoHtml(
   htmlTemplate: string,
   meta: RouteSeoMeta
 ): string {
   const safeJsonLd = meta.jsonLd
-    .map(
-      (schema, idx) =>
-        `<script id="${idx === 0 ? 'acadet-org-jsonld' : `acadet-extra-jsonld-${idx}`}" type="application/ld+json">${JSON.stringify(schema).replace(/</g, '\\u003c')}</script>`
-    )
+    .map((schema, idx) => {
+      const schemaType = typeof schema['@type'] === 'string' ? schema['@type'] : '';
+      const id =
+        idx === 0
+          ? 'acadet-org-jsonld'
+          : schemaType === 'WebSite'
+            ? 'acadet-website-jsonld'
+            : `acadet-extra-jsonld-${idx}`;
+      return `<script id="${id}" type="application/ld+json">${JSON.stringify(schema).replace(/</g, '\\u003c')}</script>`;
+    })
     .join('\n    ');
 
   const canonicalTags = meta.canonicalUrl
@@ -687,9 +755,12 @@ export function injectSeoIntoHtml(
 
   const headTags = `
     <title>${escapeHtmlAttr(meta.title)}</title>
+    <meta name="application-name" content="${escapeHtmlAttr(meta.siteName)}" />
     <meta name="description" content="${escapeHtmlAttr(meta.description)}" />
     <meta name="keywords" content="${escapeHtmlAttr(meta.keywords)}" />
     <meta name="robots" content="${meta.robots}" />${canonicalTags}
+    <meta property="og:site_name" content="${escapeHtmlAttr(meta.siteName)}" />
+    <meta property="og:locale" content="en_NG" />
     <meta property="og:title" content="${escapeHtmlAttr(meta.title)}" />
     <meta property="og:description" content="${escapeHtmlAttr(meta.description)}" />
     <meta property="og:type" content="${meta.ogType}" />
@@ -707,11 +778,21 @@ export function injectSeoIntoHtml(
   // Replace existing title/description/robots/canonical/icon/jsonld block cleanly before </head>
   let cleaned = htmlTemplate
     .replace(/<title>[\s\S]*?<\/title>/gi, '')
-    .replace(/<meta\s+[^>]*name="(?:description|keywords|robots)"[^>]*>/gi, '')
+    .replace(/<meta\s+[^>]*name="(?:application-name|description|keywords|robots)"[^>]*>/gi, '')
     .replace(/<meta\s+[^>]*property="og:[^"]*"[^>]*>/gi, '')
     .replace(/<meta\s+[^>]*name="twitter:[^"]*"[^>]*>/gi, '')
     .replace(/<link\s+[^>]*rel="(?:canonical|icon|apple-touch-icon)"[^>]*>/gi, '')
-    .replace(/<script\s+[^>]*type="application\/ld\+json"[^>]*>[\s\S]*?<\/script>/gi, '');
+    .replace(/<script\s+[^>]*type="application\/ld\+json"[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<noscript id="acadet-seo-noscript">[\s\S]*?<\/noscript>/gi, '');
 
-  return cleaned.replace('</head>', `${headTags}\n  </head>`);
+  const noscriptSummary =
+    meta.robots === 'index, follow'
+      ? `\n    <noscript id="acadet-seo-noscript"><main><h1>${escapeHtmlText(meta.title)}</h1><p>${escapeHtmlText(meta.description)}</p><h2>Acadet CBT Services &amp; Pages</h2><nav aria-label="Acadet CBT Public Pages"><a href="/">Home</a> | <a href="/courses">Available Courses</a> | <a href="/about">About Acadet CBT</a> | <a href="/how-it-works">How It Works</a> | <a href="/founder">Founder Profile</a> | <a href="/faq">FAQ</a> | <a href="/contact">Contact Support</a> | <a href="/privacy">Privacy Policy</a> | <a href="/terms">Terms of Use</a></nav></main></noscript>`
+      : '';
+
+  cleaned = cleaned.replace('</head>', `${headTags}\n  </head>`);
+  if (noscriptSummary) {
+    cleaned = cleaned.replace('<div id="root"></div>', `<div id="root"></div>${noscriptSummary}`);
+  }
+  return cleaned;
 }

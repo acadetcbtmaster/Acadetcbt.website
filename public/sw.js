@@ -1,15 +1,13 @@
 // Service Worker for Acadet CBT MASTER Mobile Suite PWA
-const CACHE_NAME = 'acadet-cbt-suite-v1.3';
+const CACHE_NAME = 'acadet-cbt-suite-v1.4';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
-  '/acadet-logo.png',
   '/favicon.ico',
   '/favicon-48x48.png',
   '/favicon-96x96.png',
   '/favicon-192x192.png',
-  '/favicon-512x512.png',
   '/apple-touch-icon.png',
   '/robots.txt'
 ];

@@ -54,6 +54,10 @@ import {
   TOTAL_STUDENT_PAYABLE_NAIRA,
 } from '../lib/pricing.js';
 import {
+  CBT_RECOMMENDED_MIN_QUESTIONS,
+  getCourseCbtReadiness,
+} from '../lib/questionStats.js';
+import {
   handleApiError,
   requireAuth,
   requireRole,
@@ -131,6 +135,13 @@ router.get('/overview', async (_req, res) => {
       totalUsers: number;
       totalCourses: number;
       totalQuestions: number;
+      totalActiveQuestions: number;
+      totalEasyQuestions: number;
+      totalMediumQuestions: number;
+      totalHardQuestions: number;
+      totalUncategorizedQuestions: number;
+      totalInactiveQuestions: number;
+      coursesReadyForCbt: number;
       totalMaterials: number;
       totalSubmittedExams: number;
       totalActiveRegistrations: number;
@@ -141,11 +152,26 @@ router.get('/overview', async (_req, res) => {
       totalNetSettlementNaira: string;
       totalReconciledPayments: number;
       totalShortfallPayments: number;
-    }>(`
+    }>(
+      `
       SELECT
         (SELECT COUNT(*)::int FROM users) AS "totalUsers",
         (SELECT COUNT(*)::int FROM courses) AS "totalCourses",
         (SELECT COUNT(*)::int FROM questions) AS "totalQuestions",
+        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE) AS "totalActiveQuestions",
+        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE AND LOWER(TRIM(COALESCE(difficulty, ''))) = 'easy') AS "totalEasyQuestions",
+        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE AND LOWER(TRIM(COALESCE(difficulty, ''))) = 'medium') AS "totalMediumQuestions",
+        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE AND LOWER(TRIM(COALESCE(difficulty, ''))) IN ('hard', 'difficult')) AS "totalHardQuestions",
+        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE AND LOWER(TRIM(COALESCE(difficulty, ''))) NOT IN ('easy', 'medium', 'hard', 'difficult')) AS "totalUncategorizedQuestions",
+        (SELECT COUNT(*)::int FROM questions WHERE is_active = FALSE) AS "totalInactiveQuestions",
+        (
+          SELECT COUNT(*)::int FROM courses c
+          WHERE (
+            SELECT COUNT(*) FROM questions q
+            WHERE (q.course_id = c.id OR (q.course_id IS NULL AND c.subject_id IS NOT NULL AND q.subject_id = c.subject_id))
+              AND q.is_active = TRUE
+          ) >= $1
+        ) AS "coursesReadyForCbt",
         (SELECT COUNT(*)::int FROM study_materials) AS "totalMaterials",
         (SELECT COUNT(*)::int FROM exam_sessions WHERE status = 'submitted') AS "totalSubmittedExams",
         (SELECT COUNT(*)::int FROM course_registrations WHERE registration_status = 'active') AS "totalActiveRegistrations",
@@ -156,7 +182,9 @@ router.get('/overview', async (_req, res) => {
         (SELECT COALESCE(SUM(net_settlement_amount), 0)::text FROM payments WHERE payment_status = 'successful') AS "totalNetSettlementNaira",
         (SELECT COUNT(*)::int FROM payments WHERE payment_status = 'successful' AND reconciliation_status = 'reconciled') AS "totalReconciledPayments",
         (SELECT COUNT(*)::int FROM payments WHERE payment_status = 'successful' AND reconciliation_status = 'shortfall') AS "totalShortfallPayments"
-    `);
+    `,
+      [CBT_RECOMMENDED_MIN_QUESTIONS]
+    );
 
     const row = result.rows[0];
     res.json({
@@ -164,6 +192,13 @@ router.get('/overview', async (_req, res) => {
         totalUsers: row?.totalUsers ?? 0,
         totalCourses: row?.totalCourses ?? 0,
         totalQuestions: row?.totalQuestions ?? 0,
+        totalActiveQuestions: row?.totalActiveQuestions ?? 0,
+        totalEasyQuestions: row?.totalEasyQuestions ?? 0,
+        totalMediumQuestions: row?.totalMediumQuestions ?? 0,
+        totalHardQuestions: row?.totalHardQuestions ?? 0,
+        totalUncategorizedQuestions: row?.totalUncategorizedQuestions ?? 0,
+        totalInactiveQuestions: row?.totalInactiveQuestions ?? 0,
+        coursesReadyForCbt: row?.coursesReadyForCbt ?? 0,
         totalMaterials: row?.totalMaterials ?? 0,
         totalSubmittedExams: row?.totalSubmittedExams ?? 0,
         totalActiveRegistrations: row?.totalActiveRegistrations ?? 0,
@@ -181,7 +216,7 @@ router.get('/overview', async (_req, res) => {
   }
 });
 
-// Courses CRUD + Registrations & Revenue Rollup
+// Courses CRUD + Registrations, Question Difficulty & Revenue Rollup
 router.get('/courses', async (_req, res) => {
   try {
     const pool = getPool();
@@ -202,6 +237,11 @@ router.get('/courses', async (_req, res) => {
       isActive: boolean;
       createdAt: Date;
       questionCount: number;
+      easyCount: number;
+      mediumCount: number;
+      hardCount: number;
+      uncategorizedCount: number;
+      inactiveCount: number;
       totalRegistrations: number;
       totalRevenue: string;
     }>(`
@@ -221,11 +261,12 @@ router.get('/courses', async (_req, res) => {
         c.whatsapp_group_link AS "whatsappGroupLink",
         c.is_active AS "isActive",
         c.created_at AS "createdAt",
-        (
-          SELECT COUNT(*)::int FROM questions q
-          WHERE (q.course_id = c.id OR (q.course_id IS NULL AND c.subject_id IS NOT NULL AND q.subject_id = c.subject_id))
-            AND q.is_active = TRUE
-        ) AS "questionCount",
+        COALESCE(qs."questionCount", 0)::int AS "questionCount",
+        COALESCE(qs."easyCount", 0)::int AS "easyCount",
+        COALESCE(qs."mediumCount", 0)::int AS "mediumCount",
+        COALESCE(qs."hardCount", 0)::int AS "hardCount",
+        COALESCE(qs."uncategorizedCount", 0)::int AS "uncategorizedCount",
+        COALESCE(qs."inactiveCount", 0)::int AS "inactiveCount",
         (
           SELECT COUNT(*)::int FROM course_registrations cr
           WHERE cr.course_id = c.id AND cr.registration_status = 'active'
@@ -235,6 +276,18 @@ router.get('/courses', async (_req, res) => {
           WHERE p.course_id = c.id AND p.payment_status = 'successful'
         ) AS "totalRevenue"
       FROM courses c
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*) FILTER (WHERE q.is_active = TRUE)::int AS "questionCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'easy')::int AS "easyCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'medium')::int AS "mediumCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) IN ('hard', 'difficult'))::int AS "hardCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) NOT IN ('easy', 'medium', 'hard', 'difficult'))::int AS "uncategorizedCount",
+          COUNT(*) FILTER (WHERE q.is_active = FALSE)::int AS "inactiveCount"
+        FROM questions q
+        WHERE q.course_id = c.id
+          OR (q.course_id IS NULL AND c.subject_id IS NOT NULL AND q.subject_id = c.subject_id)
+      ) qs ON TRUE
       ORDER BY c.code ASC
     `);
 
@@ -244,6 +297,7 @@ router.get('/courses', async (_req, res) => {
         courseValue: COURSE_VALUE_NAIRA,
         registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA,
         currency: STANDARD_CURRENCY,
+        cbtReady: r.questionCount >= CBT_RECOMMENDED_MIN_QUESTIONS,
         totalRevenue: Number(r.totalRevenue),
       })),
     });
@@ -311,6 +365,12 @@ router.post('/courses', async (req, res) => {
         courseValue: COURSE_VALUE_NAIRA,
         registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA,
         questionCount: 0,
+        easyCount: 0,
+        mediumCount: 0,
+        hardCount: 0,
+        uncategorizedCount: 0,
+        inactiveCount: 0,
+        cbtReady: false,
         totalRegistrations: 0,
         totalRevenue: 0,
       },
@@ -432,46 +492,249 @@ router.delete('/courses/:id', async (req, res) => {
   }
 });
 
+// Real-time PostgreSQL Question Statistics Dashboard endpoint
+router.get('/questions/stats', async (_req, res) => {
+  try {
+    const pool = getPool();
+
+    const perCourseResult = await pool.query<{
+      courseId: string;
+      code: string;
+      title: string;
+      level: string;
+      examCategory: string;
+      publicationStatus: 'draft' | 'published' | 'archived';
+      defaultDurationMinutes: number;
+      questionCount: number;
+      easyCount: number;
+      mediumCount: number;
+      hardCount: number;
+      uncategorizedCount: number;
+      inactiveCount: number;
+      lastQuestionUpdatedAt: Date | null;
+    }>(`
+      SELECT
+        c.id AS "courseId",
+        c.code,
+        c.title,
+        c.level,
+        c.exam_category AS "examCategory",
+        c.publication_status AS "publicationStatus",
+        c.default_duration_minutes AS "defaultDurationMinutes",
+        COALESCE(qs."questionCount", 0)::int AS "questionCount",
+        COALESCE(qs."easyCount", 0)::int AS "easyCount",
+        COALESCE(qs."mediumCount", 0)::int AS "mediumCount",
+        COALESCE(qs."hardCount", 0)::int AS "hardCount",
+        COALESCE(qs."uncategorizedCount", 0)::int AS "uncategorizedCount",
+        COALESCE(qs."inactiveCount", 0)::int AS "inactiveCount",
+        qs."lastQuestionUpdatedAt" AS "lastQuestionUpdatedAt"
+      FROM courses c
+      LEFT JOIN LATERAL (
+        SELECT
+          COUNT(*) FILTER (WHERE q.is_active = TRUE)::int AS "questionCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'easy')::int AS "easyCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'medium')::int AS "mediumCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) IN ('hard', 'difficult'))::int AS "hardCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) NOT IN ('easy', 'medium', 'hard', 'difficult'))::int AS "uncategorizedCount",
+          COUNT(*) FILTER (WHERE q.is_active = FALSE)::int AS "inactiveCount",
+          MAX(q.updated_at) AS "lastQuestionUpdatedAt"
+        FROM questions q
+        WHERE q.course_id = c.id
+          OR (q.course_id IS NULL AND c.subject_id IS NOT NULL AND q.subject_id = c.subject_id)
+      ) qs ON TRUE
+      ORDER BY c.level ASC, c.code ASC
+    `);
+
+    const summaryResult = await pool.query<{
+      totalActiveQuestions: number;
+      totalInactiveQuestions: number;
+      easyCount: number;
+      mediumCount: number;
+      hardCount: number;
+      uncategorizedCount: number;
+      unassignedActiveQuestions: number;
+    }>(`
+      SELECT
+        COUNT(*) FILTER (WHERE q.is_active = TRUE)::int AS "totalActiveQuestions",
+        COUNT(*) FILTER (WHERE q.is_active = FALSE)::int AS "totalInactiveQuestions",
+        COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'easy')::int AS "easyCount",
+        COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'medium')::int AS "mediumCount",
+        COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) IN ('hard', 'difficult'))::int AS "hardCount",
+        COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) NOT IN ('easy', 'medium', 'hard', 'difficult'))::int AS "uncategorizedCount",
+        COUNT(*) FILTER (
+          WHERE q.is_active = TRUE
+            AND NOT EXISTS (
+              SELECT 1 FROM courses c
+              WHERE q.course_id = c.id
+                OR (q.course_id IS NULL AND c.subject_id IS NOT NULL AND q.subject_id = c.subject_id)
+            )
+        )::int AS "unassignedActiveQuestions"
+      FROM questions q
+    `);
+
+    const courseRows = perCourseResult.rows.map((row) => {
+      const readiness = getCourseCbtReadiness(row.questionCount);
+      return {
+        ...row,
+        cbtReady: readiness.ready,
+        readinessStatus: readiness.status,
+        readinessLabel: readiness.label,
+        lastQuestionUpdatedAt: row.lastQuestionUpdatedAt
+          ? row.lastQuestionUpdatedAt.toISOString()
+          : null,
+      };
+    });
+
+    const sumRow = summaryResult.rows[0];
+    res.json({
+      summary: {
+        totalCourses: courseRows.length,
+        publishedCourses: courseRows.filter((c) => c.publicationStatus === 'published').length,
+        cbtReadyCourses: courseRows.filter((c) => c.cbtReady).length,
+        cbtMinRecommended: CBT_RECOMMENDED_MIN_QUESTIONS,
+        totalActiveQuestions: sumRow?.totalActiveQuestions ?? 0,
+        totalInactiveQuestions: sumRow?.totalInactiveQuestions ?? 0,
+        easyCount: sumRow?.easyCount ?? 0,
+        mediumCount: sumRow?.mediumCount ?? 0,
+        hardCount: sumRow?.hardCount ?? 0,
+        uncategorizedCount: sumRow?.uncategorizedCount ?? 0,
+        unassignedActiveQuestions: sumRow?.unassignedActiveQuestions ?? 0,
+      },
+      courses: courseRows,
+    });
+  } catch (err) {
+    handleApiError(res, err, 'fetching question statistics');
+  }
+});
+
 // Questions CRUD (Course-based — answers visible only to admins)
 router.get('/questions', async (req, res) => {
   try {
-    const db = getDb();
+    const pool = getPool();
     const courseId =
       typeof req.query.courseId === 'string' && req.query.courseId.trim()
         ? req.query.courseId.trim()
         : null;
+    const difficultyFilter =
+      typeof req.query.difficulty === 'string' &&
+      ['Easy', 'Medium', 'Hard'].includes(req.query.difficulty.trim())
+        ? req.query.difficulty.trim()
+        : null;
+    const searchFilter =
+      typeof req.query.search === 'string' && req.query.search.trim()
+        ? `%${req.query.search.trim()}%`
+        : null;
+    const statusFilter =
+      typeof req.query.status === 'string' &&
+      ['active', 'inactive', 'all'].includes(req.query.status.trim())
+        ? req.query.status.trim()
+        : 'all';
+    const rawLimit = Number(req.query.limit);
+    const limitVal = Number.isFinite(rawLimit) && rawLimit > 0
+      ? Math.min(Math.floor(rawLimit), 1000)
+      : courseId
+        ? 500
+        : 300;
 
-    const baseQuery = db
-      .select({
-        id: questions.id,
-        courseId: questions.courseId,
-        courseCode: courses.code,
-        courseTitle: courses.title,
-        questionText: questions.questionText,
-        optionA: questions.optionA,
-        optionB: questions.optionB,
-        optionC: questions.optionC,
-        optionD: questions.optionD,
-        correctOption: questions.correctOption,
-        explanation: questions.explanation,
-        difficulty: questions.difficulty,
-        topic: questions.topic,
-        examYear: questions.examYear,
-        isActive: questions.isActive,
-        createdAt: questions.createdAt,
-      })
-      .from(questions)
-      .leftJoin(courses, eq(questions.courseId, courses.id));
+    const whereParts: string[] = [];
+    const params: unknown[] = [];
 
-    const rows = courseId
-      ? await baseQuery.where(eq(questions.courseId, courseId)).orderBy(desc(questions.createdAt))
-      : await baseQuery.orderBy(desc(questions.createdAt)).limit(250);
+    if (courseId) {
+      params.push(courseId);
+      const pIdx = params.length;
+      whereParts.push(`(
+        q.course_id = $${pIdx}
+        OR (
+          q.course_id IS NULL
+          AND EXISTS (
+            SELECT 1 FROM courses ct
+            WHERE ct.id = $${pIdx} AND ct.subject_id IS NOT NULL AND q.subject_id = ct.subject_id
+          )
+        )
+      )`);
+    }
+
+    if (difficultyFilter) {
+      if (difficultyFilter === 'Hard') {
+        whereParts.push(`LOWER(TRIM(COALESCE(q.difficulty, ''))) IN ('hard', 'difficult')`);
+      } else {
+        params.push(difficultyFilter.toLowerCase());
+        whereParts.push(`LOWER(TRIM(COALESCE(q.difficulty, ''))) = $${params.length}`);
+      }
+    }
+
+    if (statusFilter === 'active') {
+      whereParts.push('q.is_active = TRUE');
+    } else if (statusFilter === 'inactive') {
+      whereParts.push('q.is_active = FALSE');
+    }
+
+    if (searchFilter) {
+      params.push(searchFilter);
+      const sIdx = params.length;
+      whereParts.push(`(q.question_text ILIKE $${sIdx} OR q.topic ILIKE $${sIdx} OR COALESCE(c.code, '') ILIKE $${sIdx})`);
+    }
+
+    params.push(limitVal);
+    const limitIdx = params.length;
+    const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
+
+    const result = await pool.query<{
+      id: string;
+      courseId: string | null;
+      courseCode: string | null;
+      courseTitle: string | null;
+      questionText: string;
+      optionA: string;
+      optionB: string;
+      optionC: string;
+      optionD: string;
+      correctOption: 'A' | 'B' | 'C' | 'D';
+      explanation: string;
+      difficulty: 'Easy' | 'Medium' | 'Hard';
+      topic: string;
+      examYear: number | null;
+      isActive: boolean;
+      createdAt: Date;
+    }>(
+      `
+      SELECT
+        q.id,
+        COALESCE(q.course_id, c_legacy.id) AS "courseId",
+        COALESCE(c.code, c_legacy.code, 'COURSE') AS "courseCode",
+        COALESCE(c.title, c_legacy.title, 'Unassigned Course') AS "courseTitle",
+        q.question_text AS "questionText",
+        q.option_a AS "optionA",
+        q.option_b AS "optionB",
+        q.option_c AS "optionC",
+        q.option_d AS "optionD",
+        q.correct_option AS "correctOption",
+        q.explanation,
+        q.difficulty,
+        q.topic,
+        q.exam_year AS "examYear",
+        q.is_active AS "isActive",
+        q.created_at AS "createdAt"
+      FROM questions q
+      LEFT JOIN courses c ON q.course_id = c.id
+      LEFT JOIN LATERAL (
+        SELECT cl.id, cl.code, cl.title
+        FROM courses cl
+        WHERE q.course_id IS NULL AND q.subject_id IS NOT NULL AND cl.subject_id = q.subject_id
+        ORDER BY cl.code ASC
+        LIMIT 1
+      ) c_legacy ON TRUE
+      ${whereClause}
+      ORDER BY q.created_at DESC
+      LIMIT $${limitIdx}
+      `,
+      params
+    );
 
     res.json({
-      questions: rows.map((r) => ({
+      questions: result.rows.map((r) => ({
         ...r,
-        courseCode: r.courseCode || 'COURSE',
-        courseTitle: r.courseTitle || 'Unassigned Course',
+        createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt),
       })),
     });
   } catch (err) {
@@ -540,16 +803,81 @@ router.patch('/questions/:id', async (req, res) => {
   try {
     const parsed = questionSchema.partial().parse(req.body);
     const db = getDb();
+
+    let resolvedCourse: { id: string; code: string; title: string; subjectId: string | null } | null = null;
+    if (parsed.courseId) {
+      const [foundCourse] = await db
+        .select({
+          id: courses.id,
+          code: courses.code,
+          title: courses.title,
+          subjectId: courses.subjectId,
+        })
+        .from(courses)
+        .where(eq(courses.id, parsed.courseId))
+        .limit(1);
+
+      if (!foundCourse) {
+        res.status(404).json({ error: 'Selected course not found.' });
+        return;
+      }
+      resolvedCourse = foundCourse;
+    }
+
+    const updateValues: Record<string, unknown> = {
+      ...parsed,
+      updatedAt: new Date(),
+    };
+    if (resolvedCourse) {
+      updateValues.courseId = resolvedCourse.id;
+      updateValues.subjectId = resolvedCourse.subjectId ?? null;
+    }
+
     const [updated] = await db
       .update(questions)
-      .set({ ...parsed, updatedAt: new Date() })
+      .set(updateValues)
       .where(eq(questions.id, req.params.id))
       .returning();
+
     if (!updated) {
       res.status(404).json({ error: 'Question not found.' });
       return;
     }
-    res.json({ question: updated });
+
+    if (!resolvedCourse && updated.courseId) {
+      const [courseRow] = await db
+        .select({
+          id: courses.id,
+          code: courses.code,
+          title: courses.title,
+          subjectId: courses.subjectId,
+        })
+        .from(courses)
+        .where(eq(courses.id, updated.courseId))
+        .limit(1);
+      if (courseRow) resolvedCourse = courseRow;
+    }
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.question.update',
+      entityType: 'question',
+      entityId: updated.id,
+      metadata: {
+        courseId: updated.courseId,
+        difficulty: updated.difficulty,
+        isActive: updated.isActive,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      question: {
+        ...updated,
+        courseCode: resolvedCourse?.code || 'COURSE',
+        courseTitle: resolvedCourse?.title || 'Unassigned Course',
+      },
+    });
   } catch (err) {
     handleApiError(res, err, 'updating question');
   }
@@ -561,11 +889,28 @@ router.delete('/questions/:id', async (req, res) => {
     const [deleted] = await db
       .delete(questions)
       .where(eq(questions.id, req.params.id))
-      .returning({ id: questions.id });
+      .returning({
+        id: questions.id,
+        courseId: questions.courseId,
+        difficulty: questions.difficulty,
+      });
     if (!deleted) {
       res.status(404).json({ error: 'Question not found.' });
       return;
     }
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.question.delete',
+      entityType: 'question',
+      entityId: deleted.id,
+      metadata: {
+        courseId: deleted.courseId,
+        difficulty: deleted.difficulty,
+      },
+      ipAddress: req.ip,
+    });
+
     res.json({ deletedId: deleted.id });
   } catch (err) {
     handleApiError(res, err, 'deleting question');
@@ -680,7 +1025,27 @@ router.post('/questions/generate', async (req, res) => {
       )
       .returning();
 
-    res.status(201).json({ questions: inserted });
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.question.generate',
+      entityType: 'course',
+      entityId: course.id,
+      metadata: {
+        courseCode: course.code,
+        topic: parsed.topic,
+        difficulty: parsed.difficulty,
+        count: inserted.length,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.status(201).json({
+      questions: inserted.map((row) => ({
+        ...row,
+        courseCode: course.code,
+        courseTitle: course.title,
+      })),
+    });
   } catch (err) {
     handleApiError(res, err, 'generating questions');
   }

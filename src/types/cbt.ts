@@ -325,6 +325,13 @@ export interface AdminOverview {
   totalUsers: number;
   totalCourses: number;
   totalQuestions: number;
+  totalActiveQuestions?: number;
+  totalEasyQuestions?: number;
+  totalMediumQuestions?: number;
+  totalHardQuestions?: number;
+  totalUncategorizedQuestions?: number;
+  totalInactiveQuestions?: number;
+  coursesReadyForCbt?: number;
   totalMaterials: number;
   totalSubmittedExams: number;
   totalActiveRegistrations: number;
@@ -354,8 +361,53 @@ export interface AdminCourseItem {
   isActive: boolean;
   createdAt: string;
   questionCount: number;
+  easyCount: number;
+  mediumCount: number;
+  hardCount: number;
+  uncategorizedCount: number;
+  inactiveCount: number;
+  cbtReady: boolean;
   totalRegistrations: number;
   totalRevenue: number;
+}
+
+export interface CourseQuestionStatsItem {
+  courseId: string;
+  code: string;
+  title: string;
+  level: string;
+  examCategory: string;
+  publicationStatus: PublicationStatus;
+  defaultDurationMinutes: number;
+  questionCount: number;
+  easyCount: number;
+  mediumCount: number;
+  hardCount: number;
+  uncategorizedCount: number;
+  inactiveCount: number;
+  cbtReady: boolean;
+  readinessStatus: 'ready' | 'low' | 'empty';
+  readinessLabel: string;
+  lastQuestionUpdatedAt: string | null;
+}
+
+export interface QuestionStatsSummary {
+  totalCourses: number;
+  publishedCourses: number;
+  cbtReadyCourses: number;
+  cbtMinRecommended: number;
+  totalActiveQuestions: number;
+  totalInactiveQuestions: number;
+  easyCount: number;
+  mediumCount: number;
+  hardCount: number;
+  uncategorizedCount: number;
+  unassignedActiveQuestions: number;
+}
+
+export interface QuestionStatsResponse {
+  summary: QuestionStatsSummary;
+  courses: CourseQuestionStatsItem[];
 }
 
 export interface AdminQuestionItem {

@@ -27,6 +27,8 @@ import type {
   PaymentVerifyOutcome,
   PublicSiteDataResponse,
   PublicationStatus,
+  QuestionDifficulty,
+  QuestionStatsResponse,
   RegisteredCourseItem,
   ResultsOverview,
   SafeUser,
@@ -394,9 +396,32 @@ export const api = {
     deleteCourse: (id: string) =>
       request<{ deletedId: string }>(`/api/admin/courses/${id}`, { method: 'DELETE' }),
 
-    listQuestions: (courseId?: string) => {
-      const qs = courseId ? `?courseId=${encodeURIComponent(courseId)}` : '';
-      return request<{ questions: AdminQuestionItem[] }>(`/api/admin/questions${qs}`);
+    getQuestionStats: () => request<QuestionStatsResponse>('/api/admin/questions/stats'),
+    listQuestions: (
+      courseIdOrFilters?:
+        | string
+        | {
+            courseId?: string;
+            difficulty?: QuestionDifficulty | '';
+            search?: string;
+            status?: 'all' | 'active' | 'inactive';
+            limit?: number;
+          }
+    ) => {
+      const searchParams = new URLSearchParams();
+      if (typeof courseIdOrFilters === 'string') {
+        if (courseIdOrFilters) searchParams.set('courseId', courseIdOrFilters);
+      } else if (courseIdOrFilters) {
+        if (courseIdOrFilters.courseId) searchParams.set('courseId', courseIdOrFilters.courseId);
+        if (courseIdOrFilters.difficulty) searchParams.set('difficulty', courseIdOrFilters.difficulty);
+        if (courseIdOrFilters.search) searchParams.set('search', courseIdOrFilters.search);
+        if (courseIdOrFilters.status) searchParams.set('status', courseIdOrFilters.status);
+        if (courseIdOrFilters.limit) searchParams.set('limit', String(courseIdOrFilters.limit));
+      }
+      const qs = searchParams.toString();
+      return request<{ questions: AdminQuestionItem[] }>(
+        `/api/admin/questions${qs ? `?${qs}` : ''}`
+      );
     },
     createQuestion: (payload: {
       courseId: string;
@@ -413,6 +438,27 @@ export const api = {
     }) =>
       request<{ question: AdminQuestionItem }>('/api/admin/questions', {
         method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+    updateQuestion: (
+      id: string,
+      payload: Partial<{
+        courseId: string;
+        questionText: string;
+        optionA: string;
+        optionB: string;
+        optionC: string;
+        optionD: string;
+        correctOption: OptionLetter;
+        explanation: string;
+        difficulty: 'Easy' | 'Medium' | 'Hard';
+        topic: string;
+        examYear: number | null;
+        isActive: boolean;
+      }>
+    ) =>
+      request<{ question: AdminQuestionItem }>(`/api/admin/questions/${id}`, {
+        method: 'PATCH',
         body: JSON.stringify(payload),
       }),
     generateQuestions: (payload: {

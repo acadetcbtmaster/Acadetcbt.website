@@ -248,6 +248,13 @@ export async function createApp(options?: { skipVite?: boolean }) {
       express.static(distDir, {
         maxAge: '1h',
         index: false,
+        setHeaders(res, filePath) {
+          if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+          } else if (/\.(?:png|jpg|jpeg|webp|gif|svg|ico)$/i.test(filePath)) {
+            res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+          }
+        },
       })
     );
 
@@ -304,6 +311,9 @@ export async function createApp(options?: { skipVite?: boolean }) {
 
         if (routeStatus === 'private') {
           res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+          res.setHeader('Cache-Control', 'no-store');
+        } else {
+          res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
         }
 
         res.status(200).type('html').send(html);

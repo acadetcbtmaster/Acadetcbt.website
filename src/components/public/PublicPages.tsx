@@ -20,7 +20,18 @@ import {
 import React, { useMemo, useState } from 'react';
 import type { PublicCourseSummary, SafeUser } from '../../types/cbt';
 import { AcadetCrest, HeroStudyGraphic, useBranding } from '../cbt/AcadetLogo';
-import { formatCurrency } from '../cbt/CourseRegistrationView';
+
+function formatCurrency(amount: number, currency = 'NGN'): string {
+  try {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: currency || 'NGN',
+      maximumFractionDigits: amount % 1 === 0 ? 0 : 2,
+    }).format(amount);
+  } catch {
+    return `₦${amount.toLocaleString()}`;
+  }
+}
 
 interface PublicPageBaseProps {
   courses: PublicCourseSummary[];
@@ -42,23 +53,23 @@ export const PublicHomeView: React.FC<PublicPageBaseProps> = ({
     <div className="space-y-8 pb-10">
       {/* Section 1: Hero Proposition */}
       <section className="bg-gradient-to-b from-[#eff5ff] to-[#eef3fb] dark:from-slate-900 dark:to-[#0a0f1e] border-b border-[#dce6f5] dark:border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-7 sm:py-11 grid grid-cols-1 lg:grid-cols-12 gap-7 items-center">
           <div className="lg:col-span-7 space-y-4 text-center lg:text-left">
             <div className="inline-flex items-center gap-2.5 text-xs sm:text-sm font-bold text-[#0b337a] dark:text-blue-300">
-              <AcadetCrest className="w-7 h-7" />
+              <AcadetCrest className="w-7 h-7" priority />
               <span>
                 {branding.siteName} · {branding.tagline}
               </span>
             </div>
 
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-[#082252] dark:text-white leading-tight [text-wrap:balance]">
-              Computer-Based Examination Practice Built for Student Mastery
+              Acadet CBT – Online CBT Practice and Learning Platform
             </h1>
 
             <p className="text-sm sm:text-base text-slate-600 dark:text-slate-300 max-w-2xl mx-auto lg:mx-0 leading-relaxed">
               {branding.siteDescription} Powered by{' '}
               <strong className="text-[#0b337a] dark:text-blue-300">Acadet Learning Hub</strong>{' '}
-              for university 100 Level courses and JAMB CBT practice.
+              for 100 Level university tutorials, JAMB UTME preparation, and realistic online CBT practice in Nigeria.
             </p>
 
             <div className="pt-1 flex flex-wrap items-center justify-center lg:justify-start gap-3">
@@ -85,14 +96,24 @@ export const PublicHomeView: React.FC<PublicPageBaseProps> = ({
                     <ArrowRight className="w-4 h-4" />
                   </a>
                   <a
+                    href="/courses"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onNavigate('/courses');
+                    }}
+                    className="px-5 py-3 rounded-xl bg-white dark:bg-slate-900 border border-[#c6daf7] dark:border-slate-700 text-[#082252] dark:text-white hover:bg-blue-50 dark:hover:bg-slate-800 text-sm font-bold min-h-[44px] inline-flex items-center transition-colors"
+                  >
+                    Browse Courses
+                  </a>
+                  <a
                     href="/login"
                     onClick={(e) => {
                       e.preventDefault();
                       onNavigate('/login');
                     }}
-                    className="px-5 py-3 rounded-xl bg-white dark:bg-slate-900 border border-[#c6daf7] dark:border-slate-700 text-[#082252] dark:text-white hover:bg-blue-50 dark:hover:bg-slate-800 text-sm font-bold min-h-[44px] inline-flex items-center transition-colors"
+                    className="px-4 py-3 rounded-xl text-[#0b337a] dark:text-blue-300 hover:underline text-sm font-bold min-h-[44px] inline-flex items-center transition-colors"
                   >
-                    Student &amp; Staff Sign In
+                    Student Sign In
                   </a>
                 </>
               )}
@@ -127,13 +148,66 @@ export const PublicHomeView: React.FC<PublicPageBaseProps> = ({
         </div>
       </section>
 
-      {/* Section 2: Important Notice + Goal & Commitment */}
+      {/* Section 2: Services Offered by Acadet CBT + Academic Commitment */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 space-y-5">
+        <div className="space-y-1">
+          <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-[#082252] dark:text-white">
+            Online CBT Practice, University Tutorials &amp; Exam Preparation in Nigeria
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400 max-w-3xl">
+            Acadet CBT equips students with computer-based testing simulations, structured tutorial courses, downloadable study notes, and verified Paystack registration.{' '}
+            <a
+              href="/about"
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigate('/about');
+              }}
+              className="font-bold text-[#0a58ed] dark:text-blue-400 hover:underline"
+            >
+              Learn more about Acadet CBT
+            </a>
+            .
+          </p>
+        </div>
+
+        {/* Who Uses Acadet CBT & Services */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <article className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 p-5 space-y-2 shadow-xs">
+            <GraduationCap className="w-6 h-6 text-[#0a58ed]" />
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+              100 Level University &amp; JAMB Candidates
+            </h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+              Built for Nigerian 100 Level university students, UTME / JAMB CBT candidates, and pre-exam tutorial learners preparing for computer-based examinations.
+            </p>
+          </article>
+
+          <article className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 p-5 space-y-2 shadow-xs">
+            <BookOpen className="w-6 h-6 text-[#0a58ed]" />
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+              Timed CBT Practice &amp; Study Materials
+            </h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+              Practise with exam question palettes, difficulty filters, mark-for-review controls, a built-in calculator, and downloadable PDF/DOC course study materials.
+            </p>
+          </article>
+
+          <article className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 p-5 space-y-2 shadow-xs">
+            <BarChart3 className="w-6 h-6 text-[#0a58ed]" />
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+              Instant Grading &amp; Answer Explanations
+            </h3>
+            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+              Every completed online CBT session is graded automatically on the server with score history, topic feedback, and step-by-step explanations.
+            </p>
+          </article>
+        </div>
+
         <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-sm overflow-hidden">
           <div className="bg-[#0b337a] text-white px-5 py-3 flex items-center gap-2.5">
             <Megaphone className="w-4 h-4 shrink-0" />
             <h2 className="text-sm sm:text-base font-extrabold tracking-wide">
-              IMPORTANT NOTICE: WELCOME TO ACADET CBT PRACTICE PLATFORM
+              Welcome to Acadet CBT: Academic Goal &amp; Commitment
             </h2>
           </div>
           <div className="p-5 sm:p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -156,39 +230,6 @@ export const PublicHomeView: React.FC<PublicPageBaseProps> = ({
             </div>
           </div>
         </div>
-
-        {/* Who Uses Acadet CBT & Services */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <article className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 p-5 space-y-2 shadow-xs">
-            <GraduationCap className="w-6 h-6 text-[#0a58ed]" />
-            <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-              University &amp; JAMB Candidates
-            </h3>
-            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Designed for 100 Level university students, UTME / JAMB CBT candidates, and pre-exam tutorial learners preparing for computer-based assessments.
-            </p>
-          </article>
-
-          <article className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 p-5 space-y-2 shadow-xs">
-            <BookOpen className="w-6 h-6 text-[#0a58ed]" />
-            <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-              Timed CBT &amp; Study Notes
-            </h3>
-            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Practice with question palettes, difficulty filters, mark-for-review controls, built-in calculator, and downloadable PDF/DOC study materials.
-            </p>
-          </article>
-
-          <article className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 p-5 space-y-2 shadow-xs">
-            <BarChart3 className="w-6 h-6 text-[#0a58ed]" />
-            <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-              Instant Performance Insight
-            </h3>
-            <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
-              Every completed CBT attempt is graded automatically on the server with score trends, question-by-question feedback, and full explanations.
-            </p>
-          </article>
-        </div>
       </section>
 
       {/* Section 3: Published Courses Preview from PostgreSQL */}
@@ -196,10 +237,10 @@ export const PublicHomeView: React.FC<PublicPageBaseProps> = ({
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-xl sm:text-2xl font-extrabold tracking-tight text-[#082252] dark:text-white">
-              Available Preparation Courses
+              Available Courses on Acadet CBT
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
-              All published courses on Acadet CBT are standardized at ₦2,350 total payable (₦2,300 course value, Paystack charges absorbed).
+              All published university and JAMB CBT courses on Acadet CBT are standardized at ₦2,350 total payable (₦2,300 course value, Paystack charges absorbed).
             </p>
           </div>
           <a
@@ -275,7 +316,7 @@ export const PublicHomeView: React.FC<PublicPageBaseProps> = ({
         <div className="lg:col-span-7 rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 p-5 sm:p-6 space-y-4">
           <div className="flex items-center justify-between gap-2">
             <h2 className="text-lg sm:text-xl font-extrabold text-[#082252] dark:text-white">
-              How Registration &amp; CBT Practice Works
+              How Acadet CBT Registration &amp; Exam Practice Works
             </h2>
             <a
               href="/how-it-works"
@@ -283,7 +324,7 @@ export const PublicHomeView: React.FC<PublicPageBaseProps> = ({
                 e.preventDefault();
                 onNavigate('/how-it-works');
               }}
-              className="text-xs font-bold text-[#0a58ed] dark:text-blue-400 hover:underline"
+              className="text-xs font-bold text-[#0a58ed] dark:text-blue-400 hover:underline shrink-0"
             >
               Read Full Guide
             </a>
@@ -317,12 +358,45 @@ export const PublicHomeView: React.FC<PublicPageBaseProps> = ({
               </div>
             </li>
           </ol>
+
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-4 text-xs font-bold">
+            <a
+              href="/faq"
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigate('/faq');
+              }}
+              className="text-[#0b337a] dark:text-blue-300 hover:underline"
+            >
+              Frequently Asked Questions (FAQ)
+            </a>
+            <a
+              href="/contact"
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigate('/contact');
+              }}
+              className="text-[#0b337a] dark:text-blue-300 hover:underline"
+            >
+              Contact Student Support
+            </a>
+            <a
+              href="/about"
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigate('/about');
+              }}
+              className="text-[#0b337a] dark:text-blue-300 hover:underline"
+            >
+              About Acadet Learning Hub
+            </a>
+          </div>
         </div>
 
         <div className="lg:col-span-5 rounded-2xl bg-[#0b337a] text-white p-5 sm:p-6 flex flex-col justify-between gap-4">
           <div className="space-y-2">
             <div className="text-xs font-bold uppercase tracking-wider text-blue-200">
-              Founder &amp; Creator
+              Founder &amp; Creator of Acadet CBT
             </div>
             <h2 className="text-xl font-extrabold tracking-tight">{founder.fullName}</h2>
             <div className="text-xs font-semibold text-blue-100">{founder.positionTitle}</div>
@@ -413,6 +487,26 @@ export const PublicAboutView: React.FC<PublicPageBaseProps> = ({ onNavigate, use
 
           <div className="pt-2 flex flex-wrap items-center gap-3">
             <a
+              href="/courses"
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigate('/courses');
+              }}
+              className="px-4 py-2.5 rounded-xl border border-[#c6daf7] dark:border-slate-700 text-xs sm:text-sm font-bold text-[#0b337a] dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-slate-800 min-h-[42px] inline-flex items-center"
+            >
+              Browse Courses
+            </a>
+            <a
+              href="/how-it-works"
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigate('/how-it-works');
+              }}
+              className="px-4 py-2.5 rounded-xl border border-[#c6daf7] dark:border-slate-700 text-xs sm:text-sm font-bold text-[#0b337a] dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-slate-800 min-h-[42px] inline-flex items-center"
+            >
+              How It Works
+            </a>
+            <a
               href="/founder"
               onClick={(e) => {
                 e.preventDefault();
@@ -446,7 +540,10 @@ export const PublicCoursesView: React.FC<PublicPageBaseProps> = ({
   onNavigate,
   onOpenDashboard,
 }) => {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return new URLSearchParams(window.location.search).get('q') || '';
+  });
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -466,10 +563,10 @@ export const PublicCoursesView: React.FC<PublicPageBaseProps> = ({
         <div className="bg-[#0b337a] text-white px-5 py-5 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
-              Course Catalogue
+              Acadet CBT Course Catalogue
             </h1>
             <p className="text-xs sm:text-sm text-blue-100 mt-0.5">
-              Published courses on Acadet CBT — ₦2,350 per course (₦2,300 course value, Paystack charges absorbed).
+              Published 100 Level university tutorial and JAMB CBT courses on Acadet CBT — ₦2,350 per course (₦2,300 course value, Paystack charges absorbed).
             </p>
           </div>
           <div className="text-xs font-bold text-blue-100 tabular-nums">
@@ -478,13 +575,38 @@ export const PublicCoursesView: React.FC<PublicPageBaseProps> = ({
         </div>
 
         <div className="p-4 sm:p-5 space-y-4">
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search courses by code, title, or level..."
-            className="w-full max-w-md px-3.5 py-2.5 rounded-xl border border-[#dce6f5] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-[#0a58ed]"
-          />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search courses by code, title, or level..."
+              aria-label="Search published courses"
+              className="w-full max-w-md px-3.5 py-2.5 rounded-xl border border-[#dce6f5] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-[#0a58ed]"
+            />
+            <div className="flex flex-wrap items-center gap-3 text-xs font-bold">
+              <a
+                href="/how-it-works"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onNavigate('/how-it-works');
+                }}
+                className="text-[#0b337a] dark:text-blue-300 hover:underline"
+              >
+                How Registration Works
+              </a>
+              <a
+                href="/faq"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onNavigate('/faq');
+                }}
+                className="text-[#0b337a] dark:text-blue-300 hover:underline"
+              >
+                Pricing &amp; Payment FAQ
+              </a>
+            </div>
+          </div>
 
           {filtered.length === 0 ? (
             <div className="py-10 text-center text-sm text-slate-500 dark:text-slate-400">
@@ -625,17 +747,39 @@ export const PublicHowItWorksView: React.FC<PublicPageBaseProps> = ({
               <ShieldCheck className="w-5 h-5 text-[#0a58ed] shrink-0" />
               <span>Ready to begin your next CBT preparation session?</span>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                if (user && onOpenDashboard) onOpenDashboard();
-                else onNavigate('/register');
-              }}
-              className="px-5 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold min-h-[42px] inline-flex items-center gap-1.5"
-            >
-              <span>{user ? 'Open Dashboard' : 'Create Student Account'}</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <a
+                href="/courses"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onNavigate('/courses');
+                }}
+                className="px-4 py-2.5 rounded-xl border border-[#c6daf7] dark:border-slate-700 text-xs sm:text-sm font-bold text-[#0b337a] dark:text-blue-300 hover:bg-white dark:hover:bg-slate-800 min-h-[42px] inline-flex items-center"
+              >
+                Explore Courses
+              </a>
+              <a
+                href="/faq"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onNavigate('/faq');
+                }}
+                className="px-4 py-2.5 rounded-xl border border-[#c6daf7] dark:border-slate-700 text-xs sm:text-sm font-bold text-[#0b337a] dark:text-blue-300 hover:bg-white dark:hover:bg-slate-800 min-h-[42px] inline-flex items-center"
+              >
+                Read FAQ
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  if (user && onOpenDashboard) onOpenDashboard();
+                  else onNavigate('/register');
+                }}
+                className="px-5 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold min-h-[42px] inline-flex items-center gap-1.5"
+              >
+                <span>{user ? 'Open Dashboard' : 'Create Student Account'}</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       </div>

@@ -5,12 +5,12 @@ export const DEFAULT_CLIENT_BRANDING: SiteBrandingData = {
   siteName: 'Acadet CBT',
   tagline: '...Learn, Practice, Excel',
   siteDescription:
-    'Acadet CBT is an online computer-based testing and academic preparation platform helping students study course materials, practise examination questions, and track performance.',
-  seoTitle: 'Acadet CBT | Online CBT Practice, Courses & Exam Preparation',
+    'Acadet CBT is an online CBT practice and learning platform in Nigeria helping students prepare with JAMB UTME tests, 100 Level university tutorials, course study materials, and instant performance analytics.',
+  seoTitle: 'Acadet CBT – Online CBT Practice and Learning Platform',
   seoDescription:
-    'Acadet CBT and Acadet Learning Hub provide realistic online CBT practice, JAMB CBT practice, structured courses, study materials, and instant performance analytics.',
+    'Acadet CBT is an online CBT practice and learning platform in Nigeria for JAMB UTME preparation, 100 Level university tutorials, courses, and study materials.',
   seoKeywords:
-    'Acadet CBT, Acadet Learning Hub, JAMB CBT Practice, Online CBT Practice, Computer-Based Examination, Online Examination Practice',
+    'Acadet CBT, Acadet Learning Hub, online CBT practice Nigeria, JAMB CBT practice, UTME CBT practice, 100 Level university tutorials, computer-based test practice, university exam preparation Nigeria, online course registration, CBT study materials',
   logoUrl: '/acadet-logo.png',
   faviconUrl: '/favicon-48x48.png',
   contactEmail: 'support@acadetcbt.website',
@@ -69,6 +69,7 @@ interface AcadetCrestProps {
   src?: string;
   alt?: string;
   frameOnDark?: boolean;
+  priority?: boolean;
 }
 
 export const AcadetCrest: React.FC<AcadetCrestProps> = ({
@@ -76,9 +77,12 @@ export const AcadetCrest: React.FC<AcadetCrestProps> = ({
   src,
   alt,
   frameOnDark = true,
+  priority = false,
 }) => {
   const { branding } = useBranding();
-  const resolvedSrc = src || branding.logoUrl || '/acadet-logo.png';
+  const rawSrc = src || branding.logoUrl || '/acadet-logo.png';
+  // Use lightweight 192x192 crest (~60KB vs 901KB full 1024px PNG) for UI crest badges on mobile networks
+  const resolvedSrc = rawSrc === '/acadet-logo.png' ? '/favicon-192x192.png' : rawSrc;
   const resolvedAlt = alt || `${branding.siteName} official logo`;
 
   return (
@@ -92,9 +96,12 @@ export const AcadetCrest: React.FC<AcadetCrestProps> = ({
       <img
         src={resolvedSrc}
         alt={resolvedAlt}
+        width={48}
+        height={48}
         className="w-full h-full object-contain"
-        loading="eager"
+        loading={priority ? 'eager' : 'lazy'}
         decoding="async"
+        fetchPriority={priority ? 'high' : 'auto'}
       />
     </span>
   );

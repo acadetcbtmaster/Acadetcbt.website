@@ -23,6 +23,22 @@ export default defineConfig(({ command }) => {
         'lucide-react',
       ],
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (id.includes('jspdf')) return 'vendor-jspdf';
+            if (id.includes('html2canvas')) return 'vendor-html2canvas';
+            if (id.includes('lucide-react')) return 'vendor-icons';
+            if (id.includes('react-dom') || id.includes(`${path.sep}react${path.sep}`)) {
+              return 'vendor-react';
+            }
+            return undefined;
+          },
+        },
+      },
+    },
     server: {
       allowedHosts: true as const,
       hmr: process.env.DISABLE_HMR !== 'true',

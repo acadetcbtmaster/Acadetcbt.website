@@ -1,30 +1,12 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useState } from 'react';
 import {
   AcadetCrest,
   BrandingProvider,
   DEFAULT_CLIENT_BRANDING,
   DEFAULT_CLIENT_FOUNDER,
 } from './components/cbt/AcadetLogo';
-import { AdminConsole } from './components/cbt/AdminConsole';
-import { AuthScreen } from './components/cbt/AuthScreen';
-import { CourseAccessRequiredModal } from './components/cbt/CourseAccessRequiredModal';
-import { CourseRegistrationView } from './components/cbt/CourseRegistrationView';
-import { ExamHall } from './components/cbt/ExamHall';
-import { HelpSupportView } from './components/cbt/HelpSupportView';
-import { HomeDashboard } from './components/cbt/HomeDashboard';
-import { MyRegisteredCoursesView } from './components/cbt/MyRegisteredCoursesView';
-import { NotificationsView } from './components/cbt/NotificationsView';
-import { PaymentHistoryView } from './components/cbt/PaymentHistoryView';
-import { PaymentVerificationBanner } from './components/cbt/PaymentVerificationBanner';
-import { PaymentVerificationView } from './components/cbt/PaymentVerificationView';
-import { PracticeExamsView } from './components/cbt/PracticeExamsView';
-import { ResultsView } from './components/cbt/ResultsView';
 import { SeoHead } from './components/cbt/SeoHead';
-import { SettingsDrawer } from './components/cbt/SettingsDrawer';
-import { StudyMaterialsView } from './components/cbt/StudyMaterialsView';
-import { TopHeader } from './components/cbt/TopHeader';
-import { WorkspaceSidebar, type WorkspaceTab } from './components/cbt/WorkspaceSidebar';
-import { FounderView } from './components/public/FounderView';
+import type { WorkspaceTab } from './components/cbt/WorkspaceSidebar';
 import {
   PublicAboutView,
   PublicContactView,
@@ -37,7 +19,79 @@ import {
   PublicTermsView,
 } from './components/public/PublicPages';
 import { PublicShell } from './components/public/PublicShell';
-import { api, ApiError } from './lib/api';
+import { api, ApiError, getClientAuthToken } from './lib/api';
+
+const AdminConsole = lazy(() =>
+  import('./components/cbt/AdminConsole').then((m) => ({ default: m.AdminConsole }))
+);
+const AuthScreen = lazy(() =>
+  import('./components/cbt/AuthScreen').then((m) => ({ default: m.AuthScreen }))
+);
+const CourseAccessRequiredModal = lazy(() =>
+  import('./components/cbt/CourseAccessRequiredModal').then((m) => ({
+    default: m.CourseAccessRequiredModal,
+  }))
+);
+const CourseRegistrationView = lazy(() =>
+  import('./components/cbt/CourseRegistrationView').then((m) => ({
+    default: m.CourseRegistrationView,
+  }))
+);
+const ExamHall = lazy(() =>
+  import('./components/cbt/ExamHall').then((m) => ({ default: m.ExamHall }))
+);
+const FounderView = lazy(() =>
+  import('./components/public/FounderView').then((m) => ({ default: m.FounderView }))
+);
+const HelpSupportView = lazy(() =>
+  import('./components/cbt/HelpSupportView').then((m) => ({ default: m.HelpSupportView }))
+);
+const HomeDashboard = lazy(() =>
+  import('./components/cbt/HomeDashboard').then((m) => ({ default: m.HomeDashboard }))
+);
+const MyRegisteredCoursesView = lazy(() =>
+  import('./components/cbt/MyRegisteredCoursesView').then((m) => ({
+    default: m.MyRegisteredCoursesView,
+  }))
+);
+const NotificationsView = lazy(() =>
+  import('./components/cbt/NotificationsView').then((m) => ({ default: m.NotificationsView }))
+);
+const PaymentHistoryView = lazy(() =>
+  import('./components/cbt/PaymentHistoryView').then((m) => ({
+    default: m.PaymentHistoryView,
+  }))
+);
+const PaymentVerificationBanner = lazy(() =>
+  import('./components/cbt/PaymentVerificationBanner').then((m) => ({
+    default: m.PaymentVerificationBanner,
+  }))
+);
+const PaymentVerificationView = lazy(() =>
+  import('./components/cbt/PaymentVerificationView').then((m) => ({
+    default: m.PaymentVerificationView,
+  }))
+);
+const PracticeExamsView = lazy(() =>
+  import('./components/cbt/PracticeExamsView').then((m) => ({ default: m.PracticeExamsView }))
+);
+const ResultsView = lazy(() =>
+  import('./components/cbt/ResultsView').then((m) => ({ default: m.ResultsView }))
+);
+const SettingsDrawer = lazy(() =>
+  import('./components/cbt/SettingsDrawer').then((m) => ({ default: m.SettingsDrawer }))
+);
+const StudyMaterialsView = lazy(() =>
+  import('./components/cbt/StudyMaterialsView').then((m) => ({
+    default: m.StudyMaterialsView,
+  }))
+);
+const TopHeader = lazy(() =>
+  import('./components/cbt/TopHeader').then((m) => ({ default: m.TopHeader }))
+);
+const WorkspaceSidebar = lazy(() =>
+  import('./components/cbt/WorkspaceSidebar').then((m) => ({ default: m.WorkspaceSidebar }))
+);
 import type {
   ActiveExamQuestion,
   ActiveExamSession,
@@ -610,15 +664,19 @@ export default function App() {
     );
   };
 
+  const renderBootLoader = () => (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-[#eef3fb] dark:bg-[#0a0f1e] text-slate-700 dark:text-slate-200">
+      <AcadetCrest className="w-12 h-12 mb-3" priority />
+      <div className="w-8 h-8 rounded-full border-4 border-[#0a58ed] border-t-transparent animate-spin" />
+      <p className="mt-3 text-sm font-bold">Loading {branding.siteName}...</p>
+    </div>
+  );
+
   const renderMainContent = () => {
-    if (booting) {
-      return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-[#eef3fb] dark:bg-[#0a0f1e] text-slate-700 dark:text-slate-200">
-          <AcadetCrest className="w-12 h-12 mb-3" />
-          <div className="w-8 h-8 rounded-full border-4 border-[#0a58ed] border-t-transparent animate-spin" />
-          <p className="mt-3 text-sm font-bold">Loading {branding.siteName}...</p>
-        </div>
-      );
+    const shouldHoldForBoot =
+      booting && (APP_PRIVATE_PATHS.has(currentPath) || Boolean(getClientAuthToken()));
+    if (shouldHoldForBoot) {
+      return renderBootLoader();
     }
 
     // Active CBT Examination Hall Mode takes strict precedence
@@ -1021,7 +1079,7 @@ export default function App() {
         isPrivateAppRoute={!isPublicIndexableRoute}
         isNotFoundRoute={isNotFoundRoute}
       />
-      {renderMainContent()}
+      <Suspense fallback={renderBootLoader()}>{renderMainContent()}</Suspense>
     </BrandingProvider>
   );
 }

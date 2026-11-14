@@ -491,20 +491,20 @@ export const siteBranding = pgTable('site_branding', {
   siteDescription: text('site_description')
     .notNull()
     .default(
-      'Acadet CBT is an online computer-based testing and academic preparation platform helping students study course materials, practise examination questions, and track performance.'
+      'Acadet CBT is an online CBT practice and learning platform in Nigeria helping students prepare with JAMB UTME tests, 100 Level university tutorials, course study materials, and instant performance analytics.'
     ),
   seoTitle: text('seo_title')
     .notNull()
-    .default('Acadet CBT | Online CBT Practice, Courses & Exam Preparation'),
+    .default('Acadet CBT – Online CBT Practice and Learning Platform'),
   seoDescription: text('seo_description')
     .notNull()
     .default(
-      'Acadet CBT and Acadet Learning Hub provide realistic online CBT practice, JAMB CBT practice, structured courses, study materials, and instant performance analytics.'
+      'Acadet CBT is an online CBT practice and learning platform in Nigeria for JAMB UTME preparation, 100 Level university tutorials, courses, and study materials.'
     ),
   seoKeywords: text('seo_keywords')
     .notNull()
     .default(
-      'Acadet CBT, Acadet Learning Hub, JAMB CBT Practice, Online CBT Practice, Computer-Based Examination, Online Examination Practice'
+      'Acadet CBT, Acadet Learning Hub, online CBT practice Nigeria, JAMB CBT practice, UTME CBT practice, 100 Level university tutorials, computer-based test practice, university exam preparation Nigeria, online course registration, CBT study materials'
     ),
   logoUrl: text('logo_url').notNull().default('/acadet-logo.png'),
   logoObjectKey: text('logo_object_key'),
