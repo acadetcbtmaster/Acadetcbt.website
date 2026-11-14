@@ -38,11 +38,13 @@ import {
 } from '../lib/objectStorage.js';
 import {
   PaymentValidationError,
-  settlePaystackTransaction,
+  resolveAdminVerificationLog,
+  verifyAndSettleStudentReference,
 } from '../lib/paymentSettlement.js';
 import {
   PaystackGatewayError,
   PaystackNotConfiguredError,
+  PaystackReferenceNotFoundError,
   verifyPaystackTransaction,
 } from '../lib/paystack.js';
 import {
@@ -1133,10 +1135,15 @@ router.post('/payments/:id/reverify', async (req, res) => {
       return;
     }
 
-    const paystackData = await verifyPaystackTransaction(payRow.paymentReference);
-    const outcome = await settlePaystackTransaction({
-      paystackData,
-      actorUserId: req.user!.id,
+    const outcome = await verifyAndSettleStudentReference({
+      reference: payRow.paymentReference,
+      requestingUser: {
+        id: req.user!.id,
+        email: req.user!.email,
+        fullName: req.user!.fullName,
+        role: req.user!.role,
+        whatsappNumber: req.user!.whatsappNumber,
+      },
       source: 'admin_reverify',
       ipAddress: req.ip,
     });
@@ -2750,4 +2757,256 @@ router.get('/audit-logs', async (_req, res) => {
   }
 });
 
+// Admin Payment Verification Logs & Controlled Paystack-Backed Resolution
+router.get('/verification-logs', async (req, res) => {
+  try {
+    const pool = getPool();
+    const resultFilter =
+      typeof req.query.result === 'string' ? req.query.result.trim() : '';
+    const courseId =
+      typeof req.query.courseId === 'string' ? req.query.courseId.trim() : '';
+    const search =
+      typeof req.query.search === 'string' ? req.query.search.trim().toLowerCase() : '';
+
+    const clauses: string[] = [];
+    const values: unknown[] = [];
+
+    if (resultFilter) {
+      values.push(resultFilter);
+      clauses.push(`pvl.verification_result = $${values.length}`);
+    }
+    if (courseId) {
+      values.push(courseId);
+      clauses.push(`pvl.course_id = $${values.length}`);
+    }
+    if (search) {
+      values.push(`%${search}%`);
+      const idx = values.length;
+      clauses.push(
+        `(LOWER(pvl.payment_reference) LIKE $${idx}
+          OR LOWER(COALESCE(u.full_name, '')) LIKE $${idx}
+          OR LOWER(COALESCE(u.email, '')) LIKE $${idx}
+          OR LOWER(COALESCE(pvl.paystack_customer_email, '')) LIKE $${idx}
+          OR LOWER(COALESCE(c.code, '')) LIKE $${idx}
+          OR LOWER(COALESCE(c.title, '')) LIKE $${idx})`
+      );
+    }
+
+    const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const [logsRes, summaryRes] = await Promise.all([
+      pool.query<{
+        id: string;
+        studentId: string | null;
+        studentName: string | null;
+        studentEmail: string | null;
+        paymentId: string | null;
+        courseId: string | null;
+        courseCode: string | null;
+        courseTitle: string | null;
+        paymentReference: string;
+        verificationSource: string;
+        verificationResult: string;
+        paymentStatus: string | null;
+        registrationStatus: string | null;
+        paystackStatus: string | null;
+        paystackAmountKobo: number | null;
+        paystackCurrency: string | null;
+        paystackCustomerEmail: string | null;
+        paystackTransactionId: string | null;
+        paystackPayload: Record<string, unknown>;
+        reason: string;
+        resolvedBy: string | null;
+        resolvedByName: string | null;
+        resolvedAt: Date | null;
+        resolutionNote: string | null;
+        createdAt: Date;
+      }>(
+        `SELECT
+           pvl.id,
+           pvl.student_id AS "studentId",
+           u.full_name AS "studentName",
+           u.email AS "studentEmail",
+           pvl.payment_id AS "paymentId",
+           pvl.course_id AS "courseId",
+           c.code AS "courseCode",
+           c.title AS "courseTitle",
+           pvl.payment_reference AS "paymentReference",
+           pvl.verification_source AS "verificationSource",
+           pvl.verification_result AS "verificationResult",
+           pvl.payment_status AS "paymentStatus",
+           pvl.registration_status AS "registrationStatus",
+           pvl.paystack_status AS "paystackStatus",
+           pvl.paystack_amount_kobo AS "paystackAmountKobo",
+           pvl.paystack_currency AS "paystackCurrency",
+           pvl.paystack_customer_email AS "paystackCustomerEmail",
+           pvl.paystack_transaction_id AS "paystackTransactionId",
+           pvl.paystack_payload AS "paystackPayload",
+           pvl.reason,
+           pvl.resolved_by AS "resolvedBy",
+           ru.full_name AS "resolvedByName",
+           pvl.resolved_at AS "resolvedAt",
+           pvl.resolution_note AS "resolutionNote",
+           pvl.created_at AS "createdAt"
+         FROM payment_verification_logs pvl
+         LEFT JOIN users u ON u.id = pvl.student_id
+         LEFT JOIN courses c ON c.id = pvl.course_id
+         LEFT JOIN users ru ON ru.id = pvl.resolved_by
+         ${whereSql}
+         ORDER BY pvl.created_at DESC
+         LIMIT 300`,
+        values
+      ),
+      pool.query<{ verificationResult: string; count: number }>(
+        `SELECT verification_result AS "verificationResult", COUNT(*)::int AS count
+         FROM payment_verification_logs
+         GROUP BY verification_result`
+      ),
+    ]);
+
+    const counts: Record<string, number> = {};
+    let total = 0;
+    for (const row of summaryRes.rows) {
+      counts[row.verificationResult] = row.count;
+      total += row.count;
+    }
+
+    res.json({
+      logs: logsRes.rows,
+      summary: { total, counts },
+    });
+  } catch (err) {
+    handleApiError(res, err, 'listing payment verification logs');
+  }
+});
+
+router.post('/verification-logs/:id/reverify', async (req, res) => {
+  try {
+    const pool = getPool();
+    const logRes = await pool.query<{
+      id: string;
+      payment_reference: string;
+    }>(
+      `SELECT id, payment_reference FROM payment_verification_logs WHERE id = $1 LIMIT 1`,
+      [req.params.id]
+    );
+    const logRow = logRes.rows[0];
+    if (!logRow) {
+      res.status(404).json({ error: 'Verification log entry not found.' });
+      return;
+    }
+
+    try {
+      const pData = await verifyPaystackTransaction(logRow.payment_reference);
+      await pool.query(
+        `UPDATE payment_verification_logs
+         SET paystack_status = $2,
+             paystack_amount_kobo = $3,
+             paystack_currency = $4,
+             paystack_customer_email = $5,
+             paystack_transaction_id = $6,
+             paystack_payload = $7::jsonb,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [
+          logRow.id,
+          String(pData.status || ''),
+          Number.isFinite(Number(pData.amount)) ? Math.round(Number(pData.amount)) : null,
+          pData.currency ? String(pData.currency).toUpperCase() : null,
+          pData.customer?.email ? String(pData.customer.email).trim().toLowerCase() : null,
+          pData.id !== undefined && pData.id !== null ? String(pData.id) : null,
+          JSON.stringify(pData),
+        ]
+      );
+
+      res.json({
+        logId: logRow.id,
+        paystackStatus: String(pData.status || ''),
+        paystackAmountKobo: Number(pData.amount || 0),
+        paystackCurrency: String(pData.currency || 'NGN').toUpperCase(),
+        paystackCustomerEmail: pData.customer?.email || null,
+        paystackTransactionId: pData.id !== undefined && pData.id !== null ? String(pData.id) : null,
+        paystackPayload: pData,
+        message: `Live Paystack status for ${logRow.payment_reference}: ${String(pData.status || 'unknown').toUpperCase()}.`,
+      });
+    } catch (gwErr) {
+      if (gwErr instanceof PaystackReferenceNotFoundError) {
+        await pool.query(
+          `UPDATE payment_verification_logs
+           SET paystack_status = 'not_found',
+               updated_at = NOW()
+           WHERE id = $1`,
+          [logRow.id]
+        );
+        res.json({
+          logId: logRow.id,
+          paystackStatus: 'not_found',
+          paystackAmountKobo: null,
+          paystackCurrency: null,
+          paystackCustomerEmail: null,
+          paystackTransactionId: null,
+          paystackPayload: {},
+          message: `Paystack has no transaction record for reference ${logRow.payment_reference}.`,
+        });
+        return;
+      }
+      throw gwErr;
+    }
+  } catch (err) {
+    if (err instanceof PaystackNotConfiguredError) {
+      res.status(503).json({ error: err.message, code: 'PAYSTACK_NOT_CONFIGURED' });
+      return;
+    }
+    if (err instanceof PaystackGatewayError) {
+      res.status(err.statusCode).json({ error: err.message });
+      return;
+    }
+    handleApiError(res, err, 're-querying Paystack for verification log');
+  }
+});
+
+router.post('/verification-logs/:id/resolve', async (req, res) => {
+  try {
+    const schema = z.object({
+      action: z.enum(['approve_activate', 'reject']),
+      studentId: z.string().uuid().optional(),
+      courseId: z.string().uuid().optional(),
+      resolutionNote: z
+        .string()
+        .trim()
+        .min(3, 'Please provide a brief resolution note explaining the review outcome.')
+        .max(1000),
+      reverifyLive: z.boolean().optional(),
+    });
+    const parsed = schema.parse(req.body ?? {});
+
+    const resolved = await resolveAdminVerificationLog({
+      logId: req.params.id,
+      action: parsed.action,
+      studentId: parsed.studentId,
+      courseId: parsed.courseId,
+      resolutionNote: parsed.resolutionNote,
+      adminUserId: req.user!.id,
+      ipAddress: req.ip,
+      reverifyLiveWithPaystack: parsed.reverifyLive,
+    });
+
+    res.json(resolved);
+  } catch (err) {
+    if (err instanceof PaystackNotConfiguredError) {
+      res.status(503).json({ error: err.message, code: 'PAYSTACK_NOT_CONFIGURED' });
+      return;
+    }
+    if (err instanceof PaystackGatewayError) {
+      res.status(err.statusCode).json({ error: err.message });
+      return;
+    }
+    if (err instanceof PaymentValidationError) {
+      res.status(err.statusCode).json({ error: err.message });
+      return;
+    }
+    handleApiError(res, err, 'resolving payment verification log');
+  }
+});
+
 export default router;
+

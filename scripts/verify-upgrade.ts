@@ -6,6 +6,7 @@ import path from 'node:path';
 import { createApp } from '../server.js';
 import {
   generatePaymentReference,
+  isValidPaymentReferenceFormat,
   nairaToKobo,
   verifyPaystackWebhookSignature,
 } from '../src/server/lib/paystack.js';
@@ -87,7 +88,12 @@ async function verifyUpgrade() {
   const ref1 = generatePaymentReference();
   const ref2 = generatePaymentReference();
   assert.notEqual(ref1, ref2);
-  assert.ok(ref1.startsWith('ACDT-'));
+  assert.ok(ref1.startsWith('ACD-'), `Expected reference to start with ACD-, got ${ref1}`);
+  assert.equal(isValidPaymentReferenceFormat(ref1), true);
+  assert.equal(isValidPaymentReferenceFormat('ACD-2026-ABCDEF1234'), true);
+  assert.equal(isValidPaymentReferenceFormat('ACDT-2026-LEGACY01'), true);
+  assert.equal(isValidPaymentReferenceFormat('ab'), false);
+  assert.equal(isValidPaymentReferenceFormat('bad ref with spaces!'), false);
 
   // TEST 5: Webhook signature validation
   const prevSecret = process.env.PAYSTACK_WEBHOOK_SECRET;
@@ -275,6 +281,66 @@ async function verifyUpgrade() {
     'Admin routes must restrict full payment reset & branding mutations to super_admin with backup confirmation and preserve course_registrations'
   );
 
+  console.log('[Upgrade Verification] Auditing Payment Reference Verification, Receipt & Admin Review controls...');
+  assert.ok(
+    settlementSrc.includes('verifyAndSettleStudentReference') &&
+      settlementSrc.includes('buildPaymentReceiptById') &&
+      settlementSrc.includes('resolveAdminVerificationLog') &&
+      settlementSrc.includes('duplicateTx') &&
+      settlementSrc.includes('already been used for another course registration') &&
+      settlementSrc.includes('awaiting_admin_review') &&
+      settlementSrc.includes('unauthorized_or_mismatch'),
+    'paymentSettlement.ts must enforce ownership, duplicate tx rejection, recovery review, and receipt guards'
+  );
+  assert.ok(
+    paymentsRouteSrc.includes("router.post('/verify'") &&
+      paymentsRouteSrc.includes("router.get('/:id/receipt'"),
+    'payments.ts must expose manual reference POST /verify and GET /:id/receipt'
+  );
+  assert.ok(
+    adminRoutesSrc.includes("router.get('/verification-logs'") &&
+      adminRoutesSrc.includes("router.post('/verification-logs/:id/reverify'") &&
+      adminRoutesSrc.includes("router.post('/verification-logs/:id/resolve'"),
+    'admin.ts must expose verification-logs monitoring, live re-query, and controlled review endpoints'
+  );
+
+  const [copyBtnSrc, receiptModalSrc, verifyViewSrc, historyViewSrc, adminConsoleSrc] =
+    await Promise.all([
+      fs.readFile(path.resolve(process.cwd(), 'src/components/cbt/CopyReferenceButton.tsx'), 'utf-8'),
+      fs.readFile(path.resolve(process.cwd(), 'src/components/cbt/PaymentReceiptModal.tsx'), 'utf-8'),
+      fs.readFile(path.resolve(process.cwd(), 'src/components/cbt/PaymentVerificationView.tsx'), 'utf-8'),
+      fs.readFile(path.resolve(process.cwd(), 'src/components/cbt/PaymentHistoryView.tsx'), 'utf-8'),
+      fs.readFile(path.resolve(process.cwd(), 'src/components/cbt/AdminConsole.tsx'), 'utf-8'),
+    ]);
+
+  assert.ok(
+    copyBtnSrc.includes('Payment reference copied successfully.'),
+    'CopyReferenceButton must display confirmation text'
+  );
+  assert.ok(
+    receiptModalSrc.includes('OFFICIAL PAYMENT RECEIPT') &&
+      receiptModalSrc.includes('DOWNLOAD RECEIPT') &&
+      receiptModalSrc.includes('PRINT RECEIPT') &&
+      !receiptModalSrc.includes('window.open') &&
+      !receiptModalSrc.includes('window.alert'),
+    'PaymentReceiptModal must include receipt actions without window.open or window.alert'
+  );
+  assert.ok(
+    verifyViewSrc.includes('Verify Your Payment') &&
+      verifyViewSrc.includes('Enter Payment Reference') &&
+      verifyViewSrc.includes('VERIFY PAYMENT'),
+    'PaymentVerificationView must include exact verification UI copy'
+  );
+  assert.ok(
+    historyViewSrc.includes('MY PAYMENT HISTORY'),
+    'PaymentHistoryView must include MY PAYMENT HISTORY heading'
+  );
+  assert.ok(
+    adminConsoleSrc.includes('PAYMENT VERIFICATION LOGS') &&
+      adminConsoleSrc.includes('Confirm Verified Payment'),
+    'AdminConsole must include PAYMENT VERIFICATION LOGS and Paystack-backed activation controls'
+  );
+
   console.log('[Upgrade Verification] Auditing official logo PNGs, favicons & Organization JSON-LD...');
   for (const imgRel of ['public/acadet-logo.png', 'public/favicon-48x48.png']) {
     const buf = await fs.readFile(path.resolve(process.cwd(), imgRel));
@@ -320,6 +386,11 @@ async function verifyUpgrade() {
     'src/components/cbt/MyRegisteredCoursesView.tsx',
     'src/components/cbt/CourseAccessRequiredModal.tsx',
     'src/components/cbt/NotificationsView.tsx',
+    'src/components/cbt/CopyReferenceButton.tsx',
+    'src/components/cbt/PaymentReceiptModal.tsx',
+    'src/components/cbt/PaymentVerificationView.tsx',
+    'src/components/cbt/PaymentHistoryView.tsx',
+    'src/components/cbt/PaymentVerificationBanner.tsx',
     'src/components/cbt/AdminConsole.tsx',
     'src/components/cbt/AuthScreen.tsx',
     'src/components/cbt/ExamHall.tsx',
@@ -426,6 +497,32 @@ async function verifyUpgrade() {
       body: JSON.stringify({}),
     });
     assert.ok(resetAllRes.status === 401 || resetAllRes.status === 503);
+
+    // Unauthenticated payment verification, receipt, and admin verification logs endpoints must reject access
+    const manualVerifyRes = await fetch(`${baseUrl}/api/payments/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reference: 'ACD-2026-1234567890' }),
+    });
+    assert.ok(manualVerifyRes.status === 401 || manualVerifyRes.status === 503);
+
+    const receiptRes = await fetch(
+      `${baseUrl}/api/payments/11111111-1111-4111-8111-111111111111/receipt`
+    );
+    assert.ok(receiptRes.status === 401 || receiptRes.status === 503);
+
+    const verifLogsRes = await fetch(`${baseUrl}/api/admin/verification-logs`);
+    assert.ok(verifLogsRes.status === 401 || verifLogsRes.status === 503);
+
+    const verifResolveRes = await fetch(
+      `${baseUrl}/api/admin/verification-logs/11111111-1111-4111-8111-111111111111/resolve`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve_activate', resolutionNote: 'test' }),
+      }
+    );
+    assert.ok(verifResolveRes.status === 401 || verifResolveRes.status === 503);
   } finally {
     delete process.env.PAYSTACK_WEBHOOK_SECRET;
     server.closeAllConnections();

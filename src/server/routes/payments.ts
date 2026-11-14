@@ -1,22 +1,22 @@
-import { and, desc, eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
-import { getDb } from '../../db/index.js';
+import { getDb, getPool } from '../../db/index.js';
 import { courseRegistrations, courses, payments, users } from '../../db/schema.js';
 import { writeAuditLog } from '../lib/audit.js';
+import { normalizeWhatsappGroupLink } from '../lib/notifications.js';
 import {
+  buildPaymentReceiptById,
   PaymentValidationError,
-  settlePaystackTransaction,
+  verifyAndSettleStudentReference,
 } from '../lib/paymentSettlement.js';
 import {
   generatePaymentReference,
   getPaystackPublicKey,
   initializePaystackTransaction,
   isPaystackConfigured,
-  nairaToKobo,
   PaystackGatewayError,
   PaystackNotConfiguredError,
-  verifyPaystackTransaction,
 } from '../lib/paystack.js';
 import {
   COURSE_VALUE_KOBO,
@@ -31,6 +31,7 @@ import { handleApiError, requireAuth } from '../middleware/auth.js';
 const router = Router();
 
 const WHATSAPP_NUMBER_REGEX = /^\+?\d{10,15}$/;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function normalizeWhatsappNumber(value: string): string {
   return value.trim().replace(/[\s()-]/g, '');
@@ -49,6 +50,7 @@ const initSchema = z.object({
 
 const verifyBodySchema = z.object({
   reference: z.string().trim().min(4, 'Payment reference is required').max(120),
+  source: z.enum(['student_manual', 'callback']).optional(),
 });
 
 function resolveCallbackUrl(req: Request): string {
@@ -269,56 +271,23 @@ router.post('/initialize', requireAuth, async (req, res) => {
   }
 });
 
-async function handleVerifyRequest(req: Request, reference: string, res: import('express').Response) {
+async function handleVerifyRequest(
+  req: Request,
+  reference: string,
+  source: 'student_manual' | 'callback',
+  res: import('express').Response
+) {
   try {
-    const db = getDb();
-    const [existingPayment] = await db
-      .select()
-      .from(payments)
-      .where(eq(payments.paymentReference, reference))
-      .limit(1);
-
-    if (!existingPayment) {
-      res.status(404).json({ error: 'Payment transaction reference not found.' });
-      return;
-    }
-
-    const isAdmin = req.user!.role === 'admin' || req.user!.role === 'super_admin';
-    if (existingPayment.studentId !== req.user!.id && !isAdmin) {
-      res.status(403).json({ error: 'You are not authorized to verify this payment.' });
-      return;
-    }
-
-    // If already verified and active, settlePaystackTransaction isn't even needed to call Paystack again unless desired,
-    // or verify directly if still pending/failed
-    if (existingPayment.paymentStatus === 'successful') {
-      const outcome = await settlePaystackTransaction({
-        paystackData: {
-          id: existingPayment.gatewayTransactionId || existingPayment.id,
-          status: 'success',
-          reference: existingPayment.paymentReference,
-          amount: nairaToKobo(existingPayment.amount),
-          fees:
-            existingPayment.gatewayFee !== null && existingPayment.gatewayFee !== undefined
-              ? nairaToKobo(existingPayment.gatewayFee)
-              : null,
-          channel: existingPayment.paymentChannel,
-          currency: existingPayment.currency,
-          paid_at: existingPayment.paidAt ? existingPayment.paidAt.toISOString() : null,
-        },
-        actorUserId: req.user!.id,
-        source: 'verify_endpoint',
-        ipAddress: req.ip,
-      });
-      res.json(outcome);
-      return;
-    }
-
-    const paystackData = await verifyPaystackTransaction(reference);
-    const outcome = await settlePaystackTransaction({
-      paystackData,
-      actorUserId: req.user!.id,
-      source: 'verify_endpoint',
+    const outcome = await verifyAndSettleStudentReference({
+      reference,
+      requestingUser: {
+        id: req.user!.id,
+        email: req.user!.email,
+        fullName: req.user!.fullName,
+        role: req.user!.role,
+        whatsappNumber: req.user!.whatsappNumber,
+      },
+      source,
       ipAddress: req.ip,
     });
 
@@ -333,7 +302,17 @@ async function handleVerifyRequest(req: Request, reference: string, res: import(
       return;
     }
     if (err instanceof PaymentValidationError) {
-      res.status(err.statusCode).json({ error: err.message, code: 'PAYMENT_VALIDATION_FAILED' });
+      res.status(err.statusCode).json({
+        error: err.message,
+        code:
+          err.statusCode === 403
+            ? 'PAYMENT_OWNERSHIP_MISMATCH'
+            : err.statusCode === 409
+              ? 'PAYMENT_DUPLICATE_TRANSACTION'
+              : 'PAYMENT_VALIDATION_FAILED',
+        verificationResult:
+          err.statusCode === 403 ? 'unauthorized_or_mismatch' : undefined,
+      });
       return;
     }
     handleApiError(res, err, 'verifying payment');
@@ -346,64 +325,142 @@ router.get('/verify/:reference', requireAuth, async (req, res) => {
     res.status(400).json({ error: 'Payment reference is required.' });
     return;
   }
-  await handleVerifyRequest(req, reference, res);
+  const sourceParam =
+    req.query.source === 'manual' || req.query.source === 'student_manual'
+      ? 'student_manual'
+      : 'callback';
+  await handleVerifyRequest(req, reference, sourceParam, res);
 });
 
 router.post('/verify', requireAuth, async (req, res) => {
   try {
     const parsed = verifyBodySchema.parse(req.body);
-    await handleVerifyRequest(req, parsed.reference, res);
+    await handleVerifyRequest(req, parsed.reference, parsed.source ?? 'student_manual', res);
   } catch (err) {
     handleApiError(res, err, 'verifying payment');
   }
 });
 
+router.get('/:id/receipt', requireAuth, async (req, res) => {
+  try {
+    const paymentId = req.params.id?.trim();
+    if (!paymentId || !UUID_REGEX.test(paymentId)) {
+      res.status(400).json({ error: 'Invalid payment ID.' });
+      return;
+    }
+
+    const isAdmin = req.user!.role === 'admin' || req.user!.role === 'super_admin';
+    const receipt = await buildPaymentReceiptById(paymentId, isAdmin ? null : req.user!.id);
+
+    if (!receipt) {
+      res.status(404).json({
+        error: 'Official receipt is only available for verified successful payments.',
+      });
+      return;
+    }
+
+    res.json({ receipt });
+  } catch (err) {
+    if (err instanceof PaymentValidationError) {
+      res.status(err.statusCode).json({ error: err.message });
+      return;
+    }
+    handleApiError(res, err, 'fetching official payment receipt');
+  }
+});
+
 router.get('/my', requireAuth, async (req, res) => {
   try {
-    const db = getDb();
-    const rows = await db
-      .select({
-        id: payments.id,
-        courseId: payments.courseId,
-        courseCode: courses.code,
-        courseTitle: courses.title,
-        paymentReference: payments.paymentReference,
-        gateway: payments.gateway,
-        whatsappNumber: payments.whatsappNumber,
-        courseValue: payments.courseValue,
-        totalAmountCharged: payments.totalAmountCharged,
-        amount: payments.amount,
-        currency: payments.currency,
-        gatewayFee: payments.gatewayFee,
-        gatewayFeeSource: payments.gatewayFeeSource,
-        netSettlementAmount: payments.netSettlementAmount,
-        settlementVariance: payments.settlementVariance,
-        reconciliationStatus: payments.reconciliationStatus,
-        feeAbsorbedBy: payments.feeAbsorbedBy,
-        paymentChannel: payments.paymentChannel,
-        paymentStatus: payments.paymentStatus,
-        gatewayTransactionId: payments.gatewayTransactionId,
-        paidAt: payments.paidAt,
-        createdAt: payments.createdAt,
-      })
-      .from(payments)
-      .innerJoin(courses, eq(payments.courseId, courses.id))
-      .where(eq(payments.studentId, req.user!.id))
-      .orderBy(desc(payments.createdAt))
-      .limit(100);
+    const pool = getPool();
+    const resDb = await pool.query<{
+      id: string;
+      courseId: string;
+      courseCode: string;
+      courseTitle: string;
+      courseLevel: string;
+      paymentReference: string;
+      gateway: string;
+      whatsappNumber: string | null;
+      courseValue: string;
+      totalAmountCharged: string;
+      amount: string;
+      currency: string;
+      gatewayFee: string | null;
+      gatewayFeeSource: string | null;
+      netSettlementAmount: string | null;
+      settlementVariance: string | null;
+      reconciliationStatus: string;
+      feeAbsorbedBy: string;
+      paymentChannel: string | null;
+      paymentStatus: 'pending' | 'successful' | 'failed' | 'refunded';
+      authorizationUrl: string | null;
+      gatewayTransactionId: string | null;
+      paidAt: Date | null;
+      createdAt: Date;
+      registrationStatus: string | null;
+      registeredAt: Date | null;
+      whatsappGroupLink: string | null;
+    }>(
+      `SELECT DISTINCT ON (p.id, p.created_at)
+         p.id,
+         p.course_id AS "courseId",
+         c.code AS "courseCode",
+         c.title AS "courseTitle",
+         c.level AS "courseLevel",
+         p.payment_reference AS "paymentReference",
+         p.gateway,
+         COALESCE(cr.whatsapp_number, p.whatsapp_number) AS "whatsappNumber",
+         p.course_value::text AS "courseValue",
+         p.total_amount_charged::text AS "totalAmountCharged",
+         p.amount::text AS amount,
+         p.currency,
+         p.gateway_fee::text AS "gatewayFee",
+         p.gateway_fee_source AS "gatewayFeeSource",
+         p.net_settlement_amount::text AS "netSettlementAmount",
+         p.settlement_variance::text AS "settlementVariance",
+         p.reconciliation_status AS "reconciliationStatus",
+         p.fee_absorbed_by AS "feeAbsorbedBy",
+         p.payment_channel AS "paymentChannel",
+         p.payment_status AS "paymentStatus",
+         CASE WHEN p.payment_status = 'pending' THEN p.authorization_url ELSE NULL END AS "authorizationUrl",
+         p.gateway_transaction_id AS "gatewayTransactionId",
+         p.paid_at AS "paidAt",
+         p.created_at AS "createdAt",
+         cr.registration_status AS "registrationStatus",
+         cr.registered_at AS "registeredAt",
+         c.whatsapp_group_link AS "whatsappGroupLink"
+       FROM payments p
+       INNER JOIN courses c ON c.id = p.course_id
+       LEFT JOIN course_registrations cr
+         ON (cr.payment_id = p.id OR (cr.student_id = p.student_id AND cr.course_id = p.course_id AND cr.registration_status = 'active'))
+       WHERE p.student_id = $1
+       ORDER BY p.created_at DESC, p.id, (cr.registration_status = 'active') DESC NULLS LAST
+       LIMIT 100`,
+      [req.user!.id]
+    );
 
     res.json({
-      payments: rows.map((r) => ({
-        ...r,
-        courseValue: Number(r.courseValue),
-        totalAmountCharged: Number(r.totalAmountCharged),
-        amount: Number(r.amount),
-        gatewayFee: r.gatewayFee !== null ? Number(r.gatewayFee) : null,
-        netSettlementAmount:
-          r.netSettlementAmount !== null ? Number(r.netSettlementAmount) : null,
-        settlementVariance:
-          r.settlementVariance !== null ? Number(r.settlementVariance) : null,
-      })),
+      payments: resDb.rows.map((r) => {
+        const isActive =
+          r.paymentStatus === 'successful' && r.registrationStatus === 'active';
+        return {
+          ...r,
+          courseValue: Number(r.courseValue),
+          totalAmountCharged: Number(r.totalAmountCharged),
+          amount: Number(r.amount),
+          gatewayFee: r.gatewayFee !== null ? Number(r.gatewayFee) : null,
+          netSettlementAmount:
+            r.netSettlementAmount !== null ? Number(r.netSettlementAmount) : null,
+          settlementVariance:
+            r.settlementVariance !== null ? Number(r.settlementVariance) : null,
+          registrationStatus:
+            r.registrationStatus ||
+            (r.paymentStatus === 'successful' ? 'active' : 'not_activated'),
+          whatsappGroupLink: isActive
+            ? normalizeWhatsappGroupLink(r.whatsappGroupLink)
+            : null,
+        };
+      }),
     });
   } catch (err) {
     handleApiError(res, err, 'listing student payments');
@@ -411,3 +468,4 @@ router.get('/my', requireAuth, async (req, res) => {
 });
 
 export default router;
+

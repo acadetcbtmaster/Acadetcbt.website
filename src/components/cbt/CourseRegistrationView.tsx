@@ -3,9 +3,12 @@ import {
   CheckCircle2,
   Clock,
   CreditCard,
+  ExternalLink,
   FileText,
+  History,
   Lock,
   MessageCircle,
+  Receipt,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -13,8 +16,15 @@ import {
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { api } from '../../lib/api';
-import type { CourseCatalogueItem, SafeUser } from '../../types/cbt';
+import type {
+  CourseCatalogueItem,
+  PaymentInitializeResponse,
+  PaymentReceiptData,
+  SafeUser,
+} from '../../types/cbt';
 import { AcadetCrest } from './AcadetLogo';
+import { CopyReferenceButton } from './CopyReferenceButton';
+import { PaymentReceiptModal } from './PaymentReceiptModal';
 
 interface CourseRegistrationViewProps {
   user: SafeUser;
@@ -22,6 +32,8 @@ interface CourseRegistrationViewProps {
   onRefreshCatalog: () => Promise<void>;
   onStartCourseExam: (courseId: string) => void;
   onPaymentVerifiedNavigate?: () => void;
+  onOpenVerifyPayment?: (reference?: string) => void;
+  onOpenPaymentHistory?: () => void;
   onWhatsappUpdated?: (whatsappNumber: string) => void;
   initialRegisterCourseId?: string | null;
   onClearInitialRegisterCourseId?: () => void;
@@ -44,6 +56,8 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
   courses,
   onRefreshCatalog,
   onStartCourseExam,
+  onOpenVerifyPayment,
+  onOpenPaymentHistory,
   onWhatsappUpdated,
   initialRegisterCourseId = null,
   onClearInitialRegisterCourseId,
@@ -55,16 +69,19 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
       ? courses.find((c) => c.id === initialRegisterCourseId && !c.isRegistered) || null
       : null
   );
+  const [checkoutReady, setCheckoutReady] = useState<PaymentInitializeResponse | null>(null);
   const [whatsappNumber, setWhatsappNumber] = useState<string>(user.whatsappNumber ?? '');
   const [initializingPay, setInitializingPay] = useState(false);
   const [verifyingRef, setVerifyingRef] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [activeReceipt, setActiveReceipt] = useState<PaymentReceiptData | null>(null);
 
   React.useEffect(() => {
     if (initialRegisterCourseId) {
       const target = courses.find((c) => c.id === initialRegisterCourseId && !c.isRegistered);
       if (target) {
+        setCheckoutReady(null);
         setConfirmCourse(target);
         setWhatsappNumber((prev) => prev || user.whatsappNumber || '');
       }
@@ -103,13 +120,15 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
     try {
       onWhatsappUpdated?.(normalizedWhatsapp);
       const init = await api.payments.initialize(confirmCourse.id, normalizedWhatsapp);
-      window.location.assign(init.authorizationUrl);
+      setCheckoutReady(init);
+      await onRefreshCatalog();
     } catch (err) {
       setError(
         err instanceof Error
           ? err.message
           : 'Unable to initialize Paystack checkout. Please try again.'
       );
+    } finally {
       setInitializingPay(false);
     }
   };
@@ -119,14 +138,23 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
     setError(null);
     setNotice(null);
     try {
-      const outcome = await api.payments.verify(reference);
+      const outcome = await api.payments.verify(reference, 'student_manual');
       await onRefreshCatalog();
       setNotice(outcome.message);
+      if (outcome.receipt) {
+        setActiveReceipt(outcome.receipt);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to verify transaction status.');
     } finally {
       setVerifyingRef(null);
     }
+  };
+
+  const closeModal = () => {
+    setConfirmCourse(null);
+    setCheckoutReady(null);
+    setError(null);
   };
 
   return (
@@ -145,8 +173,30 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
             </div>
           </div>
 
-          <div className="text-xs font-bold text-blue-100 tabular-nums shrink-0">
-            {courses.filter((c) => c.isRegistered).length}/{courses.length} Registered
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            {onOpenVerifyPayment && (
+              <button
+                type="button"
+                onClick={() => onOpenVerifyPayment()}
+                className="px-2.5 py-1.5 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-extrabold inline-flex items-center gap-1"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>Verify Payment</span>
+              </button>
+            )}
+            {onOpenPaymentHistory && (
+              <button
+                type="button"
+                onClick={onOpenPaymentHistory}
+                className="px-2.5 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-bold inline-flex items-center gap-1"
+              >
+                <History className="w-3.5 h-3.5" />
+                <span>Payment History</span>
+              </button>
+            )}
+            <div className="text-xs font-bold text-blue-100 tabular-nums pl-1">
+              {courses.filter((c) => c.isRegistered).length}/{courses.length} Registered
+            </div>
           </div>
         </div>
 
@@ -196,8 +246,18 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
           )}
 
           {notice && (
-            <div className="rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 px-3 py-2 text-xs sm:text-sm font-medium text-[#0b337a] dark:text-blue-200">
-              {notice}
+            <div className="rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 px-3 py-2 text-xs sm:text-sm font-medium text-[#0b337a] dark:text-blue-200 flex flex-wrap items-center justify-between gap-2">
+              <span>{notice}</span>
+              {activeReceipt && (
+                <button
+                  type="button"
+                  onClick={() => setActiveReceipt(activeReceipt)}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-extrabold inline-flex items-center gap-1"
+                >
+                  <Receipt className="w-3.5 h-3.5" />
+                  <span>View Receipt</span>
+                </button>
+              )}
             </div>
           )}
 
@@ -276,6 +336,23 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                         </div>
                       </div>
 
+                      {isPending && course.latestPaymentReference && (
+                        <div className="rounded-lg bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/70 px-2.5 py-2 space-y-1">
+                          <div className="text-[11px] font-bold text-amber-800 dark:text-amber-300">
+                            Saved Payment Reference:
+                          </div>
+                          <div className="flex flex-wrap items-center justify-between gap-1.5">
+                            <span className="font-mono text-[11px] font-extrabold text-slate-900 dark:text-white break-all">
+                              {course.latestPaymentReference}
+                            </span>
+                            <CopyReferenceButton
+                              reference={course.latestPaymentReference}
+                              compact
+                            />
+                          </div>
+                        </div>
+                      )}
+
                       {isRegistered ? (
                         <div className="flex items-center gap-2">
                           <button
@@ -301,6 +378,7 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                             type="button"
                             onClick={() => {
                               setError(null);
+                              setCheckoutReady(null);
                               setWhatsappNumber(user.whatsappNumber ?? '');
                               setConfirmCourse(course);
                             }}
@@ -315,7 +393,7 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                               type="button"
                               disabled={verifyingRef === course.latestPaymentReference}
                               onClick={() =>
-                                handleRecheckPending(course.latestPaymentReference!)
+                                void handleRecheckPending(course.latestPaymentReference!)
                               }
                               title="Verify pending payment status with Paystack"
                               className="py-2 px-2.5 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center gap-1 min-h-[40px]"
@@ -341,7 +419,7 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
         </div>
       </div>
 
-      {/* Step 1: Compact & Centered Course Registration Confirmation Modal */}
+      {/* Course Registration & Payment Reference Modal */}
       {confirmCourse && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/60 backdrop-blur-[1px]">
           <div className="w-full max-w-md max-h-[94dvh] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col overflow-hidden">
@@ -350,13 +428,15 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                 <AcadetCrest className="w-7 h-7" />
                 <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 shrink-0" />
                 <h3 className="text-sm sm:text-base font-extrabold truncate">
-                  Confirm Course Registration
+                  {checkoutReady
+                    ? 'Payment Reference Ready'
+                    : 'Confirm Course Registration'}
                 </h3>
               </div>
               <button
                 type="button"
                 disabled={initializingPay}
-                onClick={() => setConfirmCourse(null)}
+                onClick={closeModal}
                 aria-label="Close registration confirmation"
                 className="p-1 rounded-lg hover:bg-white/15 shrink-0"
               >
@@ -364,111 +444,172 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
               </button>
             </div>
 
-            <div className="p-3.5 sm:p-4 space-y-2.5 overflow-y-auto flex-1">
-              {error && (
-                <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-3 py-2 text-xs font-medium text-red-700 dark:text-red-300">
-                  {error}
-                </div>
-              )}
-
-              {/* Compact Summary Grid */}
-              <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/80 border border-[#d6e4fa] dark:border-slate-700 p-3 space-y-1.5 text-xs sm:text-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-slate-600 dark:text-slate-400">Student</span>
-                  <span className="font-bold text-slate-900 dark:text-white text-right truncate">
-                    {user.fullName}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2 text-xs">
-                  <span className="text-slate-600 dark:text-slate-400">Email</span>
-                  <span className="font-medium text-slate-800 dark:text-slate-200 text-right truncate">
-                    {user.email}
-                  </span>
+            {checkoutReady ? (
+              <div className="p-4 space-y-3 overflow-y-auto flex-1">
+                <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800 border border-[#c6daf7] dark:border-slate-700 p-3.5 space-y-2">
+                  <div className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                    Payment Reference:
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-mono text-sm sm:text-base font-extrabold text-[#0b337a] dark:text-blue-300 break-all">
+                      {checkoutReady.reference}
+                    </span>
+                  </div>
+                  <CopyReferenceButton reference={checkoutReady.reference} />
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug pt-1">
+                    Save or copy this reference before proceeding. If your connection interrupts after paying, enter it under Payment Verification or retrieve it anytime from My Payment History.
+                  </p>
                 </div>
 
-                <div className="border-t border-[#d6e4fa] dark:border-slate-700 pt-1.5 flex items-start justify-between gap-2">
-                  <span className="text-slate-600 dark:text-slate-400 shrink-0">Course</span>
-                  <span className="font-extrabold text-[#0b337a] dark:text-blue-300 text-right leading-snug">
-                    {confirmCourse.code} — {confirmCourse.title}
-                  </span>
+                <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 text-xs space-y-1.5">
+                  <div className="flex justify-between gap-2">
+                    <span className="text-slate-500 dark:text-slate-400">Course</span>
+                    <span className="font-extrabold text-slate-900 dark:text-white text-right">
+                      {checkoutReady.course.code} — {checkoutReady.course.title}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span className="text-slate-500 dark:text-slate-400">Total Amount Payable</span>
+                    <span className="font-extrabold text-[#0a58ed] dark:text-blue-400 tabular-nums">
+                      {formatCurrency(checkoutReady.amount, checkoutReady.currency)}
+                    </span>
+                  </div>
                 </div>
 
-                <div className="flex items-center justify-between gap-2 text-xs">
-                  <span className="text-slate-600 dark:text-slate-400">Course Value</span>
-                  <span className="font-bold text-slate-900 dark:text-white tabular-nums">
-                    {formatCurrency(confirmCourse.courseValue ?? 2300, confirmCourse.currency)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2 text-xs">
-                  <span className="text-slate-600 dark:text-slate-400">Processing Charges</span>
-                  <span className="font-bold text-emerald-700 dark:text-emerald-400 text-right">
-                    Absorbed by Acadet CBT
-                  </span>
-                </div>
-
-                <div className="border-t border-[#d6e4fa] dark:border-slate-700 pt-1.5 flex items-center justify-between gap-2">
-                  <span className="font-extrabold text-[#082252] dark:text-white">
-                    Total Amount Payable
-                  </span>
-                  <span className="text-lg font-extrabold text-[#0a58ed] dark:text-blue-400 tabular-nums">
-                    {formatCurrency(2350, confirmCourse.currency)}
-                  </span>
+                <div className="flex flex-col gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => window.location.assign(checkoutReady.authorizationUrl)}
+                    className="w-full py-2.5 px-4 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold shadow-sm flex items-center justify-center gap-2 min-h-[42px]"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    <span>Proceed to Paystack Checkout</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeModal}
+                    className="w-full py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 min-h-[38px]"
+                  >
+                    Close & Keep Reference
+                  </button>
                 </div>
               </div>
+            ) : (
+              <>
+                <div className="p-3.5 sm:p-4 space-y-2.5 overflow-y-auto flex-1">
+                  {error && (
+                    <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-3 py-2 text-xs font-medium text-red-700 dark:text-red-300">
+                      {error}
+                    </div>
+                  )}
 
-              {/* Compact WhatsApp Number Field */}
-              <div>
-                <label
-                  htmlFor="course-reg-whatsapp"
-                  className="flex items-center gap-1.5 text-xs font-extrabold text-[#082252] dark:text-slate-200 mb-1"
-                >
-                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                  <span>
-                    WhatsApp Number <span className="text-red-500">*</span>
-                  </span>
-                </label>
-                <input
-                  id="course-reg-whatsapp"
-                  type="tel"
-                  inputMode="tel"
-                  autoComplete="tel"
-                  required
-                  value={whatsappNumber}
-                  onChange={(e) => {
-                    setWhatsappNumber(e.target.value);
-                    if (error) setError(null);
-                  }}
-                  placeholder="Input your correct WhatsApp number (e.g. 08012345678)"
-                  className="w-full px-3 py-2 rounded-xl border border-[#c6daf7] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-semibold text-slate-900 dark:text-white tabular-nums min-h-[40px] focus:outline-none focus:ring-2 focus:ring-[#0a58ed]"
-                />
-                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 leading-tight">
-                  Paystack checkout redirects securely; CBT access unlocks right after verification.
-                </p>
-              </div>
-            </div>
+                  {/* Compact Summary Grid */}
+                  <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/80 border border-[#d6e4fa] dark:border-slate-700 p-3 space-y-1.5 text-xs sm:text-sm">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-slate-600 dark:text-slate-400">Student</span>
+                      <span className="font-bold text-slate-900 dark:text-white text-right truncate">
+                        {user.fullName}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className="text-slate-600 dark:text-slate-400">Email</span>
+                      <span className="font-medium text-slate-800 dark:text-slate-200 text-right truncate">
+                        {user.email}
+                      </span>
+                    </div>
 
-            <div className="px-3.5 sm:px-4 py-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/90 flex items-center justify-end gap-2.5 shrink-0">
-              <button
-                type="button"
-                disabled={initializingPay}
-                onClick={() => setConfirmCourse(null)}
-                className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 min-h-[40px]"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={initializingPay}
-                onClick={handlePayNow}
-                className="flex-1 sm:flex-none px-5 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold shadow-sm flex items-center justify-center gap-1.5 min-h-[40px] disabled:opacity-60"
-              >
-                <CreditCard className="w-4 h-4" />
-                <span>{initializingPay ? 'Connecting to Paystack...' : 'PAY NOW'}</span>
-              </button>
-            </div>
+                    <div className="border-t border-[#d6e4fa] dark:border-slate-700 pt-1.5 flex items-start justify-between gap-2">
+                      <span className="text-slate-600 dark:text-slate-400 shrink-0">Course</span>
+                      <span className="font-extrabold text-[#0b337a] dark:text-blue-300 text-right leading-snug">
+                        {confirmCourse.code} — {confirmCourse.title}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className="text-slate-600 dark:text-slate-400">Course Value</span>
+                      <span className="font-bold text-slate-900 dark:text-white tabular-nums">
+                        {formatCurrency(confirmCourse.courseValue ?? 2300, confirmCourse.currency)}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className="text-slate-600 dark:text-slate-400">Processing Charges</span>
+                      <span className="font-bold text-emerald-700 dark:text-emerald-400 text-right">
+                        Absorbed by Acadet CBT
+                      </span>
+                    </div>
+
+                    <div className="border-t border-[#d6e4fa] dark:border-slate-700 pt-1.5 flex items-center justify-between gap-2">
+                      <span className="font-extrabold text-[#082252] dark:text-white">
+                        Total Amount Payable
+                      </span>
+                      <span className="text-lg font-extrabold text-[#0a58ed] dark:text-blue-400 tabular-nums">
+                        {formatCurrency(2350, confirmCourse.currency)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Compact WhatsApp Number Field */}
+                  <div>
+                    <label
+                      htmlFor="course-reg-whatsapp"
+                      className="flex items-center gap-1.5 text-xs font-extrabold text-[#082252] dark:text-slate-200 mb-1"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span>
+                        WhatsApp Number <span className="text-red-500">*</span>
+                      </span>
+                    </label>
+                    <input
+                      id="course-reg-whatsapp"
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      required
+                      value={whatsappNumber}
+                      onChange={(e) => {
+                        setWhatsappNumber(e.target.value);
+                        if (error) setError(null);
+                      }}
+                      placeholder="Input your correct WhatsApp number (e.g. 08012345678)"
+                      className="w-full px-3 py-2 rounded-xl border border-[#c6daf7] dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-semibold text-slate-900 dark:text-white tabular-nums min-h-[40px] focus:outline-none focus:ring-2 focus:ring-[#0a58ed]"
+                    />
+                    <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400 leading-tight">
+                      A unique payment reference is created and saved to your account before Paystack opens.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="px-3.5 sm:px-4 py-2.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/90 flex items-center justify-end gap-2.5 shrink-0">
+                  <button
+                    type="button"
+                    disabled={initializingPay}
+                    onClick={closeModal}
+                    className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 min-h-[40px]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={initializingPay}
+                    onClick={() => void handlePayNow()}
+                    className="flex-1 sm:flex-none px-5 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold shadow-sm flex items-center justify-center gap-1.5 min-h-[40px] disabled:opacity-60"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    <span>{initializingPay ? 'Preparing Reference...' : 'PAY NOW'}</span>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
+
+      <PaymentReceiptModal
+        receipt={activeReceipt}
+        onClose={() => setActiveReceipt(null)}
+      />
     </div>
   );
 };
+

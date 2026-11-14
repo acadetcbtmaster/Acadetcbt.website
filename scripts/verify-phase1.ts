@@ -24,6 +24,7 @@ async function verifyPhase1() {
     'paymentBackups',
     'siteBranding',
     'founderProfile',
+    'paymentVerificationLogs',
   ] as const;
 
   for (const key of expectedTables) {
@@ -139,6 +140,25 @@ async function verifyPhase1() {
     assert.ok(
       sqlContent6.includes(snippet),
       `SQL migration 0006 missing expected definition: ${snippet}`
+    );
+  }
+
+  const sqlPath7 = path.resolve(
+    process.cwd(),
+    'migrations/0007_payment_verification_logs_and_recovery.sql'
+  );
+  const sqlContent7 = await fs.readFile(sqlPath7, 'utf-8');
+  for (const snippet of [
+    'payments_gateway_tx_idx',
+    'CREATE TABLE IF NOT EXISTS payment_verification_logs',
+    'verification_result',
+    'awaiting_admin_review',
+    'unauthorized_or_mismatch',
+    'paystack_transaction_id',
+  ]) {
+    assert.ok(
+      sqlContent7.includes(snippet),
+      `SQL migration 0007 missing expected definition: ${snippet}`
     );
   }
 

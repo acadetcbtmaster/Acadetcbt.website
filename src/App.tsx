@@ -14,7 +14,9 @@ import { HelpSupportView } from './components/cbt/HelpSupportView';
 import { HomeDashboard } from './components/cbt/HomeDashboard';
 import { MyRegisteredCoursesView } from './components/cbt/MyRegisteredCoursesView';
 import { NotificationsView } from './components/cbt/NotificationsView';
+import { PaymentHistoryView } from './components/cbt/PaymentHistoryView';
 import { PaymentVerificationBanner } from './components/cbt/PaymentVerificationBanner';
+import { PaymentVerificationView } from './components/cbt/PaymentVerificationView';
 import { PracticeExamsView } from './components/cbt/PracticeExamsView';
 import { ResultsView } from './components/cbt/ResultsView';
 import { SeoHead } from './components/cbt/SeoHead';
@@ -120,6 +122,7 @@ export default function App() {
   const [pendingRegisterCourseId, setPendingRegisterCourseId] = useState<string | null>(
     null
   );
+  const [pendingVerifyRef, setPendingVerifyRef] = useState<string | null>(null);
   const [myCoursesRefreshKey, setMyCoursesRefreshKey] = useState(0);
 
   const [verifyingRef, setVerifyingRef] = useState<string | null>(null);
@@ -240,7 +243,7 @@ export default function App() {
       setPaymentOutcome(null);
       setPaymentVerifyError(null);
       try {
-        const outcome = await api.payments.verify(reference);
+        const outcome = await api.payments.verify(reference, 'callback');
         setPaymentOutcome(outcome);
         await loadWorkspaceData(activeUser);
         setMyCoursesRefreshKey((k) => k + 1);
@@ -687,6 +690,8 @@ export default function App() {
                 onRequireRegistration={handleRequireRegistration}
                 onNavigateCourseRegistration={() => setActiveTab('catalogue')}
                 onNavigateMyCourses={() => setActiveTab('my-courses')}
+                onNavigateVerifyPayment={() => setActiveTab('payment-verification')}
+                onNavigatePaymentHistory={() => setActiveTab('payment-history')}
                 onNavigateViewResults={() => setActiveTab('results')}
                 onNavigateStudyMaterials={() => setActiveTab('materials')}
                 onOpenSettings={() => setSettingsOpen(true)}
@@ -715,6 +720,11 @@ export default function App() {
                     courses={courses}
                     onRefreshCatalog={() => loadWorkspaceData(user)}
                     onStartCourseExam={handleStartCourseExamQuick}
+                    onOpenVerifyPayment={(ref) => {
+                      if (ref) setPendingVerifyRef(ref);
+                      setActiveTab('payment-verification');
+                    }}
+                    onOpenPaymentHistory={() => setActiveTab('payment-history')}
                     onWhatsappUpdated={(whatsappNumber) =>
                       setUser((prev) => (prev ? { ...prev, whatsappNumber } : prev))
                     }
@@ -728,6 +738,31 @@ export default function App() {
                     onStartExamForCourse={handleStartCourseExamQuick}
                     onBrowseCatalogue={() => setActiveTab('catalogue')}
                     refreshTrigger={myCoursesRefreshKey}
+                  />
+                )}
+
+                {activeTab === 'payment-verification' && (
+                  <PaymentVerificationView
+                    initialReference={pendingVerifyRef}
+                    onClearInitialReference={() => setPendingVerifyRef(null)}
+                    onPaymentConfirmed={async () => {
+                      await loadWorkspaceData(user);
+                      setMyCoursesRefreshKey((k) => k + 1);
+                    }}
+                    onStartCourseExam={handleStartCourseExamQuick}
+                    onOpenPaymentHistory={() => setActiveTab('payment-history')}
+                    onOpenCourseRegistration={() => setActiveTab('catalogue')}
+                  />
+                )}
+
+                {activeTab === 'payment-history' && (
+                  <PaymentHistoryView
+                    refreshTrigger={myCoursesRefreshKey}
+                    onOpenVerifyReference={(ref) => {
+                      setPendingVerifyRef(ref || null);
+                      setActiveTab('payment-verification');
+                    }}
+                    onOpenCourseRegistration={() => setActiveTab('catalogue')}
                   />
                 )}
 

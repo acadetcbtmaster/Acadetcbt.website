@@ -7,6 +7,14 @@ export type OptionLetter = 'A' | 'B' | 'C' | 'D';
 export type MaterialCategory = 'Tutorials' | 'Notes' | 'Past Questions' | 'Guides';
 export type PublicationStatus = 'draft' | 'published' | 'archived';
 export type PaymentStatus = 'pending' | 'successful' | 'failed' | 'refunded';
+export type PaymentVerificationResult =
+  | 'successful'
+  | 'already_registered'
+  | 'pending'
+  | 'failed'
+  | 'not_found'
+  | 'awaiting_admin_review'
+  | 'unauthorized_or_mismatch';
 export type ReconciliationStatus = 'pending' | 'reconciled' | 'shortfall' | 'not_applicable';
 export type CourseRegistrationState = 'registered' | 'pending' | 'failed' | 'not_registered';
 
@@ -212,8 +220,30 @@ export interface PaymentInitializeResponse {
   };
 }
 
+export interface PaymentReceiptData {
+  paymentId: string;
+  studentName: string;
+  studentEmail: string;
+  whatsappNumber: string | null;
+  courseId: string;
+  courseTitle: string;
+  courseCode: string;
+  courseValue: number;
+  amountPaid: number;
+  currency: string;
+  paymentReference: string;
+  paymentGateway: string;
+  paymentChannel: string | null;
+  gatewayTransactionId: string | null;
+  paymentDate: string;
+  paymentStatus: 'SUCCESSFUL';
+  registrationStatus: 'ACTIVE';
+  whatsappGroupLink?: string | null;
+}
+
 export interface PaymentVerifyOutcome {
-  paymentStatus: PaymentStatus;
+  verificationResult?: PaymentVerificationResult;
+  paymentStatus: PaymentStatus | 'not_found';
   alreadyProcessed: boolean;
   unlocked: boolean;
   message: string;
@@ -239,7 +269,7 @@ export interface PaymentVerifyOutcome {
     gatewayTransactionId: string | null;
     paidAt: string | null;
     createdAt: string;
-  };
+  } | null;
   registration: {
     id: string;
     studentId: string;
@@ -256,7 +286,9 @@ export interface PaymentVerifyOutcome {
     courseValue?: string;
     registrationFee: string;
     currency: string;
+    whatsappGroupLink?: string | null;
   } | null;
+  receipt?: PaymentReceiptData | null;
 }
 
 export interface StudentPaymentRecord {
@@ -264,6 +296,7 @@ export interface StudentPaymentRecord {
   courseId: string;
   courseCode: string;
   courseTitle: string;
+  courseLevel?: string;
   paymentReference: string;
   gateway: string;
   whatsappNumber?: string | null;
@@ -279,9 +312,13 @@ export interface StudentPaymentRecord {
   feeAbsorbedBy?: string;
   paymentChannel?: string | null;
   paymentStatus: PaymentStatus;
+  authorizationUrl?: string | null;
   gatewayTransactionId: string | null;
   paidAt: string | null;
   createdAt: string;
+  registrationStatus?: string | null;
+  registeredAt?: string | null;
+  whatsappGroupLink?: string | null;
 }
 
 export interface AdminOverview {
@@ -565,4 +602,33 @@ export interface PaymentBackupSummary {
   createdByName?: string | null;
   createdAt: string;
 }
+
+export interface AdminPaymentVerificationLog {
+  id: string;
+  studentId: string | null;
+  studentName: string | null;
+  studentEmail: string | null;
+  paymentId: string | null;
+  courseId: string | null;
+  courseCode: string | null;
+  courseTitle: string | null;
+  paymentReference: string;
+  verificationSource: 'student_manual' | 'callback' | 'webhook' | 'admin_reverify' | 'admin_review';
+  verificationResult: PaymentVerificationResult;
+  paymentStatus: string | null;
+  registrationStatus: string | null;
+  paystackStatus: string | null;
+  paystackAmountKobo: number | null;
+  paystackCurrency: string | null;
+  paystackCustomerEmail: string | null;
+  paystackTransactionId: string | null;
+  paystackPayload: Record<string, unknown>;
+  reason: string;
+  resolvedBy: string | null;
+  resolvedByName: string | null;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+  createdAt: string;
+}
+
 

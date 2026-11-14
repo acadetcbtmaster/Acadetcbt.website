@@ -11,6 +11,7 @@ import {
   Megaphone,
   Play,
   Settings,
+  ShieldCheck,
   Trophy,
   X,
 } from 'lucide-react';
@@ -39,6 +40,8 @@ interface HomeDashboardProps {
   onRequireRegistration: (course: CourseCatalogueItem) => void;
   onNavigateCourseRegistration: () => void;
   onNavigateMyCourses: () => void;
+  onNavigateVerifyPayment: () => void;
+  onNavigatePaymentHistory: () => void;
   onNavigateViewResults: () => void;
   onNavigateStudyMaterials: () => void;
   onOpenSettings: () => void;
@@ -56,6 +59,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   onRequireRegistration,
   onNavigateCourseRegistration,
   onNavigateMyCourses,
+  onNavigateVerifyPayment,
+  onNavigatePaymentHistory,
   onNavigateViewResults,
   onNavigateStudyMaterials,
   onOpenSettings,
@@ -144,6 +149,22 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             >
               <BookCheck className="w-4 h-4 text-[#0a58ed]" />
               <span>My Courses ({registeredCount})</span>
+            </button>
+            <button
+              type="button"
+              onClick={onNavigateVerifyPayment}
+              className="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-[#9dc0f5] dark:border-slate-700 text-[#082252] dark:text-blue-200 hover:bg-blue-50 dark:hover:bg-slate-800 text-xs sm:text-sm font-extrabold inline-flex items-center gap-1.5 min-h-[40px] transition-colors"
+            >
+              <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+              <span>Verify Payment</span>
+            </button>
+            <button
+              type="button"
+              onClick={onNavigatePaymentHistory}
+              className="px-3.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-[#9dc0f5] dark:border-slate-700 text-[#082252] dark:text-blue-200 hover:bg-blue-50 dark:hover:bg-slate-800 text-xs sm:text-sm font-extrabold inline-flex items-center gap-1.5 min-h-[40px] transition-colors"
+            >
+              <History className="w-4 h-4 text-[#0b337a] dark:text-blue-300" />
+              <span>Payment History</span>
             </button>
           </div>
         </div>

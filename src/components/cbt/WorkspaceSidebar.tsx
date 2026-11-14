@@ -6,10 +6,12 @@ import {
   CreditCard,
   FileText,
   HelpCircle,
+  History,
   Home,
   LogOut,
   Settings,
   Shield,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import React from 'react';
@@ -19,6 +21,8 @@ export type WorkspaceTab =
   | 'home'
   | 'catalogue'
   | 'my-courses'
+  | 'payment-verification'
+  | 'payment-history'
   | 'notifications'
   | 'results'
   | 'materials'
@@ -60,6 +64,8 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     { id: 'home', label: 'Home', icon: Home },
     { id: 'catalogue', label: 'Course Registration', icon: CreditCard },
     { id: 'my-courses', label: 'My Registered Courses', icon: BookCheck },
+    { id: 'payment-verification', label: 'Payment Verification', icon: ShieldCheck },
+    { id: 'payment-history', label: 'My Payment History', icon: History },
     {
       id: 'notifications',
       label: 'Notifications',

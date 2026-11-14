@@ -7,6 +7,7 @@ import type {
   AdminNotificationRecord,
   AdminOverview,
   AdminPaymentRecord,
+  AdminPaymentVerificationLog,
   AdminQuestionItem,
   AdminRegistrationItem,
   AdminStudentProfile,
@@ -19,8 +20,10 @@ import type {
   OptionLetter,
   PaymentBackupSummary,
   PaymentInitializeResponse,
+  PaymentReceiptData,
   PaymentResetPreview,
   PaymentStatus,
+  PaymentVerificationResult,
   PaymentVerifyOutcome,
   PublicSiteDataResponse,
   PublicationStatus,
@@ -233,10 +236,14 @@ export const api = {
         body: JSON.stringify({ courseId, whatsappNumber }),
       }),
 
-    verify: (reference: string) =>
-      request<PaymentVerifyOutcome>(
-        `/api/payments/verify/${encodeURIComponent(reference)}`
-      ),
+    verify: (reference: string, source: 'student_manual' | 'callback' = 'student_manual') =>
+      request<PaymentVerifyOutcome>('/api/payments/verify', {
+        method: 'POST',
+        body: JSON.stringify({ reference, source }),
+      }),
+
+    getReceipt: (paymentId: string) =>
+      request<{ receipt: PaymentReceiptData }>(`/api/payments/${encodeURIComponent(paymentId)}/receipt`),
 
     myPayments: () => request<{ payments: StudentPaymentRecord[] }>('/api/payments/my'),
   },
@@ -506,6 +513,56 @@ export const api = {
     reverifyPayment: (paymentId: string) =>
       request<PaymentVerifyOutcome>(`/api/admin/payments/${paymentId}/reverify`, {
         method: 'POST',
+      }),
+
+    listVerificationLogs: (filters?: {
+      result?: PaymentVerificationResult | '';
+      courseId?: string;
+      search?: string;
+    }) => {
+      const search = new URLSearchParams();
+      if (filters?.result) search.set('result', filters.result);
+      if (filters?.courseId) search.set('courseId', filters.courseId);
+      if (filters?.search) search.set('search', filters.search);
+      const qs = search.toString();
+      return request<{
+        logs: AdminPaymentVerificationLog[];
+        summary: { total: number; counts: Record<string, number> };
+      }>(`/api/admin/verification-logs${qs ? `?${qs}` : ''}`);
+    },
+
+    reverifyVerificationLog: (logId: string) =>
+      request<{
+        logId: string;
+        paystackStatus: string;
+        paystackAmountKobo: number | null;
+        paystackCurrency: string | null;
+        paystackCustomerEmail: string | null;
+        paystackTransactionId: string | null;
+        paystackPayload: Record<string, unknown>;
+        message: string;
+      }>(`/api/admin/verification-logs/${encodeURIComponent(logId)}/reverify`, {
+        method: 'POST',
+      }),
+
+    resolveVerificationLog: (
+      logId: string,
+      payload: {
+        action: 'approve_activate' | 'reject';
+        studentId?: string;
+        courseId?: string;
+        resolutionNote: string;
+        reverifyLive?: boolean;
+      }
+    ) =>
+      request<{
+        logId: string;
+        verificationResult: PaymentVerificationResult;
+        outcome: PaymentVerifyOutcome | null;
+        message: string;
+      }>(`/api/admin/verification-logs/${encodeURIComponent(logId)}/resolve`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
       }),
 
     getPaymentResetPreview: () =>

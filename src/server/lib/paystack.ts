@@ -19,6 +19,18 @@ export class PaystackGatewayError extends Error {
   }
 }
 
+export class PaystackReferenceNotFoundError extends Error {
+  constructor(message = 'We could not locate this payment reference on Paystack.') {
+    super(message);
+    this.name = 'PaystackReferenceNotFoundError';
+  }
+}
+
+export function isValidPaymentReferenceFormat(reference: string): boolean {
+  const trimmed = String(reference || '').trim();
+  return /^[A-Za-z0-9._-]{4,120}$/.test(trimmed);
+}
+
 export function isPaystackConfigured(): boolean {
   return Boolean(process.env.PAYSTACK_SECRET_KEY?.trim());
 }
@@ -44,7 +56,8 @@ export function getPaystackWebhookSecret(): string | null {
 }
 
 export function generatePaymentReference(): string {
-  return `ACDT-${Date.now()}-${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
+  const year = new Date().getFullYear();
+  return `ACD-${year}-${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
 }
 
 export function nairaToKobo(amountNaira: number | string): number {
@@ -173,8 +186,18 @@ export async function verifyPaystackTransaction(
   } | null;
 
   if (!response.ok || !payload?.status || !payload.data) {
+    const msg = payload?.message || `Paystack verification failed (HTTP ${response.status}).`;
+    const lowerMsg = msg.toLowerCase();
+    if (
+      response.status === 404 ||
+      lowerMsg.includes('not found') ||
+      lowerMsg.includes('does not exist') ||
+      lowerMsg.includes('invalid key') === false && response.status === 400 && lowerMsg.includes('reference')
+    ) {
+      throw new PaystackReferenceNotFoundError(msg);
+    }
     throw new PaystackGatewayError(
-      payload?.message || `Paystack verification failed (HTTP ${response.status}).`,
+      msg,
       response.status >= 400 && response.status < 500 ? 400 : 502
     );
   }

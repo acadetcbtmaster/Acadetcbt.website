@@ -28,6 +28,7 @@ import {
   Search,
   Send,
   Shield,
+  ShieldCheck,
   Sparkles,
   Trash2,
   Upload,
@@ -43,6 +44,7 @@ import type {
   AdminNotificationRecord,
   AdminOverview,
   AdminPaymentRecord,
+  AdminPaymentVerificationLog,
   AdminQuestionItem,
   AdminRegistrationItem,
   AdminStudentProfile,
@@ -52,8 +54,10 @@ import type {
   NotificationType,
   OptionLetter,
   PaymentBackupSummary,
+  PaymentReceiptData,
   PaymentResetPreview,
   PaymentStatus,
+  PaymentVerificationResult,
   PublicationStatus,
   QuestionDifficulty,
   ReconciliationStatus,
@@ -68,7 +72,9 @@ import {
   DEFAULT_CLIENT_FOUNDER,
   useBranding,
 } from './AcadetLogo';
+import { CopyReferenceButton } from './CopyReferenceButton';
 import { formatCurrency } from './CourseRegistrationView';
+import { PaymentReceiptModal } from './PaymentReceiptModal';
 
 interface AdminConsoleProps {
   onCatalogUpdated: () => Promise<void>;
@@ -81,6 +87,7 @@ type AdminSection =
   | 'courses'
   | 'registrations'
   | 'payments'
+  | 'verifications'
   | 'questions'
   | 'materials'
   | 'announcements'
@@ -152,6 +159,45 @@ function ReconciliationBadge({ status }: { status?: ReconciliationStatus }) {
   );
 }
 
+function VerificationResultBadge({ result }: { result: PaymentVerificationResult }) {
+  const styles: Record<PaymentVerificationResult, { bg: string; label: string }> = {
+    successful: {
+      bg: 'bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300',
+      label: 'Successful',
+    },
+    already_registered: {
+      bg: 'bg-blue-100 dark:bg-blue-950/50 text-blue-800 dark:text-blue-300',
+      label: 'Already Registered',
+    },
+    pending: {
+      bg: 'bg-amber-100 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300',
+      label: 'Pending',
+    },
+    failed: {
+      bg: 'bg-red-100 dark:bg-red-950/50 text-red-800 dark:text-red-300',
+      label: 'Failed',
+    },
+    not_found: {
+      bg: 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300',
+      label: 'Not Found',
+    },
+    awaiting_admin_review: {
+      bg: 'bg-orange-100 dark:bg-orange-950/50 text-orange-800 dark:text-orange-300',
+      label: 'Awaiting Review',
+    },
+    unauthorized_or_mismatch: {
+      bg: 'bg-rose-100 dark:bg-rose-950/50 text-rose-800 dark:text-rose-300',
+      label: 'Mismatch / Blocked',
+    },
+  };
+  const cfg = styles[result] || styles.not_found;
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-extrabold ${cfg.bg}`}>
+      {cfg.label}
+    </span>
+  );
+}
+
 export const AdminConsole: React.FC<AdminConsoleProps> = ({
   onCatalogUpdated,
   userRole = 'admin',
@@ -202,6 +248,22 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
   const [payDateFrom, setPayDateFrom] = useState('');
   const [payDateTo, setPayDateTo] = useState('');
   const [selectedPayment, setSelectedPayment] = useState<AdminPaymentRecord | null>(null);
+  const [adminReceipt, setAdminReceipt] = useState<PaymentReceiptData | null>(null);
+
+  // Payment Verification Logs & Admin Review
+  const [verificationLogs, setVerificationLogs] = useState<AdminPaymentVerificationLog[]>([]);
+  const [verificationSummary, setVerificationSummary] = useState<{
+    total: number;
+    counts: Record<string, number>;
+  }>({ total: 0, counts: {} });
+  const [verifResultFilter, setVerifResultFilter] = useState<PaymentVerificationResult | ''>('');
+  const [verifCourseId, setVerifCourseId] = useState('');
+  const [verifSearch, setVerifSearch] = useState('');
+  const [loadingVerifLogs, setLoadingVerifLogs] = useState(false);
+  const [inspectingLog, setInspectingLog] = useState<AdminPaymentVerificationLog | null>(null);
+  const [resolveStudentId, setResolveStudentId] = useState('');
+  const [resolveCourseId, setResolveCourseId] = useState('');
+  const [resolveNote, setResolveNote] = useState('');
 
   // User Management filters & lifecycle modals
   const [userSearch, setUserSearch] = useState('');
@@ -315,6 +377,25 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     setResetBackupId((prev) => prev || res.backups[0]?.id || '');
   };
 
+  const loadVerificationLogs = async (
+    nextResult: PaymentVerificationResult | '' = verifResultFilter,
+    nextCourseId: string = verifCourseId,
+    nextSearch: string = verifSearch
+  ) => {
+    setLoadingVerifLogs(true);
+    try {
+      const res = await api.admin.listVerificationLogs({
+        result: nextResult || undefined,
+        courseId: nextCourseId || undefined,
+        search: nextSearch || undefined,
+      });
+      setVerificationLogs(res.logs);
+      setVerificationSummary(res.summary);
+    } finally {
+      setLoadingVerifLogs(false);
+    }
+  };
+
   const loadAllAdminData = async () => {
     const [
       ov,
@@ -328,6 +409,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       notifRes,
       resetRes,
       brandRes,
+      verifRes,
     ] = await Promise.allSettled([
       api.admin.getOverview(),
       api.admin.listCourses(),
@@ -346,6 +428,11 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       }),
       api.admin.getPaymentResetPreview(),
       api.admin.getBranding(),
+      api.admin.listVerificationLogs({
+        result: verifResultFilter || undefined,
+        courseId: verifCourseId || undefined,
+        search: verifSearch || undefined,
+      }),
     ]);
 
     const errors: string[] = [];
@@ -391,6 +478,11 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     if (brandRes.status === 'fulfilled') {
       setBrandingForm(brandRes.value.branding);
       setFounderForm(brandRes.value.founder);
+    }
+
+    if (verifRes.status === 'fulfilled') {
+      setVerificationLogs(verifRes.value.logs);
+      setVerificationSummary(verifRes.value.summary);
     }
 
     if (errors.length > 0) {
@@ -553,45 +645,147 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
         text: outcome.message,
       });
       await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
-      setSelectedPayment((prev) =>
-        prev && prev.id === paymentId
-          ? {
-              ...prev,
-              paymentStatus: outcome.paymentStatus,
-              paidAt: outcome.payment.paidAt,
-              gatewayTransactionId: outcome.payment.gatewayTransactionId,
-              courseValue: outcome.payment.courseValue
-                ? Number(outcome.payment.courseValue)
-                : prev.courseValue,
-              totalAmountCharged: outcome.payment.totalAmountCharged
-                ? Number(outcome.payment.totalAmountCharged)
-                : prev.totalAmountCharged,
-              gatewayFee:
-                outcome.payment.gatewayFee !== undefined && outcome.payment.gatewayFee !== null
-                  ? Number(outcome.payment.gatewayFee)
-                  : prev.gatewayFee,
-              gatewayFeeSource: outcome.payment.gatewayFeeSource ?? prev.gatewayFeeSource,
-              netSettlementAmount:
-                outcome.payment.netSettlementAmount !== undefined &&
-                outcome.payment.netSettlementAmount !== null
-                  ? Number(outcome.payment.netSettlementAmount)
-                  : prev.netSettlementAmount,
-              settlementVariance:
-                outcome.payment.settlementVariance !== undefined &&
-                outcome.payment.settlementVariance !== null
-                  ? Number(outcome.payment.settlementVariance)
-                  : prev.settlementVariance,
-              reconciliationStatus:
-                outcome.payment.reconciliationStatus ?? prev.reconciliationStatus,
-              feeAbsorbedBy: outcome.payment.feeAbsorbedBy ?? prev.feeAbsorbedBy,
-              paymentChannel: outcome.payment.paymentChannel ?? prev.paymentChannel,
-            }
-          : prev
-      );
+      setSelectedPayment((prev) => {
+        if (!prev || prev.id !== paymentId || !outcome.payment) return prev;
+        const nextPay = outcome.payment;
+        const nextStatus: PaymentStatus =
+          outcome.paymentStatus !== 'not_found' ? outcome.paymentStatus : prev.paymentStatus;
+        return {
+          ...prev,
+          paymentStatus: nextStatus,
+          paidAt: nextPay.paidAt,
+          gatewayTransactionId: nextPay.gatewayTransactionId,
+          courseValue: nextPay.courseValue
+            ? Number(nextPay.courseValue)
+            : prev.courseValue,
+          totalAmountCharged: nextPay.totalAmountCharged
+            ? Number(nextPay.totalAmountCharged)
+            : prev.totalAmountCharged,
+          gatewayFee:
+            nextPay.gatewayFee !== undefined && nextPay.gatewayFee !== null
+              ? Number(nextPay.gatewayFee)
+              : prev.gatewayFee,
+          gatewayFeeSource: nextPay.gatewayFeeSource ?? prev.gatewayFeeSource,
+          netSettlementAmount:
+            nextPay.netSettlementAmount !== undefined &&
+            nextPay.netSettlementAmount !== null
+              ? Number(nextPay.netSettlementAmount)
+              : prev.netSettlementAmount,
+          settlementVariance:
+            nextPay.settlementVariance !== undefined &&
+            nextPay.settlementVariance !== null
+              ? Number(nextPay.settlementVariance)
+              : prev.settlementVariance,
+          reconciliationStatus:
+            nextPay.reconciliationStatus ?? prev.reconciliationStatus,
+          feeAbsorbedBy: nextPay.feeAbsorbedBy ?? prev.feeAbsorbedBy,
+          paymentChannel: nextPay.paymentChannel ?? prev.paymentChannel,
+        };
+      });
     } catch (err) {
       setFeedback({
         type: 'err',
         text: err instanceof Error ? err.message : 'Paystack re-verification failed.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleOpenAdminReceipt = async (paymentId: string) => {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.payments.getReceipt(paymentId);
+      setAdminReceipt(res.receipt);
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Unable to load official payment receipt.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openInspectLog = (log: AdminPaymentVerificationLog) => {
+    setInspectingLog(log);
+    setResolveNote(log.resolutionNote || '');
+    const emailMatch = log.paystackCustomerEmail
+      ? users.find((u) => u.email.toLowerCase() === log.paystackCustomerEmail?.toLowerCase())?.id
+      : undefined;
+    setResolveStudentId(log.studentId || emailMatch || '');
+    setResolveCourseId(log.courseId || '');
+  };
+
+  const handleRequeryLogLive = async (logId: string) => {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.reverifyVerificationLog(logId);
+      setFeedback({
+        type: res.paystackStatus.toLowerCase() === 'success' ? 'ok' : 'err',
+        text: res.message,
+      });
+      setInspectingLog((prev) =>
+        prev && prev.id === logId
+          ? {
+              ...prev,
+              paystackStatus: res.paystackStatus,
+              paystackAmountKobo: res.paystackAmountKobo,
+              paystackCurrency: res.paystackCurrency,
+              paystackCustomerEmail: res.paystackCustomerEmail,
+              paystackTransactionId: res.paystackTransactionId,
+              paystackPayload: res.paystackPayload,
+            }
+          : prev
+      );
+      if (!resolveStudentId && res.paystackCustomerEmail) {
+        const matched = users.find(
+          (u) => u.email.toLowerCase() === res.paystackCustomerEmail?.toLowerCase()
+        );
+        if (matched) setResolveStudentId(matched.id);
+      }
+      await loadVerificationLogs();
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Unable to query Paystack.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleResolveVerificationLog = async (action: 'approve_activate' | 'reject') => {
+    if (!inspectingLog) return;
+    if (resolveNote.trim().length < 3) {
+      setFeedback({
+        type: 'err',
+        text: 'Please provide a brief resolution note explaining the review decision.',
+      });
+      return;
+    }
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.resolveVerificationLog(inspectingLog.id, {
+        action,
+        studentId: resolveStudentId || undefined,
+        courseId: resolveCourseId || undefined,
+        resolutionNote: resolveNote.trim(),
+        reverifyLive: action === 'approve_activate',
+      });
+      setFeedback({
+        type: action === 'approve_activate' ? 'ok' : 'err',
+        text: res.message,
+      });
+      setInspectingLog(null);
+      await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Unable to resolve verification log.',
       });
     } finally {
       setBusy(false);
@@ -1030,11 +1224,18 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     id: AdminSection;
     label: string;
     icon: React.ComponentType<{ className?: string }>;
+    badgeCount?: number;
   }> = [
     { id: 'overview', label: 'Overview', icon: Shield },
     { id: 'courses', label: 'Courses', icon: BookOpen },
     { id: 'registrations', label: 'Registrations', icon: ClipboardList },
     { id: 'payments', label: 'Payments', icon: CreditCard },
+    {
+      id: 'verifications',
+      label: 'Verification Logs',
+      icon: ShieldCheck,
+      badgeCount: verificationSummary.counts.awaiting_admin_review || 0,
+    },
     { id: 'questions', label: 'Questions', icon: FileText },
     { id: 'materials', label: 'Materials', icon: Upload },
     { id: 'announcements', label: 'Notices', icon: Megaphone },
@@ -1072,6 +1273,11 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
               >
                 <Icon className="w-3.5 h-3.5" />
                 <span>{t.label}</span>
+                {typeof t.badgeCount === 'number' && t.badgeCount > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-md bg-amber-400 text-[#082252] text-[10px] font-extrabold leading-none tabular-nums">
+                    {t.badgeCount}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -1852,14 +2058,27 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                           <ReconciliationBadge status={p.reconciliationStatus} />
                         </td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => setSelectedPayment(p)}
-                            className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-1"
-                          >
-                            <Eye className="w-3.5 h-3.5" />
-                            <span>Inspect</span>
-                          </button>
+                          <div className="inline-flex items-center gap-1.5">
+                            {p.paymentStatus === 'successful' && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => void handleOpenAdminReceipt(p.id)}
+                                className="px-2.5 py-1 rounded-lg bg-[#eff5ff] dark:bg-blue-950/40 text-[#0b337a] dark:text-blue-300 border border-[#c6daf7] dark:border-blue-800 text-xs font-bold hover:bg-[#dcebff] inline-flex items-center gap-1"
+                              >
+                                <FileText className="w-3.5 h-3.5" />
+                                <span>Receipt</span>
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPayment(p)}
+                              className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-1"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Inspect</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -1867,6 +2086,326 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* PAYMENT VERIFICATION LOGS */}
+        {section === 'verifications' && (
+          <div className="space-y-4">
+            <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/70 border border-[#d6e4fa] dark:border-slate-700 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold text-[#082252] dark:text-white tracking-tight">
+                    PAYMENT VERIFICATION LOGS
+                  </h3>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Audit Paystack callbacks, student manual reference verifications, unrecorded payments, and review escalations.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={loadingVerifLogs}
+                  onClick={() => void loadVerificationLogs()}
+                  className="px-3 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-[#c6daf7] dark:border-slate-700 text-xs font-extrabold text-[#0b337a] dark:text-blue-300 inline-flex items-center gap-1.5"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingVerifLogs ? 'animate-spin' : ''}`} />
+                  <span>Refresh Logs</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
+                {(
+                  [
+                    { key: '', label: 'All Logs', count: verificationSummary.total },
+                    {
+                      key: 'successful',
+                      label: 'Successful',
+                      count: verificationSummary.counts.successful || 0,
+                    },
+                    {
+                      key: 'already_registered',
+                      label: 'Already Reg.',
+                      count: verificationSummary.counts.already_registered || 0,
+                    },
+                    {
+                      key: 'pending',
+                      label: 'Pending',
+                      count: verificationSummary.counts.pending || 0,
+                    },
+                    {
+                      key: 'failed',
+                      label: 'Failed',
+                      count: verificationSummary.counts.failed || 0,
+                    },
+                    {
+                      key: 'not_found',
+                      label: 'Not Found',
+                      count: verificationSummary.counts.not_found || 0,
+                    },
+                    {
+                      key: 'awaiting_admin_review',
+                      label: 'Admin Review',
+                      count: verificationSummary.counts.awaiting_admin_review || 0,
+                    },
+                    {
+                      key: 'unauthorized_or_mismatch',
+                      label: 'Blocked',
+                      count: verificationSummary.counts.unauthorized_or_mismatch || 0,
+                    },
+                  ] as Array<{
+                    key: PaymentVerificationResult | '';
+                    label: string;
+                    count: number;
+                  }>
+                ).map((item) => {
+                  const active = verifResultFilter === item.key;
+                  return (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => {
+                        setVerifResultFilter(item.key);
+                        void loadVerificationLogs(item.key, verifCourseId, verifSearch);
+                      }}
+                      className={`rounded-lg border px-2.5 py-2 text-left transition-colors ${
+                        active
+                          ? 'bg-[#0b337a] border-[#0b337a] text-white'
+                          : 'bg-white dark:bg-slate-900 border-[#d6e4fa] dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="text-base font-extrabold tabular-nums leading-tight">
+                        {item.count}
+                      </div>
+                      <div
+                        className={`text-[11px] font-bold truncate ${
+                          active ? 'text-blue-100' : 'text-slate-500 dark:text-slate-400'
+                        }`}
+                      >
+                        {item.label}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                <div className="relative lg:col-span-2">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={verifSearch}
+                    onChange={(e) => setVerifSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void loadVerificationLogs();
+                      }
+                    }}
+                    placeholder="Search reference, student name, email, or course..."
+                    className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold"
+                  />
+                </div>
+                <select
+                  value={verifResultFilter}
+                  onChange={(e) => {
+                    const nextVal = e.target.value as PaymentVerificationResult | '';
+                    setVerifResultFilter(nextVal);
+                    void loadVerificationLogs(nextVal, verifCourseId, verifSearch);
+                  }}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-semibold"
+                >
+                  <option value="">All Verification Results</option>
+                  <option value="successful">Successful</option>
+                  <option value="already_registered">Already Registered</option>
+                  <option value="pending">Pending</option>
+                  <option value="failed">Failed</option>
+                  <option value="not_found">Not Found</option>
+                  <option value="awaiting_admin_review">Awaiting Admin Review</option>
+                  <option value="unauthorized_or_mismatch">Unauthorized / Mismatch</option>
+                </select>
+                <div className="flex gap-2">
+                  <select
+                    value={verifCourseId}
+                    onChange={(e) => {
+                      const nextCourse = e.target.value;
+                      setVerifCourseId(nextCourse);
+                      void loadVerificationLogs(verifResultFilter, nextCourse, verifSearch);
+                    }}
+                    className="flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs font-semibold"
+                  >
+                    <option value="">All Courses</option>
+                    {courses.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.code} — {c.title}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void loadVerificationLogs()}
+                    className="px-3 py-2 rounded-lg bg-[#0a58ed] text-white text-xs font-bold shrink-0"
+                  >
+                    Filter
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {verificationLogs.length === 0 ? (
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 px-4 py-10 text-center text-sm text-slate-500">
+                No payment verification attempts match the selected filters.
+              </div>
+            ) : (
+              <>
+                {/* Mobile Verification Cards */}
+                <div className="md:hidden space-y-2.5">
+                  {verificationLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 space-y-2 bg-white dark:bg-slate-900"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                            {log.studentName || log.paystackCustomerEmail || 'Unmatched Payer'}
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            {log.studentEmail || log.paystackCustomerEmail || 'No email recorded'}
+                          </div>
+                        </div>
+                        <VerificationResultBadge result={log.verificationResult} />
+                      </div>
+
+                      <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Course:{' '}
+                        {log.courseCode
+                          ? `${log.courseCode} — ${log.courseTitle}`
+                          : 'Pending Course Assignment'}
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 dark:bg-slate-800/60 rounded-lg px-2.5 py-2">
+                        <span className="font-mono text-xs font-bold break-all">
+                          {log.paymentReference}
+                        </span>
+                        <CopyReferenceButton
+                          reference={log.paymentReference}
+                          compact
+                          label="COPY"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1.5 text-[11px] text-slate-600 dark:text-slate-400">
+                        <div>
+                          Payment Status:{' '}
+                          <strong className="uppercase text-slate-800 dark:text-slate-200">
+                            {log.paymentStatus || log.paystackStatus || '—'}
+                          </strong>
+                        </div>
+                        <div>
+                          Registration:{' '}
+                          <strong className="uppercase text-slate-800 dark:text-slate-200">
+                            {log.registrationStatus || 'not_active'}
+                          </strong>
+                        </div>
+                        <div className="col-span-2 tabular-nums">
+                          {new Date(log.createdAt).toLocaleString()} · Source:{' '}
+                          {log.verificationSource.replace('_', ' ')}
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end pt-1">
+                        <button
+                          type="button"
+                          onClick={() => openInspectLog(log)}
+                          className="px-3 py-1.5 rounded-lg bg-[#0b337a] text-white text-xs font-bold inline-flex items-center gap-1.5"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Inspect &amp; Review</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Desktop Table */}
+                <div className="hidden md:block overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                  <table className="w-full text-left text-xs sm:text-sm">
+                    <thead className="bg-slate-50 dark:bg-slate-800/70 text-xs font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                      <tr>
+                        <th className="px-3.5 py-2.5">Student Name</th>
+                        <th className="px-3.5 py-2.5">Payment Reference</th>
+                        <th className="px-3.5 py-2.5">Course</th>
+                        <th className="px-3.5 py-2.5">Verification Date</th>
+                        <th className="px-3.5 py-2.5">Verification Result</th>
+                        <th className="px-3.5 py-2.5">Payment Status</th>
+                        <th className="px-3.5 py-2.5">Registration Status</th>
+                        <th className="px-3.5 py-2.5 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                      {verificationLogs.map((log) => (
+                        <tr
+                          key={log.id}
+                          className={`hover:bg-slate-50/70 dark:hover:bg-slate-800/40 ${
+                            log.verificationResult === 'awaiting_admin_review' && !log.resolvedAt
+                              ? 'bg-orange-50/40 dark:bg-orange-950/10'
+                              : ''
+                          }`}
+                        >
+                          <td className="px-3.5 py-2.5">
+                            <div className="font-bold text-slate-900 dark:text-white text-xs sm:text-sm">
+                              {log.studentName || log.paystackCustomerEmail || 'Unmatched Payer'}
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              {log.studentEmail || log.paystackCustomerEmail || '—'}
+                            </div>
+                          </td>
+                          <td className="px-3.5 py-2.5">
+                            <div className="font-mono text-xs font-bold text-slate-900 dark:text-white">
+                              {log.paymentReference}
+                            </div>
+                            <div className="text-[11px] text-slate-500 capitalize">
+                              {log.verificationSource.replace('_', ' ')}
+                            </div>
+                          </td>
+                          <td className="px-3.5 py-2.5 text-xs font-semibold">
+                            {log.courseCode ? (
+                              <span>
+                                {log.courseCode} — {log.courseTitle}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400">Pending Match</span>
+                            )}
+                          </td>
+                          <td className="px-3.5 py-2.5 text-xs text-slate-500 tabular-nums whitespace-nowrap">
+                            {new Date(log.createdAt).toLocaleString()}
+                          </td>
+                          <td className="px-3.5 py-2.5">
+                            <VerificationResultBadge result={log.verificationResult} />
+                          </td>
+                          <td className="px-3.5 py-2.5 text-xs font-extrabold uppercase text-slate-700 dark:text-slate-300">
+                            {log.paymentStatus || log.paystackStatus || '—'}
+                          </td>
+                          <td className="px-3.5 py-2.5 text-xs font-extrabold uppercase text-slate-700 dark:text-slate-300">
+                            {log.registrationStatus || 'inactive'}
+                          </td>
+                          <td className="px-3.5 py-2.5 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => openInspectLog(log)}
+                              className="px-2.5 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-1"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Inspect</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -3225,7 +3764,18 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 </pre>
               </div>
 
-              <div className="flex justify-end gap-2.5 pt-1">
+              <div className="flex flex-wrap justify-end gap-2.5 pt-1">
+                {selectedPayment.paymentStatus === 'successful' && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void handleOpenAdminReceipt(selectedPayment.id)}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center gap-1.5"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>View Official Receipt</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   disabled={busy}
@@ -3243,6 +3793,230 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                   Close
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Verification Log Inspector & Controlled Review Modal */}
+      {inspectingLog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-slate-950/65 backdrop-blur-[1px]">
+          <div className="w-full max-w-2xl max-h-[92dvh] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl flex flex-col overflow-hidden">
+            <div className="bg-[#0b337a] text-white px-4 py-3 flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <ShieldCheck className="w-5 h-5 shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="text-sm sm:text-base font-extrabold truncate">
+                    Verification Log Inspector &amp; Paystack Review
+                  </h3>
+                  <p className="text-[11px] text-blue-100 font-mono truncate">
+                    {inspectingLog.paymentReference}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setInspectingLog(null)}
+                className="p-1.5 rounded-lg hover:bg-white/15 shrink-0"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3.5 overflow-y-auto flex-1 text-xs sm:text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 p-3">
+                <div className="space-y-0.5 min-w-0">
+                  <div className="text-[11px] font-bold uppercase text-slate-500">
+                    Payment Reference
+                  </div>
+                  <div className="font-mono font-extrabold text-slate-900 dark:text-white break-all">
+                    {inspectingLog.paymentReference}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <CopyReferenceButton reference={inspectingLog.paymentReference} compact />
+                  <VerificationResultBadge result={inspectingLog.verificationResult} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-[#eff5ff]/70 dark:bg-slate-800/60 border border-[#d6e4fa] dark:border-slate-700 rounded-xl p-3 text-xs">
+                <div>
+                  <span className="text-slate-500 block">Paystack Status</span>
+                  <span className="font-extrabold uppercase text-slate-900 dark:text-white">
+                    {inspectingLog.paystackStatus || '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Paystack Amount</span>
+                  <span className="font-extrabold tabular-nums text-slate-900 dark:text-white">
+                    {inspectingLog.paystackAmountKobo !== null
+                      ? formatCurrency(
+                          inspectingLog.paystackAmountKobo / 100,
+                          inspectingLog.paystackCurrency || 'NGN'
+                        )
+                      : '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Paystack Currency</span>
+                  <span className="font-extrabold">{inspectingLog.paystackCurrency || '—'}</span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Paystack Customer Email</span>
+                  <span className="font-semibold break-all">
+                    {inspectingLog.paystackCustomerEmail || '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Gateway Tx ID</span>
+                  <span className="font-mono font-semibold">
+                    {inspectingLog.paystackTransactionId || '—'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Verification Source</span>
+                  <span className="font-semibold capitalize">
+                    {inspectingLog.verificationSource.replace('_', ' ')}
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 text-xs space-y-1">
+                <div className="font-extrabold text-slate-700 dark:text-slate-200">
+                  Verification Outcome Message
+                </div>
+                <p className="text-slate-600 dark:text-slate-300">{inspectingLog.reason}</p>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500">
+                  Raw Paystack Payload Snapshot
+                </span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handleRequeryLogLive(inspectingLog.id)}
+                  className="px-3 py-1.5 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-extrabold inline-flex items-center gap-1.5"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${busy ? 'animate-spin' : ''}`} />
+                  <span>Re-Query Paystack Live</span>
+                </button>
+              </div>
+              <pre className="rounded-xl bg-slate-900 text-slate-100 p-3 text-[11px] overflow-x-auto max-h-36">
+                {JSON.stringify(inspectingLog.paystackPayload || {}, null, 2)}
+              </pre>
+
+              {inspectingLog.resolvedAt && (
+                <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 p-3 text-xs space-y-1">
+                  <div className="font-extrabold text-emerald-800 dark:text-emerald-300">
+                    Resolved by {inspectingLog.resolvedByName || 'Administrator'} on{' '}
+                    {new Date(inspectingLog.resolvedAt).toLocaleString()}
+                  </div>
+                  {inspectingLog.resolutionNote && (
+                    <div className="text-emerald-900 dark:text-emerald-200">
+                      Note: {inspectingLog.resolutionNote}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {(!inspectingLog.resolvedAt ||
+                inspectingLog.verificationResult === 'awaiting_admin_review') && (
+                <div className="rounded-xl border border-[#c6daf7] dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/50 p-3.5 space-y-3">
+                  <div className="text-xs font-extrabold text-[#082252] dark:text-white">
+                    Administrator Controlled Review &amp; Course Activation
+                  </div>
+                  <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-3 py-2 text-[11px] font-semibold text-amber-900 dark:text-amber-200">
+                    Strict Rule: Course activation requires Paystack live status = SUCCESS, valid NGN amount, non-reused Gateway Transaction ID, and both matched Student &amp; Course. Unverified payments cannot be activated.
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Student Account
+                      </label>
+                      <select
+                        value={resolveStudentId}
+                        onChange={(e) => setResolveStudentId(e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-2 text-xs font-semibold"
+                      >
+                        <option value="">Select Student...</option>
+                        {users.map((u) => (
+                          <option key={u.id} value={u.id}>
+                            {u.fullName} ({u.email})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                        Course to Activate
+                      </label>
+                      <select
+                        value={resolveCourseId}
+                        onChange={(e) => setResolveCourseId(e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-2 text-xs font-semibold"
+                      >
+                        <option value="">Select Course...</option>
+                        {courses.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.code} — {c.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Resolution Note <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={resolveNote}
+                      onChange={(e) => setResolveNote(e.target.value)}
+                      placeholder="Explain audit verification finding (min 3 characters)..."
+                      className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-xs"
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      disabled={busy || resolveNote.trim().length < 3}
+                      onClick={() => void handleResolveVerificationLog('reject')}
+                      className="px-3.5 py-2 rounded-xl border border-red-300 dark:border-red-800 text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 text-xs font-extrabold disabled:opacity-50"
+                    >
+                      Mark Rejected
+                    </button>
+                    <button
+                      type="button"
+                      disabled={
+                        busy ||
+                        inspectingLog.paystackStatus?.toLowerCase() !== 'success' ||
+                        !resolveStudentId ||
+                        !resolveCourseId ||
+                        resolveNote.trim().length < 3
+                      }
+                      onClick={() => void handleResolveVerificationLog('approve_activate')}
+                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-extrabold"
+                    >
+                      Confirm Verified Payment &amp; Activate Course
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/95 flex justify-end shrink-0">
+              <button
+                type="button"
+                onClick={() => setInspectingLog(null)}
+                className="px-4 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -3875,6 +4649,11 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
           </div>
         </div>
       )}
+
+      <PaymentReceiptModal
+        receipt={adminReceipt}
+        onClose={() => setAdminReceipt(null)}
+      />
     </div>
   );
 };

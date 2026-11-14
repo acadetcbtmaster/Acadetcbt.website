@@ -295,6 +295,9 @@ export const payments = pgTable(
     index('payments_course_status_idx').on(table.courseId, table.paymentStatus),
     index('payments_status_created_idx').on(table.paymentStatus, table.createdAt),
     index('payments_reconciliation_idx').on(table.reconciliationStatus, table.createdAt),
+    index('payments_gateway_tx_idx')
+      .on(table.gatewayTransactionId)
+      .where(sql`${table.gatewayTransactionId} IS NOT NULL`),
     check(
       'payments_status_check',
       sql`${table.paymentStatus} IN ('pending', 'successful', 'failed', 'refunded')`
@@ -550,5 +553,53 @@ export const founderProfile = pgTable('founder_profile', {
   updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const paymentVerificationLogs = pgTable(
+  'payment_verification_logs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    studentId: uuid('student_id').references(() => users.id, { onDelete: 'set null' }),
+    paymentId: uuid('payment_id').references(() => payments.id, { onDelete: 'set null' }),
+    courseId: uuid('course_id').references(() => courses.id, { onDelete: 'set null' }),
+    paymentReference: text('payment_reference').notNull(),
+    verificationSource: text('verification_source').notNull().default('student_manual'),
+    verificationResult: text('verification_result').notNull(),
+    paymentStatus: text('payment_status'),
+    registrationStatus: text('registration_status'),
+    paystackStatus: text('paystack_status'),
+    paystackAmountKobo: integer('paystack_amount_kobo'),
+    paystackCurrency: text('paystack_currency'),
+    paystackCustomerEmail: text('paystack_customer_email'),
+    paystackTransactionId: text('paystack_transaction_id'),
+    paystackPayload: jsonb('paystack_payload')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    reason: text('reason').notNull().default(''),
+    resolvedBy: uuid('resolved_by').references(() => users.id, { onDelete: 'set null' }),
+    resolvedAt: timestamp('resolved_at', { withTimezone: true }),
+    resolutionNote: text('resolution_note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('payment_verification_logs_result_idx').on(table.verificationResult, table.createdAt),
+    index('payment_verification_logs_student_idx').on(table.studentId, table.createdAt),
+    index('payment_verification_logs_reference_idx').on(
+      table.paymentReference,
+      table.createdAt
+    ),
+    index('payment_verification_logs_course_idx').on(table.courseId, table.createdAt),
+    check(
+      'payment_verification_logs_source_check',
+      sql`${table.verificationSource} IN ('student_manual', 'callback', 'webhook', 'admin_reverify', 'admin_review')`
+    ),
+    check(
+      'payment_verification_logs_result_check',
+      sql`${table.verificationResult} IN ('successful', 'already_registered', 'pending', 'failed', 'not_found', 'awaiting_admin_review', 'unauthorized_or_mismatch')`
+    ),
+  ]
+);
+
 
 

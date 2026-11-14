@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { getPool, isDatabaseConfigured } from '../../db/index.js';
 import {
   PaymentValidationError,
+  recordPaymentVerificationLog,
   settlePaystackTransaction,
 } from '../lib/paymentSettlement.js';
 import {
@@ -89,10 +90,25 @@ router.post('/paystack', async (req, res) => {
         metadata: (data.metadata as Record<string, unknown> | undefined) || undefined,
       };
 
-      await settlePaystackTransaction({
+      const outcome = await settlePaystackTransaction({
         paystackData: normalizedData,
         source: 'webhook',
         ipAddress: req.ip,
+      });
+
+      await recordPaymentVerificationLog({
+        studentId: outcome.payment?.studentId || null,
+        paymentId: outcome.payment?.id || null,
+        courseId: outcome.payment?.courseId || null,
+        paymentReference: reference,
+        verificationSource: 'webhook',
+        verificationResult:
+          outcome.verificationResult ??
+          (outcome.unlocked ? 'successful' : outcome.paymentStatus === 'failed' ? 'failed' : 'pending'),
+        paymentStatus: outcome.paymentStatus,
+        registrationStatus: outcome.unlocked ? 'active' : 'not_activated',
+        paystackData: normalizedData,
+        reason: outcome.message,
       });
 
       await pool.query(
