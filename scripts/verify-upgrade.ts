@@ -474,18 +474,86 @@ async function verifyUpgrade() {
       robotsTxt.includes('Disallow: /api/') &&
         robotsTxt.includes('Disallow: /admin') &&
         robotsTxt.includes('Disallow: /exam') &&
-        robotsTxt.includes('Allow: /founder'),
-      'robots.txt must allow /founder and disallow private routes'
+        robotsTxt.includes('Disallow: /404.html') &&
+        robotsTxt.includes('Allow: /founder') &&
+        robotsTxt.includes('Allow: /faq') &&
+        robotsTxt.includes('Allow: /privacy') &&
+        robotsTxt.includes('Allow: /terms'),
+      'robots.txt must allow public pages and disallow private routes & /404.html'
     );
 
     const sitemapRes = await fetch(`${baseUrl}/sitemap.xml`);
     assert.equal(sitemapRes.status, 200);
     const sitemapXml = await sitemapRes.text();
-    for (const locPath of ['/about', '/courses', '/how-it-works', '/founder', '/contact']) {
+    for (const locPath of ['/courses', '/about', '/how-it-works', '/founder', '/faq', '/contact', '/privacy', '/terms']) {
       assert.ok(sitemapXml.includes(locPath), `sitemap.xml missing ${locPath}`);
     }
     assert.equal(sitemapXml.includes('/admin'), false, 'sitemap.xml must exclude /admin');
     assert.equal(sitemapXml.includes('/login'), false, 'sitemap.xml must exclude /login');
+    assert.equal(sitemapXml.includes('/404'), false, 'sitemap.xml must exclude /404');
+
+    // Canonical base resolution enforces https://acadetcbt.website on custom & onrender domains
+    const prevAppUrl = process.env.APP_URL;
+    delete process.env.APP_URL;
+    try {
+      const { resolveBaseUrl } = await import('../src/server/lib/branding.js');
+      assert.equal(
+        resolveBaseUrl({
+          protocol: 'https',
+          get: (h: string) => (h === 'host' ? 'acadet-cbt.onrender.com' : undefined),
+        }),
+        'https://acadetcbt.website'
+      );
+      assert.equal(
+        resolveBaseUrl({
+          protocol: 'http',
+          get: (h: string) => (h === 'host' ? 'www.acadetcbt.website' : undefined),
+        }),
+        'https://acadetcbt.website'
+      );
+
+      // Every indexable public page returns HTTP 200 without redirects
+      for (const pubPath of ['/', '/courses', '/about', '/how-it-works', '/founder', '/faq', '/contact', '/privacy', '/terms']) {
+        const pageRes = await fetch(`${baseUrl}${pubPath}`, { redirect: 'manual' });
+        assert.equal(pageRes.status, 200, `Expected 200 OK on public route ${pubPath}, got ${pageRes.status}`);
+        const pageHtml = await pageRes.text();
+        assert.ok(
+          pageHtml.includes('<meta name="robots" content="index, follow" />'),
+          `Expected index, follow meta on ${pubPath}`
+        );
+        assert.ok(
+          pageHtml.includes(`<link rel="canonical" href="${baseUrl}${pubPath === '/' ? '/' : pubPath}"`),
+          `Expected canonical tag on ${pubPath}`
+        );
+      }
+
+      // Legacy /404.html, nonexistent routes, and nonexistent assets must return real HTTP 404 (not 200 or redirect)
+      const static404Res = await fetch(`${baseUrl}/404.html`, { redirect: 'manual' });
+      assert.equal(static404Res.status, 404, '/404.html must return HTTP 404');
+      const static404Html = await static404Res.text();
+      assert.equal(static404Html.includes('location.replace'), false, '/404.html must not contain JS redirect');
+
+      const missingPageRes = await fetch(`${baseUrl}/nonexistent-old-page`, { redirect: 'manual' });
+      assert.equal(missingPageRes.status, 404, 'Unknown path must return HTTP 404');
+      const missingPageHtml = await missingPageRes.text();
+      assert.ok(missingPageHtml.includes('noindex, nofollow'), '404 HTML must carry noindex, nofollow');
+      assert.equal(missingPageHtml.includes('<link rel="canonical"'), false, '404 HTML must omit canonical link');
+
+      const missingAssetRes = await fetch(`${baseUrl}/assets/nonexistent-bundle.js`, { redirect: 'manual' });
+      assert.equal(missingAssetRes.status, 404, 'Missing static JS asset must return HTTP 404');
+
+      // Trailing slash on known public route & /index.html normalize cleanly via single-hop 301
+      const slashRes = await fetch(`${baseUrl}/about/`, { redirect: 'manual' });
+      assert.equal(slashRes.status, 301);
+      assert.equal(slashRes.headers.get('location'), '/about');
+
+      const indexHtmlRes = await fetch(`${baseUrl}/index.html`, { redirect: 'manual' });
+      assert.equal(indexHtmlRes.status, 301);
+      assert.equal(indexHtmlRes.headers.get('location'), '/');
+    } finally {
+      if (prevAppUrl === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = prevAppUrl;
+    }
 
     // Unauthenticated admin branding & full payment reset endpoints must reject access
     const adminBrandRes = await fetch(`${baseUrl}/api/admin/branding`);

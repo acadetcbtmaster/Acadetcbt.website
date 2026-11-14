@@ -741,3 +741,301 @@ export const PublicContactView: React.FC<PublicPageBaseProps> = ({ onNavigate })
     </div>
   );
 };
+
+export const PublicFaqView: React.FC<PublicPageBaseProps> = ({
+  onNavigate,
+  user,
+  onOpenDashboard,
+}) => {
+  const { branding } = useBranding();
+
+  const faqs = [
+    {
+      q: 'How much does one course registration cost on Acadet CBT?',
+      a: 'Every published course on Acadet CBT has a fixed total student payable amount of ₦2,350 (comprising ₦2,300 course registration value with Paystack transaction charges absorbed by Acadet CBT). Students are never charged extra gateway fees above ₦2,350.',
+    },
+    {
+      q: 'How do I verify my payment if my browser closed before activation?',
+      a: 'Copy your Paystack transaction reference from your payment confirmation email or Paystack receipt, sign in to your Acadet CBT student dashboard, open Payment Verification, paste the reference, and click VERIFY PAYMENT. Your course unlocks automatically once confirmed.',
+    },
+    {
+      q: 'Why am I asked to input my correct WhatsApp number before paying?',
+      a: 'Your WhatsApp number allows course administrators and tutors to confirm your registration record and connect you with official course tutorial group updates after payment confirmation.',
+    },
+    {
+      q: 'Can I download an official payment receipt?',
+      a: 'Yes. Open My Payment History in your dashboard and click View Receipt beside any confirmed transaction to view, print, or download your official PDF payment receipt.',
+    },
+    {
+      q: 'How are CBT exams graded and saved?',
+      a: 'Every selected option and examination timer update is persisted securely to PostgreSQL. Correct answers are never exposed to the browser during an active attempt; all scores and full answer explanations are computed server-side upon submission.',
+    },
+  ];
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+      <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="bg-[#0b337a] text-white px-6 py-6 flex items-center gap-3">
+          <HelpCircle className="w-6 h-6 shrink-0" />
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight">
+              Frequently Asked Questions
+            </h1>
+            <p className="text-xs sm:text-sm text-blue-100 mt-0.5">
+              Helpful answers about {branding.siteName} course registration, Paystack payments, and CBT practice exams.
+            </p>
+          </div>
+        </div>
+
+        <div className="p-5 sm:p-6 space-y-4">
+          {faqs.map((item) => (
+            <article
+              key={item.q}
+              className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-4 sm:p-5 space-y-1.5"
+            >
+              <h2 className="text-sm sm:text-base font-extrabold text-[#082252] dark:text-white">
+                {item.q}
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                {item.a}
+              </p>
+            </article>
+          ))}
+
+          <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 dark:border-slate-800">
+            <a
+              href="/contact"
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigate('/contact');
+              }}
+              className="text-xs sm:text-sm font-bold text-[#0b337a] dark:text-blue-300 hover:underline"
+            >
+              Still need assistance? Contact Support
+            </a>
+            <button
+              type="button"
+              onClick={() => {
+                if (user && onOpenDashboard) onOpenDashboard();
+                else onNavigate('/courses');
+              }}
+              className="px-4 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold min-h-[40px] inline-flex items-center gap-1.5"
+            >
+              <span>{user ? 'Open Dashboard' : 'Browse Available Courses'}</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const PublicPrivacyView: React.FC<PublicPageBaseProps> = ({ onNavigate }) => {
+  const { branding } = useBranding();
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="bg-[#0b337a] text-white px-6 py-6 flex items-center gap-3">
+          <ShieldCheck className="w-6 h-6 shrink-0" />
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight">Privacy Policy</h1>
+            <p className="text-xs sm:text-sm text-blue-100 mt-0.5">
+              How {branding.siteName} handles student accounts, payment verification, and academic records.
+            </p>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-5 text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+          <section className="space-y-1.5">
+            <h2 className="text-base font-extrabold text-[#082252] dark:text-white">
+              1. Information We Collect
+            </h2>
+            <p>
+              When you register on {branding.siteName}, we collect your full name, email address, username, target examination, and (when enrolling in a course) your WhatsApp contact number. Passwords are stored exclusively as salted cryptographic hashes.
+            </p>
+          </section>
+
+          <section className="space-y-1.5">
+            <h2 className="text-base font-extrabold text-[#082252] dark:text-white">
+              2. Payment Processing &amp; Financial Records
+            </h2>
+            <p>
+              All course payments are processed securely through Paystack. {branding.siteName} never stores raw card numbers, CVVs, or bank PINs. We store transaction references, course registration associations, and gateway verification metadata solely for course activation, official receipts, and financial audit integrity.
+            </p>
+          </section>
+
+          <section className="space-y-1.5">
+            <h2 className="text-base font-extrabold text-[#082252] dark:text-white">
+              3. Examination Attempts &amp; Study Data
+            </h2>
+            <p>
+              Practice attempts, timer states, and results are stored in our PostgreSQL database to display your personal score analytics and answer reviews. Student records are never sold or shared with third-party advertisers.
+            </p>
+          </section>
+
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+            <a
+              href="/terms"
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigate('/terms');
+              }}
+              className="text-xs sm:text-sm font-bold text-[#0b337a] dark:text-blue-300 hover:underline"
+            >
+              Read Terms of Use
+            </a>
+            <a
+              href="/contact"
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigate('/contact');
+              }}
+              className="text-xs sm:text-sm font-bold text-[#0a58ed] dark:text-blue-400 hover:underline"
+            >
+              Contact {branding.siteName} Support
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const PublicTermsView: React.FC<PublicPageBaseProps> = ({ onNavigate }) => {
+  const { branding } = useBranding();
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-sm overflow-hidden">
+        <div className="bg-[#0b337a] text-white px-6 py-6 flex items-center gap-3">
+          <FileCheck2 className="w-6 h-6 shrink-0" />
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight">Terms of Use</h1>
+            <p className="text-xs sm:text-sm text-blue-100 mt-0.5">
+              Platform guidelines for student accounts, course registration, and CBT practice on {branding.siteName}.
+            </p>
+          </div>
+        </div>
+
+        <div className="p-6 space-y-5 text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
+          <section className="space-y-1.5">
+            <h2 className="text-base font-extrabold text-[#082252] dark:text-white">
+              1. Course Registration &amp; Pricing
+            </h2>
+            <p>
+              Each published course unlocks access to its timed CBT simulations, practice banks, and associated study resources at a standardized registration fee of ₦2,350 total payable (₦2,300 course value, Paystack charges absorbed by {branding.siteName}). Access is bound to the verified student account and payment reference.
+            </p>
+          </section>
+
+          <section className="space-y-1.5">
+            <h2 className="text-base font-extrabold text-[#082252] dark:text-white">
+              2. Account Responsibility
+            </h2>
+            <p>
+              Students are responsible for providing accurate registration details (including an active WhatsApp number) and keeping account credentials private. Accounts found attempting unauthorized access, payment tampering, or automated scraping may be suspended.
+            </p>
+          </section>
+
+          <section className="space-y-1.5">
+            <h2 className="text-base font-extrabold text-[#082252] dark:text-white">
+              3. Payment Reference Verification
+            </h2>
+            <p>
+              Each Paystack transaction reference can activate only one matching course registration for the paying student account. If an automatic callback is interrupted, use Payment Verification in your dashboard to re-verify your reference.
+            </p>
+          </section>
+
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+            <a
+              href="/privacy"
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigate('/privacy');
+              }}
+              className="text-xs sm:text-sm font-bold text-[#0b337a] dark:text-blue-300 hover:underline"
+            >
+              Read Privacy Policy
+            </a>
+            <a
+              href="/courses"
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigate('/courses');
+              }}
+              className="text-xs sm:text-sm font-bold text-[#0a58ed] dark:text-blue-400 hover:underline"
+            >
+              Browse Available Courses
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const PublicNotFoundView: React.FC<{
+  pathname: string;
+  onNavigate: (path: string) => void;
+}> = ({ pathname, onNavigate }) => {
+  return (
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 py-12 sm:py-16">
+      <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-sm p-6 sm:p-8 text-center space-y-5">
+        <div className="inline-flex items-center px-3 py-1 rounded-lg bg-[#eff5ff] dark:bg-slate-800 text-[#0a58ed] dark:text-blue-300 text-xs font-extrabold tracking-widest uppercase">
+          404 · Page Not Found
+        </div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-[#082252] dark:text-white tracking-tight">
+          This Page Could Not Be Found
+        </h1>
+        <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+          The URL <code className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-xs font-mono">{pathname}</code> does not match an active page on Acadet CBT. Choose a valid destination below.
+        </p>
+
+        <div className="pt-1 flex flex-wrap items-center justify-center gap-2.5">
+          <a
+            href="/"
+            onClick={(e) => {
+              e.preventDefault();
+              onNavigate('/');
+            }}
+            className="px-5 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold min-h-[42px] inline-flex items-center gap-1.5"
+          >
+            <span>Go to Homepage</span>
+            <ArrowRight className="w-4 h-4" />
+          </a>
+          <a
+            href="/courses"
+            onClick={(e) => {
+              e.preventDefault();
+              onNavigate('/courses');
+            }}
+            className="px-4 py-2.5 rounded-xl border border-[#c6daf7] dark:border-slate-700 text-xs sm:text-sm font-bold text-[#0b337a] dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-slate-800 min-h-[42px] inline-flex items-center"
+          >
+            Browse Courses
+          </a>
+          <a
+            href="/faq"
+            onClick={(e) => {
+              e.preventDefault();
+              onNavigate('/faq');
+            }}
+            className="px-4 py-2.5 rounded-xl border border-[#c6daf7] dark:border-slate-700 text-xs sm:text-sm font-bold text-[#0b337a] dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-slate-800 min-h-[42px] inline-flex items-center"
+          >
+            Read FAQ
+          </a>
+          <a
+            href="/contact"
+            onClick={(e) => {
+              e.preventDefault();
+              onNavigate('/contact');
+            }}
+            className="px-4 py-2.5 rounded-xl border border-[#c6daf7] dark:border-slate-700 text-xs sm:text-sm font-bold text-[#0b337a] dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-slate-800 min-h-[42px] inline-flex items-center"
+          >
+            Contact Support
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+};

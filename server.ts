@@ -8,9 +8,11 @@ import { closePool, isDatabaseConfigured } from './src/db/index.js';
 import { runMigrations } from './src/db/migrate.js';
 import { seedDatabaseIfEmpty } from './src/db/seed.js';
 import {
+  classifyPathStatus,
   getPublicBrandingAndFounder,
   getSeoMetaForPath,
   injectSeoIntoHtml,
+  normalizeAppPath,
   resolveBaseUrl,
 } from './src/server/lib/branding.js';
 import adminRoutes from './src/server/routes/admin.js';
@@ -24,6 +26,21 @@ import paymentRoutes from './src/server/routes/payments.js';
 import publicRoutes from './src/server/routes/public.js';
 import resultRoutes from './src/server/routes/results.js';
 import webhookRoutes from './src/server/routes/webhooks.js';
+
+const STATIC_ASSET_EXT_RE =
+  /\.(?:js|mjs|cjs|css|map|png|jpg|jpeg|webp|gif|svg|ico|woff|woff2|ttf|eot|json|xml|txt|pdf|doc|docx)$/i;
+
+function decodeLegacySpaQueryRoute(originalUrl: string): string | null {
+  const qIndex = originalUrl.indexOf('?/');
+  if (qIndex === -1) return null;
+  const rawAfter = originalUrl.slice(qIndex + 2);
+  const hashIndex = rawAfter.indexOf('#');
+  const withoutHash = hashIndex === -1 ? rawAfter : rawAfter.slice(0, hashIndex);
+  const ampIndex = withoutHash.indexOf('&');
+  const routeSegment = ampIndex === -1 ? withoutHash : withoutHash.slice(0, ampIndex);
+  const decodedRoute = decodeURIComponent(routeSegment.replace(/~and~/g, '&'));
+  return normalizeAppPath(`/${decodedRoute}`);
+}
 
 export async function createApp(options?: { skipVite?: boolean }) {
   const app = express();
@@ -44,6 +61,41 @@ export async function createApp(options?: { skipVite?: boolean }) {
   app.use(express.urlencoded({ extended: true }));
   app.use(cookieParser());
 
+  // Single-hop HTTPS & canonical non-www redirect for public requests behind reverse proxy
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      next();
+      return;
+    }
+    if (req.path.startsWith('/api/')) {
+      next();
+      return;
+    }
+    const rawHost = (req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
+    const hostname = rawHost.split(':')[0].toLowerCase();
+    if (
+      !hostname ||
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname === '[::1]'
+    ) {
+      next();
+      return;
+    }
+
+    const protoHeader = (req.get('x-forwarded-proto') || '').split(',')[0].trim().toLowerCase();
+    const needsHttpsRedirect = protoHeader === 'http';
+    const isWwwAcadet = hostname === 'www.acadetcbt.website';
+
+    if (needsHttpsRedirect || isWwwAcadet) {
+      const targetHost = isWwwAcadet ? 'acadetcbt.website' : rawHost;
+      res.redirect(301, `https://${targetHost}${req.originalUrl}`);
+      return;
+    }
+    next();
+  });
+
   // API Routes
   app.use('/api/public', publicRoutes);
   app.use('/api/health', healthRoutes);
@@ -61,17 +113,20 @@ export async function createApp(options?: { skipVite?: boolean }) {
     res.status(404).json({ error: 'API endpoint not found.' });
   });
 
-  // Search Engine Discovery: Dynamic robots.txt & sitemap.xml matched to active domain
+  // Search Engine Discovery: Dynamic robots.txt & sitemap.xml matched strictly to authoritative canonical URL
   app.get('/robots.txt', (req, res) => {
     const baseUrl = resolveBaseUrl(req);
     const body = [
       'User-agent: *',
       'Allow: /',
-      'Allow: /about',
       'Allow: /courses',
+      'Allow: /about',
       'Allow: /how-it-works',
-      'Allow: /contact',
       'Allow: /founder',
+      'Allow: /faq',
+      'Allow: /contact',
+      'Allow: /privacy',
+      'Allow: /terms',
       'Allow: /acadet-logo.png',
       'Allow: /favicon.ico',
       'Allow: /favicon-48x48.png',
@@ -80,7 +135,9 @@ export async function createApp(options?: { skipVite?: boolean }) {
       'Allow: /favicon-512x512.png',
       'Allow: /apple-touch-icon.png',
       'Allow: /logo.png',
-      'Allow: /api/public/assets/',
+      'Allow: /manifest.json',
+      'Allow: /api/public/assets/logo',
+      'Allow: /api/public/assets/favicon',
       'Disallow: /api/',
       'Disallow: /admin',
       'Disallow: /dashboard',
@@ -89,20 +146,29 @@ export async function createApp(options?: { skipVite?: boolean }) {
       'Disallow: /payments',
       'Disallow: /notifications',
       'Disallow: /materials',
+      'Disallow: /404.html',
       '',
       'User-agent: Googlebot',
       'Allow: /',
-      'Allow: /about',
       'Allow: /courses',
+      'Allow: /about',
       'Allow: /how-it-works',
-      'Allow: /contact',
       'Allow: /founder',
-      'Allow: /api/public/assets/',
+      'Allow: /faq',
+      'Allow: /contact',
+      'Allow: /privacy',
+      'Allow: /terms',
+      'Allow: /api/public/assets/logo',
+      'Allow: /api/public/assets/favicon',
+      'Disallow: /api/',
       'Disallow: /admin',
       'Disallow: /dashboard',
       'Disallow: /exam',
       'Disallow: /results',
       'Disallow: /payments',
+      'Disallow: /notifications',
+      'Disallow: /materials',
+      'Disallow: /404.html',
       '',
       'User-agent: Googlebot-Image',
       'Allow: /acadet-logo.png',
@@ -110,7 +176,8 @@ export async function createApp(options?: { skipVite?: boolean }) {
       'Allow: /favicon-192x192.png',
       'Allow: /favicon-512x512.png',
       'Allow: /apple-touch-icon.png',
-      'Allow: /api/public/assets/',
+      'Allow: /api/public/assets/logo',
+      'Allow: /api/public/assets/favicon',
       '',
       `Sitemap: ${baseUrl}/sitemap.xml`,
     ].join('\n');
@@ -128,7 +195,10 @@ export async function createApp(options?: { skipVite?: boolean }) {
       { loc: `${baseUrl}/about`, changefreq: 'weekly', priority: '0.85' },
       { loc: `${baseUrl}/how-it-works`, changefreq: 'weekly', priority: '0.85' },
       { loc: `${baseUrl}/founder`, changefreq: 'weekly', priority: '0.9' },
+      { loc: `${baseUrl}/faq`, changefreq: 'weekly', priority: '0.85' },
       { loc: `${baseUrl}/contact`, changefreq: 'monthly', priority: '0.75' },
+      { loc: `${baseUrl}/privacy`, changefreq: 'monthly', priority: '0.5' },
+      { loc: `${baseUrl}/terms`, changefreq: 'monthly', priority: '0.5' },
     ];
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls
@@ -143,6 +213,26 @@ export async function createApp(options?: { skipVite?: boolean }) {
     res.status(200).send(xml);
   });
 
+  // Never serve legacy /404.html JS redirect with 200 OK; return proper 404 + noindex
+  app.get('/404.html', async (req, res) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.setHeader('Cache-Control', 'no-store');
+    try {
+      const static404Path = path.resolve(process.cwd(), 'public', '404.html');
+      const html = await fs.readFile(static404Path, 'utf-8');
+      res.status(404).type('html').send(html);
+    } catch {
+      res.status(404).type('html').send('<!doctype html><html><head><meta name="robots" content="noindex, nofollow"><title>404 Not Found</title></head><body><h1>404 - Page Not Found</h1><p><a href="/">Return to Acadet CBT Home</a></p></body></html>');
+    }
+  });
+
+  // Canonicalize /index.html -> / so crawlers never see duplicate root HTML
+  app.get('/index.html', (req, res) => {
+    const queryIdx = req.originalUrl.indexOf('?');
+    const suffix = queryIdx !== -1 ? req.originalUrl.slice(queryIdx) : '';
+    res.redirect(301, `/${suffix}`);
+  });
+
   const isProd = process.env.NODE_ENV === 'production';
 
   if (!isProd && !options?.skipVite) {
@@ -152,7 +242,7 @@ export async function createApp(options?: { skipVite?: boolean }) {
       appType: 'spa',
     });
     app.use(vite.middlewares);
-  } else if (isProd) {
+  } else {
     const distDir = path.resolve(process.cwd(), 'dist');
     app.use(
       express.static(distDir, {
@@ -160,16 +250,62 @@ export async function createApp(options?: { skipVite?: boolean }) {
         index: false,
       })
     );
+
     app.get('*', async (req, res) => {
-      const indexHtmlPath = path.join(distDir, 'index.html');
+      // Handle legacy GitHub Pages ?/path query format cleanly without hiding true 404s
+      let effectivePath = req.path;
+      if (req.path === '/' && req.originalUrl.startsWith('/?/')) {
+        const decodedRoute = decodeLegacySpaQueryRoute(req.originalUrl);
+        if (decodedRoute && classifyPathStatus(decodedRoute) !== 'not_found') {
+          res.redirect(301, decodedRoute);
+          return;
+        }
+        effectivePath = decodedRoute || '/404';
+      }
+
+      // Missing static files (/assets/*.js, missing images, etc.) must return true 404, not index.html
+      if (effectivePath.startsWith('/assets/') || STATIC_ASSET_EXT_RE.test(effectivePath)) {
+        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+        res.status(404).type('text/plain').send('Asset not found.');
+        return;
+      }
+
+      // Normalize trailing slash on known routes (e.g., /about/ -> /about) via clean single-hop 301
+      if (effectivePath.length > 1 && effectivePath.endsWith('/')) {
+        const cleanPath = normalizeAppPath(effectivePath);
+        if (classifyPathStatus(cleanPath) !== 'not_found') {
+          const queryIdx = req.originalUrl.indexOf('?');
+          const suffix = queryIdx !== -1 ? req.originalUrl.slice(queryIdx) : '';
+          res.redirect(301, `${cleanPath}${suffix}`);
+          return;
+        }
+      }
+
+      const routeStatus = classifyPathStatus(effectivePath);
+      const distIndexPath = path.join(distDir, 'index.html');
+      const rootIndexPath = path.resolve(process.cwd(), 'index.html');
+
       try {
         const [htmlTemplate, { branding, founder }] = await Promise.all([
-          fs.readFile(indexHtmlPath, 'utf-8'),
+          fs.readFile(distIndexPath, 'utf-8').catch(() => fs.readFile(rootIndexPath, 'utf-8')),
           getPublicBrandingAndFounder(),
         ]);
         const baseUrl = resolveBaseUrl(req);
-        const seoMeta = getSeoMetaForPath(req.path, baseUrl, branding, founder);
+        const seoMeta = getSeoMetaForPath(effectivePath, baseUrl, branding, founder);
         const html = injectSeoIntoHtml(htmlTemplate, seoMeta);
+
+        if (routeStatus === 'not_found') {
+          res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+          res.setHeader('Cache-Control', 'no-store');
+          res.status(404).type('html').send(html);
+          return;
+        }
+
+        if (routeStatus === 'private') {
+          res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+        }
+
         res.status(200).type('html').send(html);
       } catch {
         res.status(500).send('Application build artifacts missing. Run npm run build.');

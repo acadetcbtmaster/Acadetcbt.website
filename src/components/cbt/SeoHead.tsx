@@ -6,6 +6,7 @@ interface SeoHeadProps {
   branding: SiteBrandingData;
   founder: FounderProfileData;
   isPrivateAppRoute?: boolean;
+  isNotFoundRoute?: boolean;
 }
 
 function upsertMeta(attr: 'name' | 'property', key: string, content: string): void {
@@ -16,6 +17,13 @@ function upsertMeta(attr: 'name' | 'property', key: string, content: string): vo
     document.head.appendChild(el);
   }
   el.setAttribute('content', content);
+}
+
+function removeMeta(attr: 'name' | 'property', key: string): void {
+  const el = document.head.querySelector(`meta[${attr}="${key}"]`);
+  if (el && el.parentNode) {
+    el.parentNode.removeChild(el);
+  }
 }
 
 function upsertLink(rel: string, href: string, extra?: Record<string, string>): void {
@@ -36,17 +44,45 @@ function upsertLink(rel: string, href: string, extra?: Record<string, string>): 
   }
 }
 
+function removeLink(rel: string): void {
+  const el = document.head.querySelector(`link[rel="${rel}"]`);
+  if (el && el.parentNode) {
+    el.parentNode.removeChild(el);
+  }
+}
+
+function resolveClientCanonicalOrigin(): string {
+  if (typeof window === 'undefined' || !window.location) {
+    return 'https://acadetcbt.website';
+  }
+  const hostname = window.location.hostname.toLowerCase();
+  if (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname === '[::1]'
+  ) {
+    return window.location.origin.replace(/\/+$/, '');
+  }
+  if (
+    hostname === 'acadetcbt.website' ||
+    hostname === 'www.acadetcbt.website' ||
+    hostname.endsWith('.onrender.com')
+  ) {
+    return 'https://acadetcbt.website';
+  }
+  return `https://${window.location.host}`.replace(/\/+$/, '');
+}
+
 export const SeoHead: React.FC<SeoHeadProps> = ({
   pathname,
   branding,
   founder,
   isPrivateAppRoute = false,
+  isNotFoundRoute = false,
 }) => {
   useEffect(() => {
-    const origin =
-      typeof window !== 'undefined' && window.location.origin
-        ? window.location.origin.replace(/\/+$/, '')
-        : 'https://acadetcbt.website';
+    const origin = resolveClientCanonicalOrigin();
     const norm = (pathname || '/').replace(/\/+$/, '') || '/';
 
     const toAbs = (val: string | null | undefined, fallback: string) => {
@@ -61,12 +97,16 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
     let title = branding.seoTitle || `${branding.siteName} | ${branding.tagline}`;
     let description = branding.seoDescription || branding.siteDescription;
     let keywords = branding.seoKeywords;
-    let robots: 'index, follow' | 'noindex, nofollow' = isPrivateAppRoute
-      ? 'noindex, nofollow'
-      : 'index, follow';
+    let robots: 'index, follow' | 'noindex, nofollow' =
+      isPrivateAppRoute || isNotFoundRoute ? 'noindex, nofollow' : 'index, follow';
     let ogType: 'website' | 'profile' = 'website';
 
-    if (!isPrivateAppRoute) {
+    if (isNotFoundRoute) {
+      title = `Page Not Found (404) | ${branding.siteName}`;
+      description =
+        'The requested page could not be found on Acadet CBT. Explore available courses, frequently asked questions, or return to the homepage.';
+      robots = 'noindex, nofollow';
+    } else if (!isPrivateAppRoute) {
       if (norm === '/about') {
         title = `About ${branding.siteName} | ${branding.tagline}`;
         description =
@@ -79,10 +119,22 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
         title = `How It Works | ${branding.siteName}`;
         description =
           'How students register on Acadet CBT, pay securely with Paystack, download study materials, and take timed CBT examinations.';
+      } else if (norm === '/faq') {
+        title = `Frequently Asked Questions (FAQ) | ${branding.siteName}`;
+        description =
+          'Answers to common student questions on Acadet CBT course registration, fixed ₦2,350 pricing, Paystack reference verification, official receipts, and CBT exams.';
       } else if (norm === '/contact') {
         title = `Contact ${branding.siteName} | Support & Inquiries`;
         description =
           'Contact Acadet CBT support for course registration assistance, Paystack verification, or academic guidance.';
+      } else if (norm === '/privacy') {
+        title = `Privacy Policy | ${branding.siteName}`;
+        description =
+          'Read how Acadet CBT protects student account information, WhatsApp contact numbers, Paystack payment verification records, and examination results.';
+      } else if (norm === '/terms') {
+        title = `Terms of Use | ${branding.siteName}`;
+        description =
+          'Review Acadet CBT terms of use covering student accounts, ₦2,350 course registration, Paystack payment verification, and computer-based examination conduct.';
       } else if (norm === '/founder') {
         title = `${founder.fullName} — ${founder.positionTitle}`;
         description = founder.biography.slice(0, 160);
@@ -94,7 +146,7 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
       }
     }
 
-    const canonicalUrl = `${origin}${norm === '/' ? '/' : norm}`;
+    const canonicalUrl = isNotFoundRoute ? null : `${origin}${norm === '/' ? '/' : norm}`;
     document.title = title;
     upsertMeta('name', 'description', description);
     upsertMeta('name', 'keywords', keywords);
@@ -102,12 +154,18 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
     upsertMeta('property', 'og:title', title);
     upsertMeta('property', 'og:description', description);
     upsertMeta('property', 'og:type', ogType);
-    upsertMeta('property', 'og:url', canonicalUrl);
+    if (canonicalUrl) {
+      upsertMeta('property', 'og:url', canonicalUrl);
+      upsertLink('canonical', canonicalUrl);
+    } else {
+      removeMeta('property', 'og:url');
+      removeLink('canonical');
+    }
     upsertMeta('property', 'og:image', ogImage);
     upsertMeta('name', 'twitter:card', 'summary_large_image');
     upsertMeta('name', 'twitter:title', title);
     upsertMeta('name', 'twitter:description', description);
-    upsertLink('canonical', canonicalUrl);
+    upsertMeta('name', 'twitter:image', ogImage);
     upsertLink('icon', favicon48, { type: 'image/png', sizes: '48x48' });
 
     const sameAs = Object.values(branding.socialLinks || {}).filter(
@@ -149,7 +207,7 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
       document.head.appendChild(scriptEl);
     }
     scriptEl.textContent = JSON.stringify(orgSchema);
-  }, [pathname, branding, founder, isPrivateAppRoute]);
+  }, [pathname, branding, founder, isPrivateAppRoute, isNotFoundRoute]);
 
   return null;
 };

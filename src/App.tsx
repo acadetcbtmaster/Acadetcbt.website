@@ -29,8 +29,12 @@ import {
   PublicAboutView,
   PublicContactView,
   PublicCoursesView,
+  PublicFaqView,
   PublicHomeView,
   PublicHowItWorksView,
+  PublicNotFoundView,
+  PublicPrivacyView,
+  PublicTermsView,
 } from './components/public/PublicPages';
 import { PublicShell } from './components/public/PublicShell';
 import { api, ApiError } from './lib/api';
@@ -55,11 +59,26 @@ const SUB_PUBLIC_PATHS = new Set([
   '/about',
   '/courses',
   '/how-it-works',
+  '/faq',
   '/contact',
+  '/privacy',
+  '/terms',
   '/founder',
 ]);
 
 const INDEXABLE_PUBLIC_PATHS = new Set(['/', ...SUB_PUBLIC_PATHS]);
+
+const APP_PRIVATE_PATHS = new Set([
+  '/login',
+  '/register',
+  '/dashboard',
+  '/exam',
+  '/results',
+  '/payments',
+  '/notifications',
+  '/materials',
+  '/admin',
+]);
 
 function normalizePathname(raw: string): string {
   const cleaned = (raw || '/').split('?')[0].split('#')[0].replace(/\/+$/, '');
@@ -477,6 +496,9 @@ export default function App() {
   };
 
   const isViewingSubPublicPage = SUB_PUBLIC_PATHS.has(currentPath);
+  const isKnownRoute =
+    INDEXABLE_PUBLIC_PATHS.has(currentPath) || APP_PRIVATE_PATHS.has(currentPath);
+  const isNotFoundRoute = !isKnownRoute;
   const isPublicIndexableRoute =
     INDEXABLE_PUBLIC_PATHS.has(currentPath) && (!user || isViewingSubPublicPage);
 
@@ -523,6 +545,19 @@ export default function App() {
         />
       );
     }
+    if (currentPath === '/faq') {
+      return (
+        <PublicFaqView
+          courses={publicCourses}
+          user={user}
+          onNavigate={navigateTo}
+          onOpenDashboard={() => {
+            setActiveTab('help');
+            navigateTo('/');
+          }}
+        />
+      );
+    }
     if (currentPath === '/contact') {
       return (
         <PublicContactView
@@ -531,6 +566,32 @@ export default function App() {
           onNavigate={navigateTo}
           onOpenDashboard={() => {
             setActiveTab('help');
+            navigateTo('/');
+          }}
+        />
+      );
+    }
+    if (currentPath === '/privacy') {
+      return (
+        <PublicPrivacyView
+          courses={publicCourses}
+          user={user}
+          onNavigate={navigateTo}
+          onOpenDashboard={() => {
+            setActiveTab('home');
+            navigateTo('/');
+          }}
+        />
+      );
+    }
+    if (currentPath === '/terms') {
+      return (
+        <PublicTermsView
+          courses={publicCourses}
+          user={user}
+          onNavigate={navigateTo}
+          onOpenDashboard={() => {
+            setActiveTab('home');
             navigateTo('/');
           }}
         />
@@ -604,7 +665,24 @@ export default function App() {
       );
     }
 
-    // Sub-public informational pages (/about, /courses, /how-it-works, /contact, /founder)
+    // Genuine unknown routes always display a clean 404 page instead of hiding behind `/` or login
+    if (isNotFoundRoute) {
+      return (
+        <PublicShell
+          currentPath={currentPath}
+          user={user}
+          onNavigate={navigateTo}
+          onReturnToDashboard={() => {
+            setActiveTab('home');
+            navigateTo('/');
+          }}
+        >
+          <PublicNotFoundView pathname={currentPath} onNavigate={navigateTo} />
+        </PublicShell>
+      );
+    }
+
+    // Sub-public informational pages (/about, /courses, /how-it-works, /faq, /contact, /privacy, /terms, /founder)
     // remain accessible anytime (both signed out & signed in)
     if (isViewingSubPublicPage) {
       return (
@@ -941,6 +1019,7 @@ export default function App() {
         branding={branding}
         founder={founder}
         isPrivateAppRoute={!isPublicIndexableRoute}
+        isNotFoundRoute={isNotFoundRoute}
       />
       {renderMainContent()}
     </BrandingProvider>

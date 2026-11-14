@@ -18,7 +18,10 @@ export type PublicRoutePath =
   | '/courses'
   | '/how-it-works'
   | '/founder'
-  | '/contact';
+  | '/faq'
+  | '/contact'
+  | '/privacy'
+  | '/terms';
 
 interface PublicShellProps {
   currentPath: string;
@@ -35,6 +38,12 @@ const NAV_LINKS: Array<{ path: PublicRoutePath; label: string }> = [
   { path: '/how-it-works', label: 'How It Works' },
   { path: '/founder', label: 'Founder' },
   { path: '/contact', label: 'Contact' },
+];
+
+const FOOTER_SUPPORT_LINKS: Array<{ path: PublicRoutePath; label: string }> = [
+  { path: '/faq', label: 'FAQ' },
+  { path: '/privacy', label: 'Privacy Policy' },
+  { path: '/terms', label: 'Terms of Use' },
 ];
 
 export function renderSocialLinkLabel(key: keyof SocialLinksMap): string {
@@ -233,8 +242,8 @@ export const PublicShell: React.FC<PublicShellProps> = ({
             <div className="text-xs font-extrabold uppercase tracking-wider text-blue-200">
               Platform
             </div>
-            <ul className="space-y-1.5 text-xs sm:text-sm text-blue-100">
-              {NAV_LINKS.map((item) => (
+            <ul className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs sm:text-sm text-blue-100">
+              {[...NAV_LINKS, ...FOOTER_SUPPORT_LINKS].map((item) => (
                 <li key={item.path}>
                   <a
                     href={item.path}

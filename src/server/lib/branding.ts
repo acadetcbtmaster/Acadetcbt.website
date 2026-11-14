@@ -302,18 +302,94 @@ export async function getPublicPublishedCourses(): Promise<PublicCourseSummary[]
   }
 }
 
+export const PUBLIC_INDEXABLE_PATHS = [
+  '/',
+  '/courses',
+  '/about',
+  '/how-it-works',
+  '/founder',
+  '/faq',
+  '/contact',
+  '/privacy',
+  '/terms',
+] as const;
+
+export const APP_PRIVATE_PATHS = [
+  '/login',
+  '/register',
+  '/dashboard',
+  '/exam',
+  '/results',
+  '/payments',
+  '/notifications',
+  '/materials',
+  '/admin',
+] as const;
+
+const PUBLIC_INDEXABLE_SET = new Set<string>(PUBLIC_INDEXABLE_PATHS);
+const APP_PRIVATE_SET = new Set<string>(APP_PRIVATE_PATHS);
+
+export function normalizeAppPath(pathname: string | null | undefined): string {
+  const withoutQuery = (pathname || '/').split('?')[0].split('#')[0].trim();
+  const collapsed = withoutQuery.replace(/\/+/g, '/');
+  if (!collapsed || collapsed === '/') return '/';
+  const trimmed = collapsed.replace(/\/+$/, '');
+  return trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+}
+
+export function classifyPathStatus(
+  pathname: string | null | undefined
+): 'public' | 'private' | 'not_found' {
+  const norm = normalizeAppPath(pathname);
+  if (PUBLIC_INDEXABLE_SET.has(norm)) return 'public';
+  if (APP_PRIVATE_SET.has(norm)) return 'private';
+  return 'not_found';
+}
+
+function isLocalHostname(host: string): boolean {
+  const hostname = host.split(':')[0].toLowerCase();
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname === '[::1]' ||
+    hostname.endsWith('.local')
+  );
+}
+
 export function resolveBaseUrl(req?: {
   protocol?: string;
   get?: (name: string) => string | undefined;
 }): string {
   const configured = sanitizePublicUrl(process.env.APP_URL);
-  if (configured) return configured.replace(/\/+$/, '');
+  if (configured) {
+    try {
+      const parsed = new URL(configured);
+      if (!isLocalHostname(parsed.hostname) && parsed.protocol === 'http:') {
+        parsed.protocol = 'https:';
+      }
+      return parsed.toString().replace(/\/+$/, '');
+    } catch {
+      return configured.replace(/\/+$/, '');
+    }
+  }
   if (req?.get) {
-    const host = req.get('x-forwarded-host') || req.get('host');
-    const protoHeader = req.get('x-forwarded-proto');
-    const proto = protoHeader ? protoHeader.split(',')[0].trim() : req.protocol || 'https';
+    const host = (req.get('x-forwarded-host') || req.get('host') || '').split(',')[0].trim();
     if (host) {
-      return `${proto}://${host}`.replace(/\/+$/, '');
+      if (isLocalHostname(host)) {
+        const protoHeader = req.get('x-forwarded-proto');
+        const proto = protoHeader ? protoHeader.split(',')[0].trim() : req.protocol || 'http';
+        return `${proto}://${host}`.replace(/\/+$/, '');
+      }
+      const hostname = host.split(':')[0].toLowerCase();
+      if (
+        hostname === 'acadetcbt.website' ||
+        hostname === 'www.acadetcbt.website' ||
+        hostname.endsWith('.onrender.com')
+      ) {
+        return 'https://acadetcbt.website';
+      }
+      return `https://${host}`.replace(/\/+$/, '');
     }
   }
   return 'https://acadetcbt.website';
@@ -374,12 +450,13 @@ export interface RouteSeoMeta {
   title: string;
   description: string;
   keywords: string;
-  canonicalUrl: string;
+  canonicalUrl: string | null;
   robots: 'index, follow' | 'noindex, nofollow';
   ogType: 'website' | 'profile';
   ogImage: string;
   faviconUrl: string;
   jsonLd: Array<Record<string, unknown>>;
+  isNotFound?: boolean;
 }
 
 export function getSeoMetaForPath(
@@ -389,7 +466,7 @@ export function getSeoMetaForPath(
   founder: FounderProfileData
 ): RouteSeoMeta {
   const cleanBase = baseUrl.replace(/\/+$/, '');
-  const norm = (pathname || '/').replace(/\/+$/, '') || '/';
+  const norm = normalizeAppPath(pathname);
   const orgJsonLd = buildOrganizationJsonLd(cleanBase, branding, founder);
   const ogImage = toAbsoluteAssetUrl(cleanBase, branding.logoUrl, '/acadet-logo.png');
   const faviconUrl = toAbsoluteAssetUrl(cleanBase, branding.faviconUrl, '/favicon-48x48.png');
@@ -453,6 +530,21 @@ export function getSeoMetaForPath(
     };
   }
 
+  if (norm === '/faq') {
+    return {
+      title: `Frequently Asked Questions (FAQ) | ${branding.siteName}`,
+      description:
+        'Answers to common student questions on Acadet CBT course registration, fixed ₦2,350 pricing, Paystack reference verification, official receipts, and CBT exams.',
+      keywords: `Acadet CBT FAQ, Course Registration FAQ, Paystack Payment Verification, ${branding.seoKeywords}`,
+      canonicalUrl: `${cleanBase}/faq`,
+      robots: 'index, follow',
+      ogType: 'website',
+      ogImage,
+      faviconUrl,
+      jsonLd: [orgJsonLd],
+    };
+  }
+
   if (norm === '/contact') {
     return {
       title: `Contact ${branding.siteName} | Student Support`,
@@ -460,6 +552,36 @@ export function getSeoMetaForPath(
         'Get in touch with Acadet CBT support for course registration assistance, Paystack verification help, or academic platform inquiries.',
       keywords: branding.seoKeywords,
       canonicalUrl: `${cleanBase}/contact`,
+      robots: 'index, follow',
+      ogType: 'website',
+      ogImage,
+      faviconUrl,
+      jsonLd: [orgJsonLd],
+    };
+  }
+
+  if (norm === '/privacy') {
+    return {
+      title: `Privacy Policy | ${branding.siteName}`,
+      description:
+        'Read how Acadet CBT protects student account information, WhatsApp contact numbers, Paystack payment verification records, and examination results.',
+      keywords: `Acadet CBT Privacy Policy, Student Data Protection, ${branding.seoKeywords}`,
+      canonicalUrl: `${cleanBase}/privacy`,
+      robots: 'index, follow',
+      ogType: 'website',
+      ogImage,
+      faviconUrl,
+      jsonLd: [orgJsonLd],
+    };
+  }
+
+  if (norm === '/terms') {
+    return {
+      title: `Terms of Use | ${branding.siteName}`,
+      description:
+        'Review Acadet CBT terms of use covering student accounts, ₦2,350 course registration, Paystack payment verification, and computer-based examination conduct.',
+      keywords: `Acadet CBT Terms of Use, Course Registration Policy, ${branding.seoKeywords}`,
+      canonicalUrl: `${cleanBase}/terms`,
       robots: 'index, follow',
       ogType: 'website',
       ogImage,
@@ -504,17 +626,39 @@ export function getSeoMetaForPath(
     };
   }
 
-  // Private/auth pages remain noindex, nofollow
+  if (classifyPathStatus(norm) === 'private') {
+    const pageLabel =
+      norm === '/login'
+        ? 'Student & Staff Sign In'
+        : norm === '/register'
+          ? 'Create Student Account'
+          : branding.tagline;
+    return {
+      title: `${pageLabel} | ${branding.siteName}`,
+      description: branding.seoDescription,
+      keywords: branding.seoKeywords,
+      canonicalUrl: `${cleanBase}${norm}`,
+      robots: 'noindex, nofollow',
+      ogType: 'website',
+      ogImage,
+      faviconUrl,
+      jsonLd: [orgJsonLd],
+    };
+  }
+
+  // Genuine 404 routes never advertise a canonical link or indexable meta
   return {
-    title: `${branding.siteName} | ${branding.tagline}`,
-    description: branding.seoDescription,
+    title: `Page Not Found (404) | ${branding.siteName}`,
+    description:
+      'The requested page could not be found on Acadet CBT. Explore available courses, frequently asked questions, or return to the homepage.',
     keywords: branding.seoKeywords,
-    canonicalUrl: `${cleanBase}${norm}`,
+    canonicalUrl: null,
     robots: 'noindex, nofollow',
     ogType: 'website',
     ogImage,
     faviconUrl,
     jsonLd: [orgJsonLd],
+    isNotFound: true,
   };
 }
 
@@ -537,20 +681,23 @@ export function injectSeoIntoHtml(
     )
     .join('\n    ');
 
+  const canonicalTags = meta.canonicalUrl
+    ? `\n    <link rel="canonical" href="${escapeHtmlAttr(meta.canonicalUrl)}" />\n    <meta property="og:url" content="${escapeHtmlAttr(meta.canonicalUrl)}" />`
+    : '';
+
   const headTags = `
     <title>${escapeHtmlAttr(meta.title)}</title>
     <meta name="description" content="${escapeHtmlAttr(meta.description)}" />
     <meta name="keywords" content="${escapeHtmlAttr(meta.keywords)}" />
-    <meta name="robots" content="${meta.robots}" />
-    <link rel="canonical" href="${escapeHtmlAttr(meta.canonicalUrl)}" />
+    <meta name="robots" content="${meta.robots}" />${canonicalTags}
     <meta property="og:title" content="${escapeHtmlAttr(meta.title)}" />
     <meta property="og:description" content="${escapeHtmlAttr(meta.description)}" />
     <meta property="og:type" content="${meta.ogType}" />
-    <meta property="og:url" content="${escapeHtmlAttr(meta.canonicalUrl)}" />
     <meta property="og:image" content="${escapeHtmlAttr(meta.ogImage)}" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtmlAttr(meta.title)}" />
     <meta name="twitter:description" content="${escapeHtmlAttr(meta.description)}" />
+    <meta name="twitter:image" content="${escapeHtmlAttr(meta.ogImage)}" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="icon" type="image/png" sizes="48x48" href="${escapeHtmlAttr(meta.faviconUrl)}" />
     <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192x192.png" />
