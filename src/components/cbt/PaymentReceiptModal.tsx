@@ -78,7 +78,7 @@ export const PaymentReceiptModal: React.FC<PaymentReceiptModalProps> = ({
       ctx.fillRect(24, 24, width - 48, 152);
 
       // Load crest logo cleanly if same-origin / accessible
-      const logoUrl = branding.logoUrl || '/assets/aistudio/WA_1794571707704_e8aabc00.png';
+      const logoUrl = branding.logoUrl || '/acadet-logo.png';
       try {
         const img = await new Promise<HTMLImageElement>((resolve, reject) => {
           const i = new Image();
