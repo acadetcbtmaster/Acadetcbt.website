@@ -1,18 +1,23 @@
 {
-  "name": "Acadet CBT MASTER - Mobile Suite",
+  "name": "Acadet CBT – Online CBT Practice and Learning Platform",
   "short_name": "Acadet CBT",
-  "description": "Modern University Learning & Computer-Based Test Practice Suite. Practice past questions, simulate timed exams, and download offline course materials.",
+  "description": "Acadet CBT is an online CBT practice and learning platform in Nigeria for JAMB UTME preparation, 100 Level university tutorials, courses, and study materials.",
   "start_url": "/",
   "scope": "/",
   "id": "/",
   "display": "standalone",
   "display_override": ["standalone", "window-controls-overlay", "minimal-ui"],
   "orientation": "portrait-primary",
-  "background_color": "#090d16",
-  "theme_color": "#1e3a8a",
+  "background_color": "#ffffff",
+  "theme_color": "#0b337a",
   "categories": ["education", "productivity", "utilities"],
   "prefer_related_applications": false,
   "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "16x16 32x32 48x48",
+      "type": "image/x-icon"
+    },
     {
       "src": "/favicon-48x48.png",
       "sizes": "48x48",

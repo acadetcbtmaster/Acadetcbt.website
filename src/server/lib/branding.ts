@@ -769,8 +769,12 @@ export function injectSeoIntoHtml(
     <meta name="twitter:title" content="${escapeHtmlAttr(meta.title)}" />
     <meta name="twitter:description" content="${escapeHtmlAttr(meta.description)}" />
     <meta name="twitter:image" content="${escapeHtmlAttr(meta.ogImage)}" />
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="shortcut icon" href="/favicon.ico" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="48x48" href="${escapeHtmlAttr(meta.faviconUrl)}" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/favicon-96x96.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192x192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     ${safeJsonLd}`;
@@ -781,7 +785,7 @@ export function injectSeoIntoHtml(
     .replace(/<meta\s+[^>]*name="(?:application-name|description|keywords|robots)"[^>]*>/gi, '')
     .replace(/<meta\s+[^>]*property="og:[^"]*"[^>]*>/gi, '')
     .replace(/<meta\s+[^>]*name="twitter:[^"]*"[^>]*>/gi, '')
-    .replace(/<link\s+[^>]*rel="(?:canonical|icon|apple-touch-icon)"[^>]*>/gi, '')
+    .replace(/<link\s+[^>]*rel="(?:canonical|icon|shortcut icon|apple-touch-icon)"[^>]*>/gi, '')
     .replace(/<script\s+[^>]*type="application\/ld\+json"[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<noscript id="acadet-seo-noscript">[\s\S]*?<\/noscript>/gi, '');
 

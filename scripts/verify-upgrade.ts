@@ -349,15 +349,38 @@ async function verifyUpgrade() {
   );
 
   console.log('[Upgrade Verification] Auditing official logo PNGs, favicons & Organization JSON-LD...');
-  for (const imgRel of ['public/acadet-logo.png', 'public/favicon-48x48.png']) {
+  const expectedIconDims: Array<[string, number]> = [
+    ['public/acadet-logo.png', 1024],
+    ['public/logo.png', 1024],
+    ['public/favicon.png', 48],
+    ['public/favicon-16x16.png', 16],
+    ['public/favicon-32x32.png', 32],
+    ['public/favicon-48x48.png', 48],
+    ['public/favicon-96x96.png', 96],
+    ['public/apple-touch-icon.png', 180],
+    ['public/favicon-192x192.png', 192],
+    ['public/favicon-512x512.png', 512],
+  ];
+  for (const [imgRel, expectedSize] of expectedIconDims) {
     const buf = await fs.readFile(path.resolve(process.cwd(), imgRel));
     assert.equal(buf.subarray(0, 8).toString('hex'), '89504e470d0a1a0a', `${imgRel} must have valid PNG signature`);
     const width = buf.readUInt32BE(16);
     const height = buf.readUInt32BE(20);
-    assert.ok(width >= 48 && height >= 48 && width === height, `${imgRel} must be square >= 48x48 (got ${width}x${height})`);
+    assert.equal(width, expectedSize, `${imgRel} width must be ${expectedSize} (got ${width})`);
+    assert.equal(height, expectedSize, `${imgRel} height must be ${expectedSize} (got ${height})`);
   }
   const icoBuf = await fs.readFile(path.resolve(process.cwd(), 'public/favicon.ico'));
   assert.equal(icoBuf.subarray(0, 4).toString('hex'), '00000100', 'public/favicon.ico must have valid ICO header');
+  const icoCount = icoBuf.readUInt16LE(4);
+  const icoDims: number[] = [];
+  for (let i = 0; i < icoCount; i++) {
+    const o = 6 + i * 16;
+    icoDims.push(icoBuf[o] || 256);
+  }
+  assert.ok(
+    icoDims.includes(16) && icoDims.includes(32) && icoDims.includes(48),
+    `public/favicon.ico must contain 16, 32, and 48px icons (got ${icoDims.join(',')})`
+  );
 
   assert.equal(
     DEFAULT_SITE_BRANDING.seoTitle,
@@ -621,7 +644,40 @@ async function verifyUpgrade() {
             pageHtml.includes('<title>Acadet CBT – Online CBT Practice and Learning Platform</title>'),
             'Homepage HTML must serve updated Acadet CBT SEO title'
           );
+          for (const requiredIconTag of [
+            'href="/favicon.ico"',
+            'href="/favicon-16x16.png"',
+            'href="/favicon-32x32.png"',
+            `href="${baseUrl}/favicon-48x48.png"`,
+            'href="/favicon-96x96.png"',
+            'href="/favicon-192x192.png"',
+            'href="/apple-touch-icon.png"',
+            'href="/manifest.json"',
+          ]) {
+            assert.ok(
+              pageHtml.includes(requiredIconTag),
+              `Homepage HTML must include favicon link ${requiredIconTag}`
+            );
+          }
+          assert.equal(
+            pageHtml.match(/sizes="48x48"/g)?.length,
+            1,
+            'Homepage HTML must not duplicate 48x48 favicon link'
+          );
         }
+      }
+
+      const robotsRes = await fetch(`${baseUrl}/robots.txt`);
+      assert.equal(robotsRes.status, 200);
+      const robotsTxt = await robotsRes.text();
+      for (const allowedIcon of [
+        'Allow: /favicon.ico',
+        'Allow: /favicon-48x48.png',
+        'Allow: /favicon-96x96.png',
+        'Allow: /apple-touch-icon.png',
+        'Allow: /acadet-logo.png',
+      ]) {
+        assert.ok(robotsTxt.includes(allowedIcon), `robots.txt must include ${allowedIcon}`);
       }
 
       // Legacy /404.html, nonexistent routes, and nonexistent assets must return real HTTP 404 (not 200 or redirect)

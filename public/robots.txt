@@ -10,6 +10,9 @@ Allow: /privacy
 Allow: /terms
 Allow: /acadet-logo.png
 Allow: /favicon.ico
+Allow: /favicon.png
+Allow: /favicon-16x16.png
+Allow: /favicon-32x32.png
 Allow: /favicon-48x48.png
 Allow: /favicon-96x96.png
 Allow: /favicon-192x192.png
@@ -39,6 +42,18 @@ Allow: /faq
 Allow: /contact
 Allow: /privacy
 Allow: /terms
+Allow: /acadet-logo.png
+Allow: /favicon.ico
+Allow: /favicon.png
+Allow: /favicon-16x16.png
+Allow: /favicon-32x32.png
+Allow: /favicon-48x48.png
+Allow: /favicon-96x96.png
+Allow: /favicon-192x192.png
+Allow: /favicon-512x512.png
+Allow: /apple-touch-icon.png
+Allow: /logo.png
+Allow: /manifest.json
 Allow: /api/public/assets/logo
 Allow: /api/public/assets/favicon
 Disallow: /api/
@@ -53,10 +68,16 @@ Disallow: /404.html
 
 User-agent: Googlebot-Image
 Allow: /acadet-logo.png
+Allow: /favicon.ico
+Allow: /favicon.png
+Allow: /favicon-16x16.png
+Allow: /favicon-32x32.png
 Allow: /favicon-48x48.png
+Allow: /favicon-96x96.png
 Allow: /favicon-192x192.png
 Allow: /favicon-512x512.png
 Allow: /apple-touch-icon.png
+Allow: /logo.png
 Allow: /api/public/assets/logo
 Allow: /api/public/assets/favicon
 

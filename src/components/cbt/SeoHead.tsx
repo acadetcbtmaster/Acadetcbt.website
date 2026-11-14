@@ -29,7 +29,7 @@ function removeMeta(attr: 'name' | 'property', key: string): void {
 function upsertLink(rel: string, href: string, extra?: Record<string, string>): void {
   const selector = extra?.sizes
     ? `link[rel="${rel}"][sizes="${extra.sizes}"]`
-    : `link[rel="${rel}"]`;
+    : `link[rel="${rel}"]:not([sizes])`;
   let el = document.head.querySelector(selector) as HTMLLinkElement | null;
   if (!el) {
     el = document.createElement('link');
@@ -171,7 +171,28 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
     upsertMeta('name', 'twitter:title', title);
     upsertMeta('name', 'twitter:description', description);
     upsertMeta('name', 'twitter:image', ogImage);
+    upsertLink('icon', toAbs('/favicon.ico', '/favicon.ico'), { sizes: 'any' });
+    upsertLink('shortcut icon', toAbs('/favicon.ico', '/favicon.ico'));
+    upsertLink('icon', toAbs('/favicon-16x16.png', '/favicon-16x16.png'), {
+      type: 'image/png',
+      sizes: '16x16',
+    });
+    upsertLink('icon', toAbs('/favicon-32x32.png', '/favicon-32x32.png'), {
+      type: 'image/png',
+      sizes: '32x32',
+    });
     upsertLink('icon', favicon48, { type: 'image/png', sizes: '48x48' });
+    upsertLink('icon', toAbs('/favicon-96x96.png', '/favicon-96x96.png'), {
+      type: 'image/png',
+      sizes: '96x96',
+    });
+    upsertLink('icon', toAbs('/favicon-192x192.png', '/favicon-192x192.png'), {
+      type: 'image/png',
+      sizes: '192x192',
+    });
+    upsertLink('apple-touch-icon', toAbs('/apple-touch-icon.png', '/apple-touch-icon.png'), {
+      sizes: '180x180',
+    });
 
     const sameAs = Object.values(branding.socialLinks || {}).filter(
       (v): v is string => typeof v === 'string' && v.startsWith('http')
