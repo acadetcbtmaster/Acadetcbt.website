@@ -30,6 +30,7 @@ export interface EmailServiceConfigSummary {
   apiUrl: string | null;
   apiKeyMasked: string | null;
   fromEmail: string | null;
+  replyToEmail: string | null;
   appBaseUrl: string;
   connectionStatus: EmailServiceConnectionStatus;
   lastCheckedAt: string | null;
@@ -55,6 +56,24 @@ export const REQUIRED_EMAIL_ENV_VARS = [
   'APP_BASE_URL',
 ] as const;
 
+const FREE_CONSUMER_EMAIL_DOMAINS = new Set([
+  'gmail.com',
+  'googlemail.com',
+  'yahoo.com',
+  'yahoo.co.uk',
+  'outlook.com',
+  'hotmail.com',
+  'live.com',
+  'msn.com',
+  'aol.com',
+  'icloud.com',
+  'me.com',
+  'proton.me',
+  'protonmail.com',
+  'ymail.com',
+  'mail.com',
+]);
+
 let runtimeConnectionStatus: EmailServiceConnectionStatus = 'unknown';
 let runtimeLastCheckedAt: string | null = null;
 let runtimeLastError: string | null = null;
@@ -72,7 +91,7 @@ function sanitizeEmailApiErrorMessage(err: unknown): string {
     .replace(/Bearer\s+[A-Za-z0-9._\-]+/gi, 'Bearer [REDACTED]')
     .replace(/\blk_(?:live|test)_[A-Za-z0-9_\-]+/gi, '[REDACTED_LOCKALLY_KEY]');
 
-  return cleaned.slice(0, 320);
+  return cleaned.slice(0, 500);
 }
 
 function maskApiKey(raw: string | undefined): string | null {
@@ -80,6 +99,57 @@ function maskApiKey(raw: string | undefined): string | null {
   if (!val) return null;
   if (val.length <= 10) return '****';
   return `${val.slice(0, 8)}...${val.slice(-4)}`;
+}
+
+/**
+ * Extracts a bare local@domain email address if configured with display-name syntax
+ * (e.g. "Acadet CBT <noreply@acadetcbt.website>" -> "noreply@acadetcbt.website").
+ */
+export function extractBareEmailAddress(raw: string | undefined | null): string | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) return null;
+  const angleMatch = trimmed.match(/<([^<>\s]+@[^<>\s]+)>/);
+  const candidate = (angleMatch ? angleMatch[1] : trimmed).trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate)) {
+    return null;
+  }
+  return candidate;
+}
+
+function isNoReplyAddress(email: string): boolean {
+  const local = (email.split('@')[0] || '').toLowerCase();
+  return /^(no-?reply|donotreply|do-not-reply|mailer-daemon)$/.test(local);
+}
+
+export function resolveReplyToAddress(
+  fromEmail: string | null,
+  preferredContactEmail?: string | null
+): string {
+  const candidates = [
+    extractBareEmailAddress(process.env.LOCKALLY_REPLY_TO_EMAIL),
+    extractBareEmailAddress(process.env.EMAIL_REPLY_TO),
+    extractBareEmailAddress(preferredContactEmail),
+    'support@acadetcbt.website',
+  ];
+
+  for (const candidate of candidates) {
+    if (
+      candidate &&
+      !isNoReplyAddress(candidate) &&
+      (!fromEmail || candidate.toLowerCase() !== fromEmail.toLowerCase())
+    ) {
+      return candidate;
+    }
+  }
+
+  if (fromEmail && fromEmail.includes('@')) {
+    const domain = fromEmail.split('@')[1]?.toLowerCase();
+    if (domain && !FREE_CONSUMER_EMAIL_DOMAINS.has(domain)) {
+      return `support@${domain}`;
+    }
+  }
+
+  return 'support@acadetcbt.website';
 }
 
 /**
@@ -116,7 +186,8 @@ export function getEmailConfigSummary(): EmailServiceConfigSummary {
   const rawApiUrl = process.env.LOCKALLY_API_URL?.trim() || '';
   const apiUrl = normalizeLockallyApiBaseUrl(rawApiUrl);
   // SMTP_FROM_EMAIL is used strictly as the verified Lockally sender email address (no SMTP).
-  const fromEmail = process.env.SMTP_FROM_EMAIL?.trim() || null;
+  const rawFromEmail = process.env.SMTP_FROM_EMAIL?.trim() || null;
+  const fromEmail = extractBareEmailAddress(rawFromEmail) || rawFromEmail;
   const appBaseUrlEnv = process.env.APP_BASE_URL?.trim() || null;
 
   const missingVariables: string[] = [];
@@ -132,7 +203,14 @@ export function getEmailConfigSummary(): EmailServiceConfigSummary {
     );
   }
   if (fromEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fromEmail)) {
-    validationErrors.push('SMTP_FROM_EMAIL must be a valid verified sender email address.');
+    validationErrors.push('SMTP_FROM_EMAIL must be a valid verified sender email address (e.g. noreply@acadetcbt.website).');
+  } else if (fromEmail) {
+    const senderDomain = fromEmail.split('@')[1]?.toLowerCase() || '';
+    if (FREE_CONSUMER_EMAIL_DOMAINS.has(senderDomain)) {
+      validationErrors.push(
+        `SMTP_FROM_EMAIL (${fromEmail}) uses a public email domain (@${senderDomain}). Set SMTP_FROM_EMAIL=noreply@acadetcbt.website (a verified domain in Lockally).`
+      );
+    }
   }
   if (appBaseUrlEnv && !/^https?:\/\//i.test(appBaseUrlEnv)) {
     validationErrors.push('APP_BASE_URL must start with https:// or http://.');
@@ -156,12 +234,15 @@ export function getEmailConfigSummary(): EmailServiceConfigSummary {
     apiUrl,
     apiKeyMasked: maskApiKey(apiKey || undefined),
     fromEmail,
+    replyToEmail: fromEmail ? resolveReplyToAddress(fromEmail) : null,
     appBaseUrl: resolveAppBaseUrl(),
     connectionStatus,
     lastCheckedAt: runtimeLastCheckedAt,
     lastError: coreApiPresent
       ? runtimeLastError
-      : `Missing required environment variables: ${missingVariables.join(', ')}`,
+      : validationErrors.length > 0
+        ? validationErrors.join(' ')
+        : `Missing required environment variables: ${missingVariables.join(', ')}`,
   };
 }
 
@@ -194,6 +275,7 @@ interface LockallyProblemDetails {
   request_id?: string;
   error?: string;
   message?: string;
+  errors?: unknown;
 }
 
 function formatLockallyHttpError(status: number, body: LockallyProblemDetails | null): {
@@ -202,12 +284,17 @@ function formatLockallyHttpError(status: number, body: LockallyProblemDetails | 
   retryable: boolean;
 } {
   const code = typeof body?.code === 'string' ? body.code : undefined;
-  const detail =
+  const baseDetail =
     (typeof body?.detail === 'string' && body.detail) ||
     (typeof body?.message === 'string' && body.message) ||
     (typeof body?.error === 'string' && body.error) ||
     (typeof body?.title === 'string' && body.title) ||
     `Lockally API returned HTTP ${status}`;
+  const fieldErrors =
+    body?.errors && typeof body.errors === 'object'
+      ? ` (${JSON.stringify(body.errors).slice(0, 180)})`
+      : '';
+  const detail = `${baseDetail}${fieldErrors}`;
 
   if (status === 401 || code === 'invalid_api_key') {
     return {
@@ -545,6 +632,7 @@ async function postLockallySend(params: {
   apiKey: string;
   idempotencyKey: string;
   from: string;
+  replyTo?: string;
   to: string;
   subject: string;
   html: string;
@@ -557,13 +645,19 @@ async function postLockallySend(params: {
   error?: string;
 }> {
   const endpoint = `${params.apiUrl}/send`;
-  const payload = JSON.stringify({
+  const payloadObj: Record<string, unknown> = {
     from: params.from,
     to: [params.to],
     subject: params.subject,
     html: params.html,
     text: params.text,
-  });
+  };
+  if (params.replyTo) {
+    payloadObj.headers = {
+      'Reply-To': params.replyTo,
+    };
+  }
+  const payload = JSON.stringify(payloadObj);
 
   const maxAttempts = 2;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -644,6 +738,7 @@ async function sendTransactionalEmail(params: {
   subject: string;
   html: string;
   text: string;
+  replyTo?: string;
   verifyDeliveryAfterAccept?: boolean;
 }): Promise<EmailSendResult> {
   const summary = getEmailConfigSummary();
@@ -670,12 +765,14 @@ async function sendTransactionalEmail(params: {
 
   const apiKey = process.env.LOCKALLY_API_KEY?.trim() || '';
   const idempotencyKey = `acadet-${params.emailType}-${crypto.randomUUID()}`;
+  const replyTo = resolveReplyToAddress(summary.fromEmail, params.replyTo);
 
   const apiOutcome = await postLockallySend({
     apiUrl: summary.apiUrl,
     apiKey,
     idempotencyKey,
     from: summary.fromEmail,
+    replyTo,
     to: params.toEmail,
     subject: params.subject,
     html: params.html,
@@ -809,7 +906,7 @@ export async function sendPasswordResetEmail(params: {
   const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(params.rawToken)}`;
   const subject = 'Acadet CBT – Password Reset Request';
 
-  const { html } = await buildBrandedEmailHtml({
+  const { html, contactEmail } = await buildBrandedEmailHtml({
     baseUrl,
     preheader: 'Use this single-use link within 20 minutes to reset your Acadet CBT password.',
     badgeText: 'Password Recovery',
@@ -846,6 +943,7 @@ export async function sendPasswordResetEmail(params: {
     subject,
     html,
     text,
+    replyTo: contactEmail,
   });
 }
 
@@ -860,7 +958,7 @@ export async function sendVerificationEmail(params: {
   const verifyUrl = `${baseUrl}/verify-email?token=${encodeURIComponent(params.rawToken)}`;
   const subject = 'Verify Your Acadet CBT Account';
 
-  const { html } = await buildBrandedEmailHtml({
+  const { html, contactEmail } = await buildBrandedEmailHtml({
     baseUrl,
     preheader: 'Confirm your email address to verify your Acadet CBT student account.',
     badgeText: 'Email Verification',
@@ -895,6 +993,7 @@ export async function sendVerificationEmail(params: {
     subject,
     html,
     text,
+    replyTo: contactEmail,
   });
 }
 
@@ -918,7 +1017,7 @@ export async function sendPasswordChangedEmail(params: {
     // Use default support email fallback
   }
 
-  const { html } = await buildBrandedEmailHtml({
+  const { html, contactEmail } = await buildBrandedEmailHtml({
     baseUrl,
     preheader: 'Your Acadet CBT account password has been updated.',
     badgeText: 'Security Confirmation',
@@ -950,6 +1049,7 @@ export async function sendPasswordChangedEmail(params: {
     subject,
     html,
     text,
+    replyTo: contactEmail,
   });
 }
 
@@ -962,7 +1062,7 @@ export async function sendAdminTestEmail(params: {
   const baseUrl = resolveAppBaseUrl(params.requestBaseUrl);
   const subject = 'Acadet CBT – Lockally Email Delivery Test';
 
-  const { html } = await buildBrandedEmailHtml({
+  const { html, contactEmail } = await buildBrandedEmailHtml({
     baseUrl,
     preheader: 'Acadet CBT transactional email test submitted via Lockally API.',
     badgeText: 'Admin Diagnostics',
@@ -988,6 +1088,7 @@ export async function sendAdminTestEmail(params: {
     subject,
     html,
     text,
+    replyTo: contactEmail,
     verifyDeliveryAfterAccept: true,
   });
 }

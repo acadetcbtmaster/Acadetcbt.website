@@ -700,6 +700,7 @@ export interface AdminEmailStatusOverview {
     apiUrl: string | null;
     apiKeyMasked: string | null;
     fromEmail: string | null;
+    replyToEmail?: string | null;
     appBaseUrl: string;
     connectionStatus: EmailServiceConnectionStatus;
     lastCheckedAt: string | null;

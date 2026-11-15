@@ -106,23 +106,29 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
           <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
           <div className="space-y-1">
             <div className="font-extrabold">
-              Administrative Notice: Lockally Email API Not Fully Configured
+              {emailService.missingVariables.length > 0
+                ? 'Administrative Notice: Lockally Email API Not Fully Configured'
+                : 'Administrative Notice: Invalid Lockally Sender Configuration'}
             </div>
-            <p className="leading-relaxed">
-              Password recovery links and verification emails cannot be delivered until the following Render environment variables are configured:
-            </p>
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {emailService.missingVariables.map((v) => (
-                <code
-                  key={v}
-                  className="px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 font-mono text-xs font-bold"
-                >
-                  {v}
-                </code>
-              ))}
-            </div>
+            {emailService.missingVariables.length > 0 && (
+              <>
+                <p className="leading-relaxed">
+                  Password recovery links and verification emails cannot be delivered until the following Render environment variables are configured:
+                </p>
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {emailService.missingVariables.map((v) => (
+                    <code
+                      key={v}
+                      className="px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 font-mono text-xs font-bold"
+                    >
+                      {v}
+                    </code>
+                  ))}
+                </div>
+              </>
+            )}
             {emailService.validationErrors.length > 0 && (
-              <p className="text-xs font-semibold text-red-700 dark:text-red-300 pt-1">
+              <p className="text-xs font-semibold text-red-700 dark:text-red-300 pt-1 leading-relaxed">
                 {emailService.validationErrors.join(' ')}
               </p>
             )}
@@ -181,8 +187,9 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
               {emailService.connectionStatus.replace('_', ' ')}
             </span>
           </div>
-          <div className="text-xs text-slate-600 dark:text-slate-400 truncate">
+          <div className="text-xs text-slate-600 dark:text-slate-400 break-all">
             Sender: {emailService.fromEmail || 'Not set'}
+            {emailService.replyToEmail ? ` · Reply-To: ${emailService.replyToEmail}` : ''}
           </div>
         </div>
 
@@ -408,7 +415,13 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
                         {log.deliveryStatus === 'queued' ? 'queued (202)' : log.deliveryStatus}
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-slate-500 dark:text-slate-400 max-w-xs truncate">
+                    <td
+                      className={`py-2 px-3 min-w-[260px] max-w-md whitespace-normal break-words leading-relaxed ${
+                        log.errorMessage
+                          ? 'text-red-700 dark:text-red-300 font-medium'
+                          : 'text-slate-500 dark:text-slate-400'
+                      }`}
+                    >
                       {log.errorMessage || log.messageId || log.subject}
                     </td>
                   </tr>

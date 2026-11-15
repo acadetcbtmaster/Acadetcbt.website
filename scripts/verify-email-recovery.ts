@@ -35,6 +35,7 @@ interface CapturedLockallyRequest {
     subject: string;
     html: string;
     text: string;
+    headers?: Record<string, string>;
   };
 }
 
@@ -198,6 +199,21 @@ async function startLocalLockallyTestServer(): Promise<{
         }
 
         const parsedBody = JSON.parse(raw) as CapturedLockallyRequest['body'];
+        const replyTo = parsedBody.headers?.['Reply-To'];
+        if (/^no-?reply@/i.test(parsedBody.from || '') && (!replyTo || !replyTo.includes('@'))) {
+          res.writeHead(400, { 'Content-Type': 'application/problem+json' });
+          res.end(
+            JSON.stringify({
+              type: 'about:blank',
+              status: 400,
+              title: 'Bad Request',
+              detail: 'Sending from a no-reply address requires a Reply-To header.',
+              code: 'missing_reply_to',
+              request_id: 'req-400-reply-to',
+            })
+          );
+          return;
+        }
         requests.push({
           method: req.method || 'POST',
           url,
@@ -348,13 +364,23 @@ async function verifyEmailAndRecovery() {
     assert.equal(skippedSend.deliveredConfirmed, false);
     assert.equal(skippedSend.status, 'skipped_unconfigured');
 
-    console.log('[Email & Recovery Verification] 4. Testing unreachable Lockally endpoint & secret redaction...');
+    console.log('[Email & Recovery Verification] 4. Testing unreachable Lockally endpoint, sender rules & secret redaction...');
     process.env.LOCKALLY_API_KEY = 'lk_live_prefix99_SECRET_TOKEN_SHOULD_NOT_APPEAR_ANYWHERE';
     process.env.LOCKALLY_API_URL = 'http://127.0.0.1:19/v1';
-    process.env.SMTP_FROM_EMAIL = 'noreply@acadetcbt.website';
+    process.env.SMTP_FROM_EMAIL = 'menmexsupport@gmail.com';
     process.env.APP_BASE_URL = 'https://acadetcbt.website';
 
+    const gmailSenderCheck = getEmailConfigSummary();
+    assert.equal(gmailSenderCheck.configured, false);
+    assert.ok(
+      gmailSenderCheck.validationErrors.some((e) => e.includes('gmail.com')),
+      'Free consumer domain in SMTP_FROM_EMAIL should produce a clear validation error'
+    );
+
+    process.env.SMTP_FROM_EMAIL = 'noreply@acadetcbt.website';
     const summaryMasked = getEmailConfigSummary();
+    assert.equal(summaryMasked.configured, true);
+    assert.equal(summaryMasked.replyToEmail, 'support@acadetcbt.website');
     assert.equal(summaryMasked.apiKeyMasked, 'lk_live_...HERE');
     assert.equal(JSON.stringify(summaryMasked).includes('SECRET_TOKEN_SHOULD_NOT_APPEAR_ANYWHERE'), false);
 
@@ -494,6 +520,7 @@ async function verifyEmailAndRecovery() {
       assert.ok(reqVerify.idempotencyKey.startsWith('acadet-verification-'));
       assert.equal(reqVerify.contentType, 'application/json');
       assert.equal(reqVerify.body.from, 'noreply@acadetcbt.website');
+      assert.equal(reqVerify.body.headers?.['Reply-To'], 'support@acadetcbt.website');
       assert.deepEqual(reqVerify.body.to, ['verify-student@example.com']);
       assert.equal(reqVerify.body.subject, 'Verify Your Acadet CBT Account');
       assert.ok(
