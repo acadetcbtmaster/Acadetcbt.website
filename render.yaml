@@ -45,16 +45,12 @@ services:
         sync: false
       - key: PAYSTACK_WEBHOOK_SECRET
         sync: false
-      - key: SMTP_HOST
+      - key: LOCKALLY_API_KEY
         sync: false
-      - key: SMTP_PORT
-        sync: false
-      - key: SMTP_USER
-        sync: false
-      - key: SMTP_PASSWORD
-        sync: false
+      - key: LOCKALLY_API_URL
+        value: https://api.lockally.com/v1
       - key: SMTP_FROM_EMAIL
-        sync: false
+        value: noreply@acadetcbt.website
       - key: APP_BASE_URL
         value: https://acadetcbt.website
 

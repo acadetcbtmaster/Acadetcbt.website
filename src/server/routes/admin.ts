@@ -29,7 +29,7 @@ import { resolveBaseUrl } from '../lib/branding.js';
 import {
   getAdminEmailStatusOverview,
   sendAdminTestEmail,
-  verifySmtpConnection,
+  verifyEmailServiceConnection,
 } from '../lib/email.js';
 import { sanitizeUser } from '../lib/jwt.js';
 import {
@@ -3391,25 +3391,27 @@ router.get('/email/status', async (req, res) => {
 
 router.post('/email/test-connection', async (req, res) => {
   try {
-    const smtp = await verifySmtpConnection();
+    const emailService = await verifyEmailServiceConnection();
     const overview = await getAdminEmailStatusOverview(false);
     await writeAuditLog({
       actorUserId: req.user!.id,
       action: 'admin.email_connection_tested',
       entityType: 'system',
-      entityId: 'smtp',
+      entityId: 'lockally',
       metadata: {
-        configured: smtp.configured,
-        connectionStatus: smtp.connectionStatus,
+        provider: 'lockally',
+        configured: emailService.configured,
+        connectionStatus: emailService.connectionStatus,
       },
       ipAddress: req.ip,
     });
     res.json({
-      ok: smtp.connectionStatus === 'connected',
+      ok: emailService.connectionStatus === 'connected',
+      ...(emailService.scopeNote ? { scopeNote: emailService.scopeNote } : {}),
       ...overview,
     });
   } catch (err) {
-    handleApiError(res, err, 'testing SMTP connection');
+    handleApiError(res, err, 'testing Lockally email API connection');
   }
 });
 
@@ -3434,25 +3436,35 @@ router.post('/email/send-test', async (req, res) => {
       actorUserId: req.user!.id,
       action: 'admin.email_test_dispatched',
       entityType: 'system',
-      entityId: 'smtp',
+      entityId: 'lockally',
       metadata: {
+        provider: 'lockally',
         recipientEmail: recipient,
         deliveryStatus: sendResult.status,
+        deliveredConfirmed: sendResult.deliveredConfirmed,
+        providerMessageUuid: sendResult.providerMessageUuid ?? null,
       },
       ipAddress: req.ip,
     });
 
     if (!sendResult.sent) {
       res.status(503).json({
-        error: sendResult.error || 'Failed to send SMTP diagnostic email.',
+        error: sendResult.error || 'Failed to submit Lockally diagnostic email.',
         ...overview,
       });
       return;
     }
 
+    const message = sendResult.deliveredConfirmed
+      ? `Lockally confirmed delivery of the test email to ${recipient} (status: delivered).`
+      : `Lockally accepted and queued the test email for ${recipient} (HTTP 202, status: ${sendResult.status}). Queueing does not confirm final inbox delivery—check the recipient mailbox to verify receipt.`;
+
     res.json({
       ok: true,
-      message: `Test email delivered successfully to ${recipient}.`,
+      accepted: sendResult.accepted,
+      deliveredConfirmed: sendResult.deliveredConfirmed,
+      deliveryStatus: sendResult.status,
+      message,
       ...overview,
     });
   } catch (err) {

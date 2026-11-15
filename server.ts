@@ -15,7 +15,7 @@ import {
   normalizeAppPath,
   resolveBaseUrl,
 } from './src/server/lib/branding.js';
-import { validateSmtpStartup } from './src/server/lib/email.js';
+import { validateEmailStartup } from './src/server/lib/email.js';
 import adminRoutes from './src/server/routes/admin.js';
 import authRoutes from './src/server/routes/auth.js';
 import catalogRoutes from './src/server/routes/catalog.js';
@@ -44,7 +44,7 @@ function decodeLegacySpaQueryRoute(originalUrl: string): string | null {
 }
 
 export async function createApp(options?: { skipVite?: boolean }) {
-  validateSmtpStartup();
+  validateEmailStartup();
   const app = express();
   app.set('trust proxy', 1);
 

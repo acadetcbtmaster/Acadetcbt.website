@@ -1,8 +1,8 @@
-import nodemailer from 'nodemailer';
+import crypto from 'node:crypto';
 import { getPool, isDatabaseConfigured } from '../../db/index.js';
 import { getPublicBrandingAndFounder } from './branding.js';
 
-export type SmtpConnectionStatus =
+export type EmailServiceConnectionStatus =
   | 'connected'
   | 'unconfigured'
   | 'connection_failed'
@@ -14,64 +14,86 @@ export type TransactionalEmailType =
   | 'password_changed'
   | 'admin_test';
 
-export interface SmtpConfigSummary {
+export type EmailDeliveryStatus =
+  | 'queued'
+  | 'delivered'
+  | 'bounced'
+  | 'sent'
+  | 'failed'
+  | 'skipped_unconfigured';
+
+export interface EmailServiceConfigSummary {
+  provider: 'Lockally Transactional Email API';
   configured: boolean;
   missingVariables: string[];
   validationErrors: string[];
-  host: string | null;
-  port: number | null;
-  secure: boolean;
-  userMasked: string | null;
+  apiUrl: string | null;
+  apiKeyMasked: string | null;
   fromEmail: string | null;
   appBaseUrl: string;
-  connectionStatus: SmtpConnectionStatus;
+  connectionStatus: EmailServiceConnectionStatus;
   lastCheckedAt: string | null;
   lastError: string | null;
 }
 
 export interface EmailSendResult {
   sent: boolean;
-  status: 'sent' | 'failed' | 'skipped_unconfigured';
+  accepted: boolean;
+  deliveredConfirmed: boolean;
+  status: EmailDeliveryStatus;
   messageId?: string;
+  providerMessageUuid?: string;
+  providerMessageStatus?: string;
+  deliveryCheckNote?: string;
   error?: string;
 }
 
-export const REQUIRED_SMTP_ENV_VARS = [
-  'SMTP_HOST',
-  'SMTP_PORT',
-  'SMTP_USER',
-  'SMTP_PASSWORD',
+export const REQUIRED_EMAIL_ENV_VARS = [
+  'LOCKALLY_API_KEY',
+  'LOCKALLY_API_URL',
   'SMTP_FROM_EMAIL',
   'APP_BASE_URL',
 ] as const;
 
-let runtimeConnectionStatus: SmtpConnectionStatus = 'unknown';
+let runtimeConnectionStatus: EmailServiceConnectionStatus = 'unknown';
 let runtimeLastCheckedAt: string | null = null;
 let runtimeLastError: string | null = null;
 
-function sanitizeSmtpErrorMessage(err: unknown): string {
-  const raw = err instanceof Error ? err.message : String(err || 'SMTP operation failed');
-  const password = process.env.SMTP_PASSWORD?.trim();
-  const user = process.env.SMTP_USER?.trim();
+function sanitizeEmailApiErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err || 'Lockally email API request failed');
   let cleaned = raw;
-  if (password && password.length >= 3) {
-    cleaned = cleaned.split(password).join('[REDACTED]');
+
+  const apiKey = process.env.LOCKALLY_API_KEY?.trim();
+  if (apiKey && apiKey.length >= 6) {
+    cleaned = cleaned.split(apiKey).join('[REDACTED_API_KEY]');
   }
-  if (user && user.length >= 6) {
-    cleaned = cleaned.split(user).join('[SMTP_USER]');
-  }
-  return cleaned.slice(0, 300);
+
+  cleaned = cleaned
+    .replace(/Bearer\s+[A-Za-z0-9._\-]+/gi, 'Bearer [REDACTED]')
+    .replace(/\blk_(?:live|test)_[A-Za-z0-9_\-]+/gi, '[REDACTED_LOCKALLY_KEY]');
+
+  return cleaned.slice(0, 320);
 }
 
-function maskEmailOrUser(raw: string | undefined): string | null {
+function maskApiKey(raw: string | undefined): string | null {
   const val = raw?.trim();
   if (!val) return null;
-  const atIdx = val.indexOf('@');
-  if (atIdx > 1) {
-    return `${val.slice(0, 2)}***${val.slice(atIdx)}`;
+  if (val.length <= 10) return '****';
+  return `${val.slice(0, 8)}...${val.slice(-4)}`;
+}
+
+/**
+ * Normalizes LOCKALLY_API_URL to Lockally's canonical /v1 base URL
+ * (e.g. "https://api.lockally.com/v1"). Handles accidental trailing "/" or "/send".
+ */
+export function normalizeLockallyApiBaseUrl(rawUrl: string | undefined): string | null {
+  const trimmed = rawUrl?.trim();
+  if (!trimmed) return null;
+  const withoutTrailing = trimmed.replace(/\/+$/, '').replace(/\/send$/i, '');
+  if (/\/v1$/i.test(withoutTrailing)) {
+    return withoutTrailing;
   }
-  if (val.length <= 4) return '****';
-  return `${val.slice(0, 2)}***${val.slice(-2)}`;
+  return `${withoutTrailing}/v1`;
 }
 
 export function resolveAppBaseUrl(requestBaseUrl?: string): string {
@@ -89,156 +111,246 @@ export function resolveAppBaseUrl(requestBaseUrl?: string): string {
   return 'https://acadetcbt.website';
 }
 
-export function getSmtpConfigSummary(): SmtpConfigSummary {
-  const host = process.env.SMTP_HOST?.trim() || null;
-  const rawPort = process.env.SMTP_PORT?.trim() || '';
-  const user = process.env.SMTP_USER?.trim() || null;
-  const password = process.env.SMTP_PASSWORD?.trim() || null;
+export function getEmailConfigSummary(): EmailServiceConfigSummary {
+  const apiKey = process.env.LOCKALLY_API_KEY?.trim() || null;
+  const rawApiUrl = process.env.LOCKALLY_API_URL?.trim() || '';
+  const apiUrl = normalizeLockallyApiBaseUrl(rawApiUrl);
+  // SMTP_FROM_EMAIL is used strictly as the verified Lockally sender email address (no SMTP).
   const fromEmail = process.env.SMTP_FROM_EMAIL?.trim() || null;
   const appBaseUrlEnv = process.env.APP_BASE_URL?.trim() || null;
 
   const missingVariables: string[] = [];
-  if (!host) missingVariables.push('SMTP_HOST');
-  if (!rawPort) missingVariables.push('SMTP_PORT');
-  if (!user) missingVariables.push('SMTP_USER');
-  if (!password) missingVariables.push('SMTP_PASSWORD');
+  if (!apiKey) missingVariables.push('LOCKALLY_API_KEY');
+  if (!apiUrl) missingVariables.push('LOCKALLY_API_URL');
   if (!fromEmail) missingVariables.push('SMTP_FROM_EMAIL');
   if (!appBaseUrlEnv) missingVariables.push('APP_BASE_URL');
 
   const validationErrors: string[] = [];
-  let port: number | null = null;
-  if (rawPort) {
-    const parsed = Number(rawPort);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
-      validationErrors.push('SMTP_PORT must be a valid TCP port number (e.g. 465 or 587).');
-    } else {
-      port = parsed;
-    }
+  if (apiUrl && !/^https?:\/\//i.test(apiUrl)) {
+    validationErrors.push(
+      'LOCKALLY_API_URL must start with https:// or http:// (e.g. https://api.lockally.com/v1).'
+    );
   }
-
   if (fromEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fromEmail)) {
-    validationErrors.push('SMTP_FROM_EMAIL must be a valid email address.');
+    validationErrors.push('SMTP_FROM_EMAIL must be a valid verified sender email address.');
   }
-
   if (appBaseUrlEnv && !/^https?:\/\//i.test(appBaseUrlEnv)) {
     validationErrors.push('APP_BASE_URL must start with https:// or http://.');
   }
 
-  const coreSmtpPresent = Boolean(
-    host && port !== null && user && password && fromEmail && validationErrors.length === 0
+  const coreApiPresent = Boolean(
+    apiKey && apiUrl && fromEmail && validationErrors.length === 0
   );
 
-  const secureEnv = process.env.SMTP_SECURE?.trim().toLowerCase();
-  const secure =
-    secureEnv === 'true' ? true : secureEnv === 'false' ? false : port === 465;
-
-  const connectionStatus: SmtpConnectionStatus = !coreSmtpPresent
+  const connectionStatus: EmailServiceConnectionStatus = !coreApiPresent
     ? 'unconfigured'
     : runtimeConnectionStatus === 'unconfigured'
       ? 'unknown'
       : runtimeConnectionStatus;
 
   return {
-    configured: coreSmtpPresent,
+    provider: 'Lockally Transactional Email API',
+    configured: coreApiPresent,
     missingVariables,
     validationErrors,
-    host,
-    port,
-    secure,
-    userMasked: maskEmailOrUser(user || undefined),
+    apiUrl,
+    apiKeyMasked: maskApiKey(apiKey || undefined),
     fromEmail,
     appBaseUrl: resolveAppBaseUrl(),
     connectionStatus,
     lastCheckedAt: runtimeLastCheckedAt,
-    lastError: coreSmtpPresent
+    lastError: coreApiPresent
       ? runtimeLastError
       : `Missing required environment variables: ${missingVariables.join(', ')}`,
   };
 }
 
-export function isSmtpConfigured(): boolean {
-  return getSmtpConfigSummary().configured;
+export function isEmailConfigured(): boolean {
+  return getEmailConfigSummary().configured;
 }
 
-export function validateSmtpStartup(): SmtpConfigSummary {
-  const summary = getSmtpConfigSummary();
+export function validateEmailStartup(): EmailServiceConfigSummary {
+  const summary = getEmailConfigSummary();
   if (!summary.configured) {
     console.warn(
-      `[Email / SMTP Warning] Transactional emails are not active. Missing or invalid Render environment variables: ${
+      `[Email / Lockally Warning] Transactional emails are not active. Missing or invalid Render environment variables: ${
         [...summary.missingVariables, ...summary.validationErrors].join('; ') || 'unknown'
-      }. Required variables: ${REQUIRED_SMTP_ENV_VARS.join(', ')}.`
+      }. Required variables: ${REQUIRED_EMAIL_ENV_VARS.join(', ')}.`
     );
   } else {
     console.log(
-      `[Email / SMTP] Configured for ${summary.host}:${summary.port} (secure=${summary.secure}, from=${summary.fromEmail}, base=${summary.appBaseUrl}).`
+      `[Email / Lockally API] Configured for POST ${summary.apiUrl}/send (from=${summary.fromEmail}, base=${summary.appBaseUrl}).`
     );
   }
   return summary;
 }
 
-function createTransporter() {
-  const summary = getSmtpConfigSummary();
-  if (!summary.configured || !summary.host || !summary.port || !summary.fromEmail) {
-    return null;
-  }
-
-  const authUser = process.env.SMTP_USER?.trim() || '';
-  const authPass = process.env.SMTP_PASSWORD?.trim() || '';
-  const allowInsecureLocal =
-    summary.host === '127.0.0.1' || summary.host === 'localhost';
-  const rejectUnauthorized = allowInsecureLocal
-    ? false
-    : process.env.SMTP_TLS_REJECT_UNAUTHORIZED !== 'false';
-
-  return nodemailer.createTransport({
-    host: summary.host,
-    port: summary.port,
-    secure: summary.secure,
-    auth: {
-      user: authUser,
-      pass: authPass,
-    },
-    connectionTimeout: 10000,
-    greetingTimeout: 10000,
-    socketTimeout: 15000,
-    tls: {
-      rejectUnauthorized,
-    },
-  });
+interface LockallyProblemDetails {
+  type?: string;
+  status?: number;
+  title?: string;
+  detail?: string;
+  code?: string;
+  request_id?: string;
+  error?: string;
+  message?: string;
 }
 
-export async function verifySmtpConnection(): Promise<SmtpConfigSummary> {
-  const summary = getSmtpConfigSummary();
+function formatLockallyHttpError(status: number, body: LockallyProblemDetails | null): {
+  code?: string;
+  message: string;
+  retryable: boolean;
+} {
+  const code = typeof body?.code === 'string' ? body.code : undefined;
+  const detail =
+    (typeof body?.detail === 'string' && body.detail) ||
+    (typeof body?.message === 'string' && body.message) ||
+    (typeof body?.error === 'string' && body.error) ||
+    (typeof body?.title === 'string' && body.title) ||
+    `Lockally API returned HTTP ${status}`;
+
+  if (status === 401 || code === 'invalid_api_key') {
+    return {
+      code: code || 'invalid_api_key',
+      message: 'Lockally API authentication failed (401). Please verify LOCKALLY_API_KEY.',
+      retryable: false,
+    };
+  }
+  if (status === 403) {
+    return {
+      code: code || 'forbidden',
+      message: sanitizeEmailApiErrorMessage(
+        `Lockally API permission denied (403): Ensure token includes required send:write permission (${detail}).`
+      ),
+      retryable: false,
+    };
+  }
+  if (status === 422 || status === 400) {
+    return {
+      code,
+      message: sanitizeEmailApiErrorMessage(`Lockally rejected email payload (${status}): ${detail}`),
+      retryable: false,
+    };
+  }
+  if (status === 429) {
+    const retryable = code === 'rate_cap_exceeded';
+    return {
+      code,
+      message: sanitizeEmailApiErrorMessage(
+        retryable
+          ? 'Lockally API rate cap exceeded (429). Please retry shortly.'
+          : `Lockally sending quota or warm-up limit reached (429): ${detail}`
+      ),
+      retryable,
+    };
+  }
+
+  return {
+    code,
+    message: sanitizeEmailApiErrorMessage(`Lockally API error (${status}): ${detail}`),
+    retryable: status >= 500,
+  };
+}
+
+export async function verifyEmailServiceConnection(): Promise<
+  EmailServiceConfigSummary & { scopeNote?: string }
+> {
+  const summary = getEmailConfigSummary();
   runtimeLastCheckedAt = new Date().toISOString();
 
-  if (!summary.configured) {
+  if (!summary.configured || !summary.apiUrl) {
     runtimeConnectionStatus = 'unconfigured';
     runtimeLastError = summary.lastError;
-    return getSmtpConfigSummary();
+    return getEmailConfigSummary();
   }
 
-  const transporter = createTransporter();
-  if (!transporter) {
-    runtimeConnectionStatus = 'unconfigured';
-    runtimeLastError = 'SMTP configuration is incomplete.';
-    return getSmtpConfigSummary();
-  }
+  const apiKey = process.env.LOCKALLY_API_KEY?.trim() || '';
 
   try {
-    await transporter.verify();
-    runtimeConnectionStatus = 'connected';
-    runtimeLastError = null;
+    const response = await fetch(`${summary.apiUrl}/domains`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: 'application/json',
+      },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (response.ok) {
+      runtimeConnectionStatus = 'connected';
+      runtimeLastError = null;
+      return getEmailConfigSummary();
+    }
+
+    // Tokens scoped strictly to send:write pass Bearer auth but return 403 on domain-read endpoints.
+    if (response.status === 403) {
+      runtimeConnectionStatus = 'connected';
+      runtimeLastError = null;
+      return {
+        ...getEmailConfigSummary(),
+        scopeNote:
+          'Lockally Bearer token authenticated (scoped to send:write). Dispatch a test email and verify inbox receipt to confirm end-to-end delivery.',
+      };
+    }
+
+    let parsedBody: LockallyProblemDetails | null = null;
+    try {
+      parsedBody = (await response.json()) as LockallyProblemDetails;
+    } catch {
+      parsedBody = null;
+    }
+
+    const formatted = formatLockallyHttpError(response.status, parsedBody);
+    runtimeConnectionStatus = 'connection_failed';
+    runtimeLastError = formatted.message;
+    console.error('[Email / Lockally Connection Check Failed]', runtimeLastError);
   } catch (err) {
     runtimeConnectionStatus = 'connection_failed';
-    runtimeLastError = sanitizeSmtpErrorMessage(err);
-    console.error('[Email / SMTP Connection Verification Failed]', runtimeLastError);
-  } finally {
-    if (typeof transporter.close === 'function') {
-      transporter.close();
-    }
+    runtimeLastError = sanitizeEmailApiErrorMessage(err);
+    console.error('[Email / Lockally Connection Check Failed]', runtimeLastError);
   }
 
-  return getSmtpConfigSummary();
+  return getEmailConfigSummary();
+}
+
+async function lookupLockallyMessageStatus(params: {
+  apiUrl: string;
+  apiKey: string;
+  providerUuid: string;
+}): Promise<{
+  checked: boolean;
+  status?: string;
+  error?: string;
+}> {
+  try {
+    const response = await fetch(
+      `${params.apiUrl}/messages/${encodeURIComponent(params.providerUuid)}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${params.apiKey}`,
+          Accept: 'application/json',
+        },
+        signal: AbortSignal.timeout(5000),
+      }
+    );
+
+    if (!response.ok) {
+      return { checked: false };
+    }
+
+    const data = (await response.json()) as Record<string, unknown>;
+    const status = typeof data.status === 'string' ? data.status.toLowerCase() : undefined;
+    const error =
+      typeof data.error === 'string'
+        ? data.error
+        : typeof data.reason === 'string'
+          ? data.reason
+          : undefined;
+    return { checked: true, status, error };
+  } catch {
+    return { checked: false };
+  }
 }
 
 async function recordEmailDeliveryAttempt(params: {
@@ -246,8 +358,10 @@ async function recordEmailDeliveryAttempt(params: {
   recipientEmail: string;
   emailType: TransactionalEmailType;
   subject: string;
-  deliveryStatus: 'sent' | 'failed' | 'skipped_unconfigured';
+  deliveryStatus: EmailDeliveryStatus;
   messageId?: string | null;
+  providerMessageUuid?: string | null;
+  providerStatus?: string | null;
   errorMessage?: string | null;
 }): Promise<void> {
   if (!isDatabaseConfigured()) return;
@@ -255,8 +369,8 @@ async function recordEmailDeliveryAttempt(params: {
     const pool = getPool();
     await pool.query(
       `INSERT INTO email_delivery_logs (
-         user_id, recipient_email, email_type, subject, delivery_status, message_id, error_message
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+         user_id, recipient_email, email_type, subject, delivery_status, message_id, provider_message_uuid, provider_status, error_message
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         params.userId ?? null,
         params.recipientEmail.toLowerCase(),
@@ -264,6 +378,8 @@ async function recordEmailDeliveryAttempt(params: {
         params.subject,
         params.deliveryStatus,
         params.messageId ?? null,
+        params.providerMessageUuid ?? null,
+        params.providerStatus ?? null,
         params.errorMessage ? params.errorMessage.slice(0, 500) : null,
       ]
     );
@@ -424,6 +540,103 @@ async function buildBrandedEmailHtml(params: {
   return { html, siteName, contactEmail };
 }
 
+async function postLockallySend(params: {
+  apiUrl: string;
+  apiKey: string;
+  idempotencyKey: string;
+  from: string;
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+}): Promise<{
+  ok: boolean;
+  providerMessageUuid?: string;
+  messageId?: string;
+  providerStatus?: string;
+  error?: string;
+}> {
+  const endpoint = `${params.apiUrl}/send`;
+  const payload = JSON.stringify({
+    from: params.from,
+    to: [params.to],
+    subject: params.subject,
+    html: params.html,
+    text: params.text,
+  });
+
+  const maxAttempts = 2;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${params.apiKey}`,
+          'Idempotency-Key': params.idempotencyKey,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: payload,
+        signal: AbortSignal.timeout(12000),
+      });
+
+      const rawText = await response.text();
+      let jsonBody: Record<string, unknown> | null = null;
+      if (rawText) {
+        try {
+          jsonBody = JSON.parse(rawText) as Record<string, unknown>;
+        } catch {
+          jsonBody = null;
+        }
+      }
+
+      if (response.ok) {
+        const providerMessageUuid =
+          typeof jsonBody?.id === 'string' && jsonBody.id ? jsonBody.id : undefined;
+        const messageId =
+          typeof jsonBody?.message_id === 'string' && jsonBody.message_id
+            ? jsonBody.message_id
+            : providerMessageUuid;
+        const providerStatus =
+          typeof jsonBody?.status === 'string' ? jsonBody.status.toLowerCase() : 'queued';
+
+        return {
+          ok: true,
+          providerMessageUuid,
+          messageId,
+          providerStatus,
+        };
+      }
+
+      const formatted = formatLockallyHttpError(
+        response.status,
+        (jsonBody as LockallyProblemDetails | null) ?? null
+      );
+
+      if (formatted.retryable && attempt < maxAttempts) {
+        const retryAfterRaw = response.headers.get('retry-after');
+        const retryAfterSec = retryAfterRaw ? Number(retryAfterRaw) : NaN;
+        const waitMs =
+          Number.isFinite(retryAfterSec) && retryAfterSec > 0 && retryAfterSec <= 2
+            ? retryAfterSec * 1000
+            : 350;
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+
+      return { ok: false, error: formatted.message };
+    } catch (err) {
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 350));
+        continue;
+      }
+      return { ok: false, error: sanitizeEmailApiErrorMessage(err) };
+    }
+  }
+
+  return { ok: false, error: 'Lockally email API request failed.' };
+}
+
 async function sendTransactionalEmail(params: {
   userId?: string | null;
   toEmail: string;
@@ -431,10 +644,11 @@ async function sendTransactionalEmail(params: {
   subject: string;
   html: string;
   text: string;
+  verifyDeliveryAfterAccept?: boolean;
 }): Promise<EmailSendResult> {
-  const summary = getSmtpConfigSummary();
-  if (!summary.configured || !summary.fromEmail) {
-    const errMsg = `SMTP not configured (${summary.missingVariables.join(', ') || 'invalid settings'}).`;
+  const summary = getEmailConfigSummary();
+  if (!summary.configured || !summary.apiUrl || !summary.fromEmail) {
+    const errMsg = `Lockally email service not configured (${summary.missingVariables.join(', ') || summary.validationErrors.join('; ') || 'invalid settings'}).`;
     runtimeConnectionStatus = 'unconfigured';
     runtimeLastError = errMsg;
     await recordEmailDeliveryAttempt({
@@ -447,54 +661,29 @@ async function sendTransactionalEmail(params: {
     });
     return {
       sent: false,
+      accepted: false,
+      deliveredConfirmed: false,
       status: 'skipped_unconfigured',
       error: errMsg,
     };
   }
 
-  const transporter = createTransporter();
-  if (!transporter) {
-    const errMsg = 'Unable to initialize SMTP transporter.';
-    await recordEmailDeliveryAttempt({
-      userId: params.userId,
-      recipientEmail: params.toEmail,
-      emailType: params.emailType,
-      subject: params.subject,
-      deliveryStatus: 'failed',
-      errorMessage: errMsg,
-    });
-    return { sent: false, status: 'failed', error: errMsg };
-  }
+  const apiKey = process.env.LOCKALLY_API_KEY?.trim() || '';
+  const idempotencyKey = `acadet-${params.emailType}-${crypto.randomUUID()}`;
 
-  try {
-    const info = await transporter.sendMail({
-      from: `Acadet CBT <${summary.fromEmail}>`,
-      to: params.toEmail,
-      subject: params.subject,
-      text: params.text,
-      html: params.html,
-    });
+  const apiOutcome = await postLockallySend({
+    apiUrl: summary.apiUrl,
+    apiKey,
+    idempotencyKey,
+    from: summary.fromEmail,
+    to: params.toEmail,
+    subject: params.subject,
+    html: params.html,
+    text: params.text,
+  });
 
-    runtimeConnectionStatus = 'connected';
-    runtimeLastCheckedAt = new Date().toISOString();
-    runtimeLastError = null;
-
-    await recordEmailDeliveryAttempt({
-      userId: params.userId,
-      recipientEmail: params.toEmail,
-      emailType: params.emailType,
-      subject: params.subject,
-      deliveryStatus: 'sent',
-      messageId: info.messageId || null,
-    });
-
-    return {
-      sent: true,
-      status: 'sent',
-      messageId: info.messageId,
-    };
-  } catch (err) {
-    const cleanErr = sanitizeSmtpErrorMessage(err);
+  if (!apiOutcome.ok) {
+    const cleanErr = apiOutcome.error || 'Lockally email submission failed.';
     runtimeConnectionStatus = 'connection_failed';
     runtimeLastCheckedAt = new Date().toISOString();
     runtimeLastError = cleanErr;
@@ -511,14 +700,102 @@ async function sendTransactionalEmail(params: {
 
     return {
       sent: false,
+      accepted: false,
+      deliveredConfirmed: false,
       status: 'failed',
       error: cleanErr,
     };
-  } finally {
-    if (typeof transporter.close === 'function') {
-      transporter.close();
+  }
+
+  // Lockally returns 202 Accepted (queued) prior to actual recipient mail server delivery.
+  // Do NOT claim confirmed delivery strictly from an accepted response.
+  let finalStatus: EmailDeliveryStatus =
+    apiOutcome.providerStatus === 'delivered' ? 'delivered' : 'queued';
+  let deliveredConfirmed = apiOutcome.providerStatus === 'delivered';
+  let providerStatus = apiOutcome.providerStatus || 'queued';
+  let deliveryCheckNote: string | undefined;
+
+  if (
+    params.verifyDeliveryAfterAccept &&
+    !deliveredConfirmed &&
+    apiOutcome.providerMessageUuid
+  ) {
+    await new Promise((r) => setTimeout(r, 600));
+    const lookup = await lookupLockallyMessageStatus({
+      apiUrl: summary.apiUrl,
+      apiKey,
+      providerUuid: apiOutcome.providerMessageUuid,
+    });
+
+    if (lookup.checked && lookup.status) {
+      providerStatus = lookup.status;
+      if (lookup.status === 'delivered') {
+        finalStatus = 'delivered';
+        deliveredConfirmed = true;
+      } else if (
+        lookup.status === 'bounced' ||
+        lookup.status === 'failed' ||
+        lookup.status === 'rejected'
+      ) {
+        finalStatus = lookup.status === 'bounced' ? 'bounced' : 'failed';
+        const bounceErr = sanitizeEmailApiErrorMessage(
+          lookup.error || `Lockally reported message status: ${lookup.status}.`
+        );
+        await recordEmailDeliveryAttempt({
+          userId: params.userId,
+          recipientEmail: params.toEmail,
+          emailType: params.emailType,
+          subject: params.subject,
+          deliveryStatus: finalStatus,
+          messageId: apiOutcome.messageId || null,
+          providerMessageUuid: apiOutcome.providerMessageUuid || null,
+          providerStatus,
+          errorMessage: bounceErr,
+        });
+        return {
+          sent: false,
+          accepted: true,
+          deliveredConfirmed: false,
+          status: finalStatus,
+          messageId: apiOutcome.messageId,
+          providerMessageUuid: apiOutcome.providerMessageUuid,
+          providerMessageStatus: providerStatus,
+          error: bounceErr,
+        };
+      } else {
+        deliveryCheckNote = `Lockally reported status "${lookup.status}".`;
+      }
+    } else {
+      deliveryCheckNote =
+        'Lockally accepted request (202 queued); live status polling requires message-read permission or checking the recipient mailbox directly.';
     }
   }
+
+  runtimeConnectionStatus = 'connected';
+  runtimeLastCheckedAt = new Date().toISOString();
+  runtimeLastError = null;
+
+  await recordEmailDeliveryAttempt({
+    userId: params.userId,
+    recipientEmail: params.toEmail,
+    emailType: params.emailType,
+    subject: params.subject,
+    deliveryStatus: finalStatus,
+    messageId: apiOutcome.messageId || null,
+    providerMessageUuid: apiOutcome.providerMessageUuid || null,
+    providerStatus,
+  });
+
+  return {
+    sent: true,
+    accepted: true,
+    deliveredConfirmed,
+    status: finalStatus,
+    messageId: apiOutcome.messageId,
+    providerMessageUuid: apiOutcome.providerMessageUuid,
+    providerMessageStatus: providerStatus,
+    deliveryCheckNote,
+  };
 }
 
 export async function sendPasswordResetEmail(params: {
@@ -683,17 +960,17 @@ export async function sendAdminTestEmail(params: {
   requestBaseUrl?: string;
 }): Promise<EmailSendResult> {
   const baseUrl = resolveAppBaseUrl(params.requestBaseUrl);
-  const subject = 'Acadet CBT – SMTP Configuration Test';
+  const subject = 'Acadet CBT – Lockally Email Delivery Test';
 
   const { html } = await buildBrandedEmailHtml({
     baseUrl,
-    preheader: 'Acadet CBT transactional SMTP email delivery verification succeeded.',
+    preheader: 'Acadet CBT transactional email test submitted via Lockally API.',
     badgeText: 'Admin Diagnostics',
-    heading: 'SMTP Email Delivery Is Active',
+    heading: 'Lockally Email Diagnostic Test',
     greetingName: params.adminName,
     bodyParagraphs: [
-      'This diagnostic test email confirms that Acadet CBT SMTP configuration, TLS authentication, and branded email templates are working properly on your Render deployment.',
-      'Email verification links and password recovery emails are ready for students.',
+      'This diagnostic email was submitted through Lockally Transactional Email API (POST /v1/send) from the Acadet CBT Admin Console.',
+      'Receiving this message in your inbox confirms end-to-end delivery from noreply@acadetcbt.website.',
     ],
     securityNote: 'Sent from the Acadet CBT Admin Console diagnostic tool.',
   });
@@ -701,7 +978,7 @@ export async function sendAdminTestEmail(params: {
   const text = [
     `Hello ${params.adminName},`,
     '',
-    'Your Acadet CBT SMTP email configuration is active and delivering messages cleanly.',
+    'This diagnostic email confirms end-to-end delivery through Lockally Transactional Email API.',
   ].join('\n');
 
   return sendTransactionalEmail({
@@ -711,16 +988,20 @@ export async function sendAdminTestEmail(params: {
     subject,
     html,
     text,
+    verifyDeliveryAfterAccept: true,
   });
 }
 
 export interface AdminEmailStatusOverview {
-  smtp: SmtpConfigSummary;
+  emailService: EmailServiceConfigSummary;
   delivery: {
+    totalAcceptedQueued: number;
+    totalDeliveredConfirmed: number;
     totalSent: number;
     totalFailed: number;
     totalSkippedUnconfigured: number;
     lastSuccessfulAttemptAt: string | null;
+    lastDeliveredConfirmedAt: string | null;
     lastFailedAttemptAt: string | null;
     lastFailureReason: string | null;
     recentLogs: Array<{
@@ -729,6 +1010,9 @@ export interface AdminEmailStatusOverview {
       emailType: string;
       subject: string;
       deliveryStatus: string;
+      messageId: string | null;
+      providerMessageUuid: string | null;
+      providerStatus: string | null;
       errorMessage: string | null;
       createdAt: string;
     }>;
@@ -752,32 +1036,36 @@ export interface AdminEmailStatusOverview {
 export async function getAdminEmailStatusOverview(
   verifyLiveConnection = false
 ): Promise<AdminEmailStatusOverview> {
-  const smtp = verifyLiveConnection
-    ? await verifySmtpConnection()
-    : getSmtpConfigSummary();
+  const emailService = verifyLiveConnection
+    ? await verifyEmailServiceConnection()
+    : getEmailConfigSummary();
 
   const pool = getPool();
 
   const [deliveryAggRes, recentLogsRes, verifUsersRes, verifTokensRes, resetTokensRes] =
     await Promise.all([
       pool.query<{
-        totalSent: number;
+        totalQueued: number;
+        totalDelivered: number;
         totalFailed: number;
         totalSkipped: number;
-        lastSuccessAt: Date | null;
+        lastAcceptedAt: Date | null;
+        lastDeliveredAt: Date | null;
         lastFailedAt: Date | null;
         lastFailureReason: string | null;
       }>(`
         SELECT
-          COUNT(*) FILTER (WHERE delivery_status = 'sent')::int AS "totalSent",
-          COUNT(*) FILTER (WHERE delivery_status = 'failed')::int AS "totalFailed",
+          COUNT(*) FILTER (WHERE delivery_status IN ('queued', 'sent'))::int AS "totalQueued",
+          COUNT(*) FILTER (WHERE delivery_status = 'delivered')::int AS "totalDelivered",
+          COUNT(*) FILTER (WHERE delivery_status IN ('failed', 'bounced'))::int AS "totalFailed",
           COUNT(*) FILTER (WHERE delivery_status = 'skipped_unconfigured')::int AS "totalSkipped",
-          MAX(created_at) FILTER (WHERE delivery_status = 'sent') AS "lastSuccessAt",
-          MAX(created_at) FILTER (WHERE delivery_status = 'failed') AS "lastFailedAt",
+          MAX(created_at) FILTER (WHERE delivery_status IN ('queued', 'delivered', 'sent')) AS "lastAcceptedAt",
+          MAX(created_at) FILTER (WHERE delivery_status = 'delivered') AS "lastDeliveredAt",
+          MAX(created_at) FILTER (WHERE delivery_status IN ('failed', 'bounced')) AS "lastFailedAt",
           (
             SELECT error_message
             FROM email_delivery_logs
-            WHERE delivery_status = 'failed' AND error_message IS NOT NULL
+            WHERE delivery_status IN ('failed', 'bounced') AND error_message IS NOT NULL
             ORDER BY created_at DESC
             LIMIT 1
           ) AS "lastFailureReason"
@@ -789,6 +1077,9 @@ export async function getAdminEmailStatusOverview(
         emailType: string;
         subject: string;
         deliveryStatus: string;
+        messageId: string | null;
+        providerMessageUuid: string | null;
+        providerStatus: string | null;
         errorMessage: string | null;
         createdAt: Date;
       }>(`
@@ -798,6 +1089,9 @@ export async function getAdminEmailStatusOverview(
           email_type AS "emailType",
           subject,
           delivery_status AS "deliveryStatus",
+          message_id AS "messageId",
+          provider_message_uuid AS "providerMessageUuid",
+          provider_status AS "providerStatus",
           error_message AS "errorMessage",
           created_at AS "createdAt"
         FROM email_delivery_logs
@@ -846,14 +1140,22 @@ export async function getAdminEmailStatusOverview(
   const vTokens = verifTokensRes.rows[0];
   const rTokens = resetTokensRes.rows[0];
 
+  const totalQueued = Number(dAgg?.totalQueued ?? 0);
+  const totalDelivered = Number(dAgg?.totalDelivered ?? 0);
+
   return {
-    smtp,
+    emailService,
     delivery: {
-      totalSent: Number(dAgg?.totalSent ?? 0),
+      totalAcceptedQueued: totalQueued,
+      totalDeliveredConfirmed: totalDelivered,
+      totalSent: totalQueued + totalDelivered,
       totalFailed: Number(dAgg?.totalFailed ?? 0),
       totalSkippedUnconfigured: Number(dAgg?.totalSkipped ?? 0),
-      lastSuccessfulAttemptAt: dAgg?.lastSuccessAt
-        ? new Date(dAgg.lastSuccessAt).toISOString()
+      lastSuccessfulAttemptAt: dAgg?.lastAcceptedAt
+        ? new Date(dAgg.lastAcceptedAt).toISOString()
+        : null,
+      lastDeliveredConfirmedAt: dAgg?.lastDeliveredAt
+        ? new Date(dAgg.lastDeliveredAt).toISOString()
         : null,
       lastFailedAttemptAt: dAgg?.lastFailedAt
         ? new Date(dAgg.lastFailedAt).toISOString()

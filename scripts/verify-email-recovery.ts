@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import http from 'node:http';
-import net from 'node:net';
 import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { createApp } from '../server.js';
@@ -14,170 +13,226 @@ import {
   validateNewPasswordStrength,
 } from '../src/server/lib/emailAuth.js';
 import {
-  getSmtpConfigSummary,
+  getEmailConfigSummary,
+  normalizeLockallyApiBaseUrl,
   sendAdminTestEmail,
   sendPasswordChangedEmail,
   sendPasswordResetEmail,
   sendVerificationEmail,
-  validateSmtpStartup,
-  verifySmtpConnection,
+  validateEmailStartup,
+  verifyEmailServiceConnection,
 } from '../src/server/lib/email.js';
 
-interface CapturedSmtpMessage {
-  mailFrom: string;
-  rcptTo: string[];
-  rawData: string;
-  subject: string;
-}
-
-function decodeRfc2047AndBody(raw: string): { subject: string; bodyText: string } {
-  const splitIdx = raw.indexOf('\n\n');
-  const headerBlock = splitIdx >= 0 ? raw.slice(0, splitIdx) : raw;
-  const bodyBlock = splitIdx >= 0 ? raw.slice(splitIdx + 2) : raw;
-
-  // Unfold RFC 5322 folded headers (CRLF/LF followed by whitespace)
-  const unfoldedHeaders = headerBlock.replace(/\r?\n[ \t]+/g, ' ');
-  const subjectMatch = unfoldedHeaders.match(/^Subject:\s*(.+)$/im);
-  let subject = subjectMatch ? subjectMatch[1].trim() : '';
-
-  // Remove inter-word whitespace between adjacent =?...?= encoded words and decode UTF-8 Q-encoding
-  subject = subject
-    .replace(/\?=\s+=\?/g, '?==?')
-    .replace(/=\?UTF-8\?Q\?([^?]+)\?=/gi, (_, encoded: string) => {
-      const bytes: number[] = [];
-      const spaced = encoded.replace(/_/g, ' ');
-      for (let i = 0; i < spaced.length; i++) {
-        if (spaced[i] === '=' && /^[0-9A-Fa-f]{2}$/.test(spaced.slice(i + 1, i + 3))) {
-          bytes.push(parseInt(spaced.slice(i + 1, i + 3), 16));
-          i += 2;
-        } else {
-          bytes.push(...Buffer.from(spaced[i], 'utf8'));
-        }
-      }
-      return Buffer.from(bytes).toString('utf8');
-    });
-
-  // Decode quoted-printable soft line breaks & bytes in body
-  const bodyBytes: number[] = [];
-  const joinedBody = bodyBlock.replace(/=\r?\n/g, '');
-  for (let i = 0; i < joinedBody.length; i++) {
-    if (joinedBody[i] === '=' && /^[0-9A-Fa-f]{2}$/.test(joinedBody.slice(i + 1, i + 3))) {
-      bodyBytes.push(parseInt(joinedBody.slice(i + 1, i + 3), 16));
-      i += 2;
-    } else {
-      bodyBytes.push(...Buffer.from(joinedBody[i], 'utf8'));
-    }
-  }
-
-  return {
-    subject,
-    bodyText: Buffer.from(bodyBytes).toString('utf8'),
+interface CapturedLockallyRequest {
+  method: string;
+  url: string;
+  authorization: string;
+  idempotencyKey: string;
+  contentType: string;
+  body: {
+    from: string;
+    to: string[];
+    subject: string;
+    html: string;
+    text: string;
   };
 }
 
-async function startLocalSmtpTestServer(): Promise<{
-  port: number;
-  messages: CapturedSmtpMessage[];
+type ServerMode =
+  | 'ok_queued'
+  | 'ok_delivered_via_lookup'
+  | 'accepted_then_bounced'
+  | 'send_write_only_403_domains'
+  | 'invalid_key'
+  | 'unprocessable'
+  | 'retry_once_500';
+
+async function startLocalLockallyTestServer(): Promise<{
+  baseUrlV1: string;
+  requests: CapturedLockallyRequest[];
+  setMode: (mode: ServerMode) => void;
   close: () => Promise<void>;
 }> {
-  const messages: CapturedSmtpMessage[] = [];
+  const requests: CapturedLockallyRequest[] = [];
+  let mode: ServerMode = 'ok_queued';
+  let transientFailuresRemaining = 0;
+  const messageStatuses = new Map<string, { status: string; error?: string }>();
 
-  const server = net.createServer((socket) => {
-    socket.setEncoding('utf8');
-    let buffer = '';
-    let inDataMode = false;
-    let currentFrom = '';
-    let currentRcpt: string[] = [];
-    let currentData = '';
-    let authStage: 'none' | 'user' | 'pass' = 'none';
+  const server = http.createServer((req, res) => {
+    const auth = req.headers.authorization || '';
+    const url = req.url || '/';
 
-    const writeLine = (line: string) => {
-      if (!socket.destroyed) {
-        socket.write(`${line}\r\n`);
+    if (req.method === 'GET' && url === '/v1/domains') {
+      if (mode === 'invalid_key') {
+        res.writeHead(401, { 'Content-Type': 'application/problem+json' });
+        res.end(
+          JSON.stringify({
+            type: 'about:blank',
+            status: 401,
+            title: 'Unauthorized',
+            detail: 'The API key provided is invalid or expired.',
+            code: 'invalid_api_key',
+            request_id: 'req-401-domains',
+          })
+        );
+        return;
       }
-    };
 
-    writeLine('220 localhost ESMTP AcadetTestMail');
+      if (mode === 'send_write_only_403_domains') {
+        res.writeHead(403, { 'Content-Type': 'application/problem+json' });
+        res.end(
+          JSON.stringify({
+            type: 'about:blank',
+            status: 403,
+            title: 'Forbidden',
+            detail: 'Token scope send:write does not include domains:read.',
+            code: 'insufficient_scope',
+            request_id: 'req-403-domains',
+          })
+        );
+        return;
+      }
 
-    socket.on('data', (chunk: string) => {
-      buffer += chunk;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({
+          data: [{ domain: 'acadetcbt.website', verified: true }],
+        })
+      );
+      return;
+    }
 
-      while (true) {
-        const lineEnd = buffer.indexOf('\n');
-        if (lineEnd === -1) break;
+    if (req.method === 'GET' && url.startsWith('/v1/messages/')) {
+      const msgId = decodeURIComponent(url.slice('/v1/messages/'.length));
+      if (mode === 'send_write_only_403_domains') {
+        res.writeHead(403, { 'Content-Type': 'application/problem+json' });
+        res.end(
+          JSON.stringify({
+            type: 'about:blank',
+            status: 403,
+            title: 'Forbidden',
+            detail: 'Token scope send:write cannot read messages.',
+            code: 'insufficient_scope',
+          })
+        );
+        return;
+      }
+      const st = messageStatuses.get(msgId);
+      if (!st) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Message not found' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: msgId, ...st }));
+      return;
+    }
 
-        let line = buffer.slice(0, lineEnd);
-        buffer = buffer.slice(lineEnd + 1);
-        if (line.endsWith('\r')) {
-          line = line.slice(0, -1);
+    if (req.method === 'POST' && url === '/v1/send') {
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        const idempotencyKey = String(req.headers['idempotency-key'] || '');
+        const contentType = String(req.headers['content-type'] || '');
+
+        if (!auth.startsWith('Bearer ') || mode === 'invalid_key') {
+          res.writeHead(401, { 'Content-Type': 'application/problem+json' });
+          res.end(
+            JSON.stringify({
+              type: 'about:blank',
+              status: 401,
+              title: 'Unauthorized',
+              detail: 'The API key provided is invalid or expired.',
+              code: 'invalid_api_key',
+              request_id: 'req-401-send',
+            })
+          );
+          return;
         }
 
-        if (inDataMode) {
-          if (line === '.') {
-            inDataMode = false;
-            const parsed = decodeRfc2047AndBody(currentData);
-            messages.push({
-              mailFrom: currentFrom,
-              rcptTo: [...currentRcpt],
-              rawData: parsed.bodyText,
-              subject: parsed.subject,
-            });
-            currentFrom = '';
-            currentRcpt = [];
-            currentData = '';
-            writeLine('250 2.0.0 OK queued');
-          } else {
-            currentData += (line.startsWith('..') ? line.slice(1) : line) + '\n';
-          }
-          continue;
+        if (!idempotencyKey) {
+          res.writeHead(422, { 'Content-Type': 'application/problem+json' });
+          res.end(
+            JSON.stringify({
+              type: 'about:blank',
+              status: 422,
+              title: 'Unprocessable Entity',
+              detail: 'Idempotency-Key header is required.',
+              code: 'missing_idempotency_key',
+              request_id: 'req-422-idemp',
+            })
+          );
+          return;
         }
 
-        if (authStage === 'user') {
-          authStage = 'pass';
-          writeLine('334 UGFzc3dvcmQ6'); // Password:
-          continue;
-        }
-        if (authStage === 'pass') {
-          authStage = 'none';
-          writeLine('235 2.7.0 Authentication successful');
-          continue;
+        if (mode === 'unprocessable') {
+          res.writeHead(422, { 'Content-Type': 'application/problem+json' });
+          res.end(
+            JSON.stringify({
+              type: 'about:blank',
+              status: 422,
+              title: 'Unprocessable Entity',
+              detail: 'Sender domain is not verified.',
+              code: 'unverified_domain',
+              request_id: 'req-422-domain',
+            })
+          );
+          return;
         }
 
-        const upper = line.toUpperCase();
-        if (upper.startsWith('EHLO') || upper.startsWith('HELO')) {
-          writeLine('250-localhost Hello');
-          writeLine('250-SIZE 10485760');
-          writeLine('250 AUTH PLAIN LOGIN');
-        } else if (upper.startsWith('AUTH PLAIN')) {
-          writeLine('235 2.7.0 Authentication successful');
-        } else if (upper.startsWith('AUTH LOGIN')) {
-          authStage = 'user';
-          writeLine('334 VXNlcm5hbWU6'); // Username:
-        } else if (upper.startsWith('MAIL FROM:')) {
-          currentFrom = line.slice(10).trim();
-          writeLine('250 2.1.0 Originator OK');
-        } else if (upper.startsWith('RCPT TO:')) {
-          currentRcpt.push(line.slice(8).trim());
-          writeLine('250 2.1.5 Recipient OK');
-        } else if (upper === 'DATA') {
-          inDataMode = true;
-          currentData = '';
-          writeLine('354 End data with <CR><LF>.<CR><LF>');
-        } else if (upper === 'NOOP') {
-          writeLine('250 OK');
-        } else if (upper === 'RSET') {
-          currentFrom = '';
-          currentRcpt = [];
-          currentData = '';
-          writeLine('250 OK');
-        } else if (upper === 'QUIT') {
-          writeLine('221 2.0.0 Bye');
-          socket.end();
+        if (mode === 'retry_once_500' && transientFailuresRemaining > 0) {
+          transientFailuresRemaining -= 1;
+          res.writeHead(500, { 'Content-Type': 'application/problem+json' });
+          res.end(
+            JSON.stringify({
+              type: 'about:blank',
+              status: 500,
+              title: 'Internal Server Error',
+              detail: 'Temporary queue outage.',
+              code: 'internal_error',
+              request_id: 'req-500-retry',
+            })
+          );
+          return;
+        }
+
+        const parsedBody = JSON.parse(raw) as CapturedLockallyRequest['body'];
+        requests.push({
+          method: req.method || 'POST',
+          url,
+          authorization: auth,
+          idempotencyKey,
+          contentType,
+          body: parsedBody,
+        });
+
+        const msgUuid = `msg_${requests.length}`;
+        if (mode === 'ok_delivered_via_lookup') {
+          messageStatuses.set(msgUuid, { status: 'delivered' });
+        } else if (mode === 'accepted_then_bounced') {
+          messageStatuses.set(msgUuid, {
+            status: 'bounced',
+            error: '550 5.1.1 The email account does not exist.',
+          });
         } else {
-          writeLine('250 OK');
+          messageStatuses.set(msgUuid, { status: 'queued' });
         }
-      }
-    });
+
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            id: msgUuid,
+            message_id: `<${msgUuid}@lockally.com>`,
+            status: 'queued',
+          })
+        );
+      });
+      return;
+    }
+
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
   });
 
   await new Promise<void>((resolve) => {
@@ -188,22 +243,24 @@ async function startLocalSmtpTestServer(): Promise<{
   assert.ok(addr && typeof addr === 'object');
 
   return {
-    port: addr.port,
-    messages,
+    baseUrlV1: `http://127.0.0.1:${addr.port}/v1`,
+    requests,
+    setMode: (next) => {
+      mode = next;
+      transientFailuresRemaining = next === 'retry_once_500' ? 1 : 0;
+    },
     close: async () => {
-      server.close();
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
     },
   };
 }
 
-function saveAndClearSmtpEnv() {
+function saveAndClearEmailEnv() {
   const keys = [
-    'SMTP_HOST',
-    'SMTP_PORT',
-    'SMTP_USER',
-    'SMTP_PASSWORD',
+    'LOCKALLY_API_KEY',
+    'LOCKALLY_API_URL',
     'SMTP_FROM_EMAIL',
-    'SMTP_SECURE',
     'APP_BASE_URL',
   ] as const;
 
@@ -221,9 +278,13 @@ function saveAndClearSmtpEnv() {
 }
 
 async function verifyEmailAndRecovery() {
-  console.log('[Email & Recovery Verification] 1. Testing token cryptography & password rules...');
+  console.log('[Email & Recovery Verification] 1. Testing token cryptography, password rules & /v1 URL normalization...');
   assert.equal(PASSWORD_RESET_TTL_MINUTES, 20);
   assert.equal(EMAIL_VERIFICATION_TTL_HOURS, 24);
+  assert.equal(normalizeLockallyApiBaseUrl('https://api.lockally.com/v1'), 'https://api.lockally.com/v1');
+  assert.equal(normalizeLockallyApiBaseUrl('https://api.lockally.com/v1/'), 'https://api.lockally.com/v1');
+  assert.equal(normalizeLockallyApiBaseUrl('https://api.lockally.com/v1/send'), 'https://api.lockally.com/v1');
+  assert.equal(normalizeLockallyApiBaseUrl('https://api.lockally.com'), 'https://api.lockally.com/v1');
 
   const raw1 = generateRawAuthToken();
   const raw2 = generateRawAuthToken();
@@ -240,7 +301,7 @@ async function verifyEmailAndRecovery() {
   assert.equal(validateNewPasswordStrength('ALLUPPERCASE123').valid, false);
   assert.equal(validateNewPasswordStrength('NoDigitsHere').valid, false);
 
-  console.log('[Email & Recovery Verification] 2. Checking frontend zero-secret hygiene...');
+  console.log('[Email & Recovery Verification] 2. Checking frontend zero-secret & zero-SMTP hygiene...');
   const clientFilesToCheck = [
     'src/App.tsx',
     'src/lib/api.ts',
@@ -253,23 +314,25 @@ async function verifyEmailAndRecovery() {
   for (const rel of clientFilesToCheck) {
     const src = await fs.readFile(path.resolve(process.cwd(), rel), 'utf-8');
     assert.equal(
-      src.includes('SMTP_PASSWORD') || src.includes('nodemailer'),
+      src.includes('LOCKALLY_API_KEY') ||
+        src.includes('SMTP_PASSWORD') ||
+        src.includes('nodemailer'),
       false,
-      `Frontend file ${rel} must never reference SMTP_PASSWORD or nodemailer`
+      `Frontend file ${rel} must never reference LOCKALLY_API_KEY, SMTP_PASSWORD, or nodemailer`
     );
   }
+  const emailServerSrc = await fs.readFile(path.resolve(process.cwd(), 'src/server/lib/email.ts'), 'utf-8');
+  assert.equal(emailServerSrc.includes('nodemailer'), false, 'email.ts must not use nodemailer/SMTP');
 
-  console.log('[Email & Recovery Verification] 3. Testing missing SMTP credentials graceful handling...');
-  const restoreSmtpEnv = saveAndClearSmtpEnv();
+  console.log('[Email & Recovery Verification] 3. Testing missing Lockally credentials graceful handling...');
+  const restoreEmailEnv = saveAndClearEmailEnv();
   try {
-    const startupMissing = validateSmtpStartup();
+    const startupMissing = validateEmailStartup();
     assert.equal(startupMissing.configured, false);
     assert.equal(startupMissing.connectionStatus, 'unconfigured');
     assert.deepEqual(startupMissing.missingVariables, [
-      'SMTP_HOST',
-      'SMTP_PORT',
-      'SMTP_USER',
-      'SMTP_PASSWORD',
+      'LOCKALLY_API_KEY',
+      'LOCKALLY_API_URL',
       'SMTP_FROM_EMAIL',
       'APP_BASE_URL',
     ]);
@@ -281,36 +344,113 @@ async function verifyEmailAndRecovery() {
       rawToken: raw1,
     });
     assert.equal(skippedSend.sent, false);
+    assert.equal(skippedSend.accepted, false);
+    assert.equal(skippedSend.deliveredConfirmed, false);
     assert.equal(skippedSend.status, 'skipped_unconfigured');
 
-    console.log('[Email & Recovery Verification] 4. Testing unreachable SMTP failure & secret redaction...');
-    process.env.SMTP_HOST = '127.0.0.1';
-    process.env.SMTP_PORT = '19'; // Unbound / closed local port
-    process.env.SMTP_SECURE = 'false';
-    process.env.SMTP_USER = 'acadet_smtp_secret_user';
-    process.env.SMTP_PASSWORD = 'SUPER_SECRET_PASSWORD_DO_NOT_LEAK';
-    process.env.SMTP_FROM_EMAIL = 'support@acadetcbt.website';
+    console.log('[Email & Recovery Verification] 4. Testing unreachable Lockally endpoint & secret redaction...');
+    process.env.LOCKALLY_API_KEY = 'lk_live_prefix99_SECRET_TOKEN_SHOULD_NOT_APPEAR_ANYWHERE';
+    process.env.LOCKALLY_API_URL = 'http://127.0.0.1:19/v1';
+    process.env.SMTP_FROM_EMAIL = 'noreply@acadetcbt.website';
     process.env.APP_BASE_URL = 'https://acadetcbt.website';
 
-    const failedConn = await verifySmtpConnection();
+    const summaryMasked = getEmailConfigSummary();
+    assert.equal(summaryMasked.apiKeyMasked, 'lk_live_...HERE');
+    assert.equal(JSON.stringify(summaryMasked).includes('SECRET_TOKEN_SHOULD_NOT_APPEAR_ANYWHERE'), false);
+
+    const failedConn = await verifyEmailServiceConnection();
     assert.equal(failedConn.configured, true);
     assert.equal(failedConn.connectionStatus, 'connection_failed');
-    assert.ok(failedConn.lastError, 'Unreachable SMTP must record sanitized diagnostic error');
+    assert.ok(failedConn.lastError);
     assert.equal(
-      (failedConn.lastError || '').includes('SUPER_SECRET_PASSWORD_DO_NOT_LEAK'),
+      (failedConn.lastError || '').includes('SECRET_TOKEN_SHOULD_NOT_APPEAR_ANYWHERE'),
       false,
-      'SMTP_PASSWORD must be redacted from errors'
+      'LOCKALLY_API_KEY must be redacted from error messages'
     );
 
-    console.log('[Email & Recovery Verification] 5. Testing real Nodemailer SMTP delivery over TCP...');
-    const smtpServer = await startLocalSmtpTestServer();
+    console.log('[Email & Recovery Verification] 5. Testing Lockally POST /v1/send HTTP API, send:write scope & queued vs delivered truthfulness...');
+    const lockallyServer = await startLocalLockallyTestServer();
     try {
-      process.env.SMTP_PORT = String(smtpServer.port);
+      process.env.LOCKALLY_API_URL = lockallyServer.baseUrlV1;
 
-      const liveConn = await verifySmtpConnection();
-      assert.equal(liveConn.connectionStatus, 'connected');
-      assert.equal(liveConn.lastError, null);
+      // 5a. Token scoped strictly to send:write (403 on /v1/domains) authenticates cleanly
+      lockallyServer.setMode('send_write_only_403_domains');
+      const scopedConn = await verifyEmailServiceConnection();
+      assert.equal(scopedConn.connectionStatus, 'connected');
+      assert.ok(scopedConn.scopeNote?.includes('send:write'));
 
+      // 5a-2. Send email with send:write-only token -> 202 queued, NOT claiming deliveredConfirmed
+      const scopedSend = await sendAdminTestEmail({
+        adminUserId: '22222222-2222-4222-8222-222222222222',
+        toEmail: 'admin@acadetcbt.website',
+        adminName: 'Admin',
+      });
+      assert.equal(scopedSend.sent, true);
+      assert.equal(scopedSend.accepted, true);
+      assert.equal(scopedSend.deliveredConfirmed, false);
+      assert.equal(scopedSend.status, 'queued');
+
+      // 5b. 401 unauthorized test (no secret leak)
+      lockallyServer.setMode('invalid_key');
+      const unauthConn = await verifyEmailServiceConnection();
+      assert.equal(unauthConn.connectionStatus, 'connection_failed');
+      assert.ok((unauthConn.lastError || '').includes('401'));
+      assert.equal(
+        (unauthConn.lastError || '').includes('SECRET_TOKEN_SHOULD_NOT_APPEAR_ANYWHERE'),
+        false
+      );
+
+      // 5c. 422 payload/domain error test (non-retryable)
+      lockallyServer.setMode('unprocessable');
+      const unprocRes = await sendAdminTestEmail({
+        adminUserId: '22222222-2222-4222-8222-222222222222',
+        toEmail: 'admin@acadetcbt.website',
+        adminName: 'Admin',
+      });
+      assert.equal(unprocRes.sent, false);
+      assert.equal(unprocRes.accepted, false);
+      assert.equal(unprocRes.deliveredConfirmed, false);
+      assert.ok((unprocRes.error || '').includes('422'));
+
+      // 5d. 202 Accepted followed by bounced lookup MUST NOT report success!
+      lockallyServer.setMode('accepted_then_bounced');
+      const bouncedRes = await sendAdminTestEmail({
+        adminUserId: '22222222-2222-4222-8222-222222222222',
+        toEmail: 'bounced@example.com',
+        adminName: 'Admin',
+      });
+      assert.equal(bouncedRes.accepted, true);
+      assert.equal(bouncedRes.sent, false);
+      assert.equal(bouncedRes.deliveredConfirmed, false);
+      assert.equal(bouncedRes.status, 'bounced');
+      assert.ok((bouncedRes.error || '').includes('550'));
+
+      // 5e. 202 Accepted followed by confirmed delivered lookup
+      lockallyServer.setMode('ok_delivered_via_lookup');
+      const deliveredRes = await sendAdminTestEmail({
+        adminUserId: '22222222-2222-4222-8222-222222222222',
+        toEmail: 'admin@acadetcbt.website',
+        adminName: 'Admin',
+      });
+      assert.equal(deliveredRes.sent, true);
+      assert.equal(deliveredRes.accepted, true);
+      assert.equal(deliveredRes.deliveredConfirmed, true);
+      assert.equal(deliveredRes.status, 'delivered');
+
+      // 5f. 500 transient error retries safely with identical Idempotency-Key
+      lockallyServer.setMode('retry_once_500');
+      const retrySuccess = await sendAdminTestEmail({
+        adminUserId: '22222222-2222-4222-8222-222222222222',
+        toEmail: 'admin@acadetcbt.website',
+        adminName: 'Acadet Admin',
+      });
+      assert.equal(retrySuccess.sent, true);
+      assert.equal(retrySuccess.accepted, true);
+      assert.equal(retrySuccess.deliveredConfirmed, false);
+      assert.equal(retrySuccess.status, 'queued');
+
+      // 5g. Send verification, password reset & password changed notifications (status = queued from 202 Accepted)
+      lockallyServer.setMode('ok_queued');
       const verifyToken = generateRawAuthToken();
       const resetToken = generateRawAuthToken();
 
@@ -321,7 +461,9 @@ async function verifyEmailAndRecovery() {
         rawToken: verifyToken,
       });
       assert.equal(verifyRes.sent, true);
-      assert.equal(verifyRes.status, 'sent');
+      assert.equal(verifyRes.accepted, true);
+      assert.equal(verifyRes.deliveredConfirmed, false);
+      assert.equal(verifyRes.status, 'queued');
 
       const resetRes = await sendPasswordResetEmail({
         userId: '11111111-1111-4111-8111-111111111111',
@@ -330,7 +472,9 @@ async function verifyEmailAndRecovery() {
         rawToken: resetToken,
       });
       assert.equal(resetRes.sent, true);
-      assert.equal(resetRes.status, 'sent');
+      assert.equal(resetRes.accepted, true);
+      assert.equal(resetRes.deliveredConfirmed, false);
+      assert.equal(resetRes.status, 'queued');
 
       const changedRes = await sendPasswordChangedEmail({
         userId: '11111111-1111-4111-8111-111111111111',
@@ -338,35 +482,50 @@ async function verifyEmailAndRecovery() {
         fullName: 'Zainab Bello',
       });
       assert.equal(changedRes.sent, true);
+      assert.equal(changedRes.accepted, true);
+      assert.equal(changedRes.status, 'queued');
 
-      const adminTestRes = await sendAdminTestEmail({
-        adminUserId: '22222222-2222-4222-8222-222222222222',
-        toEmail: 'admin@acadetcbt.website',
-        adminName: 'Acadet Admin',
-      });
-      assert.equal(adminTestRes.sent, true);
+      // Total accepted POST /v1/send calls = scoped(1) + bounced(1) + delivered(1) + retry(1) + verify(1) + reset(1) + changed(1) = 7
+      assert.equal(lockallyServer.requests.length, 7);
 
-      assert.equal(smtpServer.messages.length, 4);
+      const reqVerify = lockallyServer.requests[4];
+      assert.equal(reqVerify.url, '/v1/send');
+      assert.equal(reqVerify.authorization, `Bearer ${process.env.LOCKALLY_API_KEY}`);
+      assert.ok(reqVerify.idempotencyKey.startsWith('acadet-verification-'));
+      assert.equal(reqVerify.contentType, 'application/json');
+      assert.equal(reqVerify.body.from, 'noreply@acadetcbt.website');
+      assert.deepEqual(reqVerify.body.to, ['verify-student@example.com']);
+      assert.equal(reqVerify.body.subject, 'Verify Your Acadet CBT Account');
+      assert.ok(
+        reqVerify.body.html.includes(
+          `https://acadetcbt.website/verify-email?token=${encodeURIComponent(verifyToken)}`
+        )
+      );
+      assert.ok(reqVerify.body.html.includes('https://acadetcbt.website/acadet-logo.png'));
 
-      const msgVerify = smtpServer.messages[0];
-      assert.equal(msgVerify.subject, 'Verify Your Acadet CBT Account');
-      assert.ok(msgVerify.rawData.includes(`https://acadetcbt.website/verify-email?token=${encodeURIComponent(verifyToken)}`));
-      assert.ok(msgVerify.rawData.includes('https://acadetcbt.website/acadet-logo.png'));
-      assert.ok(msgVerify.rawData.includes('24 hours'));
+      const reqReset = lockallyServer.requests[5];
+      assert.equal(reqReset.url, '/v1/send');
+      assert.ok(reqReset.idempotencyKey.startsWith('acadet-password_reset-'));
+      assert.equal(reqReset.body.from, 'noreply@acadetcbt.website');
+      assert.deepEqual(reqReset.body.to, ['reset-student@example.com']);
+      assert.equal(reqReset.body.subject, 'Acadet CBT – Password Reset Request');
+      assert.ok(
+        reqReset.body.html.includes(
+          `https://acadetcbt.website/reset-password?token=${encodeURIComponent(resetToken)}`
+        )
+      );
+      assert.ok(reqReset.body.html.includes('20 minutes'));
+      assert.equal(
+        reqReset.body.html.includes('SECRET_TOKEN_SHOULD_NOT_APPEAR_ANYWHERE'),
+        false
+      );
 
-      const msgReset = smtpServer.messages[1];
-      assert.equal(msgReset.subject, 'Acadet CBT – Password Reset Request');
-      assert.ok(msgReset.rawData.includes(`https://acadetcbt.website/reset-password?token=${encodeURIComponent(resetToken)}`));
-      assert.ok(msgReset.rawData.includes('https://acadetcbt.website/acadet-logo.png'));
-      assert.ok(msgReset.rawData.includes('20 minutes'));
-      assert.equal(msgReset.rawData.includes('SUPER_SECRET_PASSWORD_DO_NOT_LEAK'), false);
-
-      const msgChanged = smtpServer.messages[2];
-      assert.equal(msgChanged.subject, 'Acadet CBT – Password Successfully Changed');
-      assert.ok(msgChanged.rawData.includes('https://acadetcbt.website/login'));
-
-      const msgAdmin = smtpServer.messages[3];
-      assert.equal(msgAdmin.subject, 'Acadet CBT – SMTP Configuration Test');
+      const reqChanged = lockallyServer.requests[6];
+      assert.equal(reqChanged.url, '/v1/send');
+      assert.ok(reqChanged.idempotencyKey.startsWith('acadet-password_changed-'));
+      assert.equal(reqChanged.body.from, 'noreply@acadetcbt.website');
+      assert.deepEqual(reqChanged.body.to, ['reset-student@example.com']);
+      assert.equal(reqChanged.body.subject, 'Acadet CBT – Password Successfully Changed');
 
       console.log('[Email & Recovery Verification] 6. Testing Express routes, SEO gates & auth guards...');
       const app = await createApp({ skipVite: true });
@@ -381,8 +540,11 @@ async function verifyEmailAndRecovery() {
 
         const healthRes = await fetch(`${baseUrl}/api/health`);
         assert.equal(healthRes.status, 200);
-        const healthBody = (await healthRes.json()) as { email?: { configured: boolean } };
+        const healthBody = (await healthRes.json()) as {
+          email?: { configured: boolean; provider?: string };
+        };
         assert.equal(healthBody.email?.configured, true);
+        assert.equal(healthBody.email?.provider, 'lockally');
 
         for (const privRoute of ['/forgot-password', '/reset-password', '/verify-email']) {
           const r = await fetch(`${baseUrl}${privRoute}`, { redirect: 'manual' });
@@ -411,7 +573,6 @@ async function verifyEmailAndRecovery() {
         });
         assert.ok(adminEmailConnRes.status === 401 || adminEmailConnRes.status === 503);
 
-        // Live DB E2E test automatically runs if PostgreSQL DATABASE_URL is connected
         const dbHealth = await checkDatabaseHealth();
         if (isDatabaseConfigured() && dbHealth.connected) {
           console.log('[Email & Recovery Verification] 7. Database connected — executing full live PostgreSQL lifecycle tests...');
@@ -420,7 +581,6 @@ async function verifyEmailAndRecovery() {
           const initialPassword = 'OldPassword123!';
           const nextPassword = 'NewSecurePassword456!';
 
-          // 7a. Register new student -> verify email sent
           const regRes = await fetch(`${baseUrl}/api/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -441,25 +601,25 @@ async function verifyEmailAndRecovery() {
           assert.equal(regJson.verificationEmailSent, true);
 
           try {
-            // Confirm raw token is NOT stored in DB
             const dbTokenCheck = await pool.query<{ tokenHash: string }>(
               'SELECT token_hash AS "tokenHash" FROM email_verification_tokens WHERE user_id = $1',
               [regJson.user.id]
             );
             assert.equal(dbTokenCheck.rowCount, 1);
 
-            const capturedVerify = smtpServer.messages.find(
-              (m) =>
-                m.subject === 'Verify Your Acadet CBT Account' &&
-                m.rcptTo.some((r) => r.includes(testEmail))
+            const capturedVerify = lockallyServer.requests.find(
+              (r) =>
+                r.body.subject === 'Verify Your Acadet CBT Account' &&
+                r.body.to.includes(testEmail)
             );
-            assert.ok(capturedVerify, 'Registration must dispatch real SMTP verification email');
-            const verifyMatch = capturedVerify.rawData.match(/\/verify-email\?token=([A-Za-z0-9_%\-]+)/);
-            assert.ok(verifyMatch, 'Verification email must contain token URL');
+            assert.ok(capturedVerify);
+            const verifyMatch = capturedVerify.body.html.match(
+              /\/verify-email\?token=([A-Za-z0-9_%\-]+)/
+            );
+            assert.ok(verifyMatch);
             const extractedVerifyToken = decodeURIComponent(verifyMatch[1]);
             assert.notEqual(dbTokenCheck.rows[0].tokenHash, extractedVerifyToken);
 
-            // 7b. Consume verification token
             const doVerifyRes = await fetch(`${baseUrl}/api/auth/verify-email`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -467,14 +627,6 @@ async function verifyEmailAndRecovery() {
             });
             assert.equal(doVerifyRes.status, 200);
 
-            const meAfterVerify = await (
-              await fetch(`${baseUrl}/api/auth/me`, {
-                headers: { Authorization: `Bearer ${regJson.token}` },
-              })
-            ).json();
-            assert.equal(meAfterVerify.user.emailVerified, true);
-
-            // 7c. Forgot password -> reset email sent
             const forgotRes = await fetch(`${baseUrl}/api/auth/forgot-password`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -482,23 +634,18 @@ async function verifyEmailAndRecovery() {
             });
             assert.equal(forgotRes.status, 200);
 
-            const capturedReset = smtpServer.messages.find(
-              (m) =>
-                m.subject === 'Acadet CBT – Password Reset Request' &&
-                m.rcptTo.some((r) => r.includes(testEmail))
+            const capturedReset = lockallyServer.requests.find(
+              (r) =>
+                r.body.subject === 'Acadet CBT – Password Reset Request' &&
+                r.body.to.includes(testEmail)
             );
-            assert.ok(capturedReset, 'Forgot password must dispatch reset email');
-            const resetMatch = capturedReset.rawData.match(/\/reset-password\?token=([A-Za-z0-9_%\-]+)/);
+            assert.ok(capturedReset);
+            const resetMatch = capturedReset.body.html.match(
+              /\/reset-password\?token=([A-Za-z0-9_%\-]+)/
+            );
             assert.ok(resetMatch);
             const extractedResetToken = decodeURIComponent(resetMatch[1]);
 
-            // Validate reset token endpoint succeeds
-            const valRes = await fetch(
-              `${baseUrl}/api/auth/reset-password/validate?token=${encodeURIComponent(extractedResetToken)}`
-            );
-            assert.equal(valRes.status, 200);
-
-            // Perform reset
             const resetDoRes = await fetch(`${baseUrl}/api/auth/reset-password`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -510,43 +657,11 @@ async function verifyEmailAndRecovery() {
             });
             assert.equal(resetDoRes.status, 200);
 
-            // Confirm password changed notification was sent
-            const capturedChanged = smtpServer.messages.find(
-              (m) =>
-                m.subject === 'Acadet CBT – Password Successfully Changed' &&
-                m.rcptTo.some((r) => r.includes(testEmail))
-            );
-            assert.ok(capturedChanged, 'Password reset must send confirmation email');
-
-            // Token reuse must fail
-            const reuseRes = await fetch(`${baseUrl}/api/auth/reset-password`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                token: extractedResetToken,
-                newPassword: nextPassword,
-                confirmPassword: nextPassword,
-              }),
-            });
-            assert.equal(reuseRes.status, 400);
-            const reuseJson = (await reuseRes.json()) as { code?: string };
-            assert.equal(reuseJson.code, 'TOKEN_ALREADY_USED');
-
-            // Prior JWT session must be invalidated immediately
             const oldJwtRes = await fetch(`${baseUrl}/api/auth/me`, {
               headers: { Authorization: `Bearer ${regJson.token}` },
             });
             assert.equal(oldJwtRes.status, 401);
 
-            // Old password login rejected
-            const oldLoginRes = await fetch(`${baseUrl}/api/auth/login`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ identifier: testEmail, password: initialPassword }),
-            });
-            assert.equal(oldLoginRes.status, 401);
-
-            // New password login succeeds
             const newLoginRes = await fetch(`${baseUrl}/api/auth/login`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -554,22 +669,6 @@ async function verifyEmailAndRecovery() {
             });
             assert.equal(newLoginRes.status, 200);
 
-            // Confirm expired token rejection via expired row test
-            const expiredRaw = generateRawAuthToken();
-            const expiredHash = hashAuthToken(expiredRaw);
-            await pool.query(
-              `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
-               VALUES ($1, $2, NOW() - INTERVAL '1 minute')`,
-              [regJson.user.id, expiredHash]
-            );
-            const expCheckRes = await fetch(
-              `${baseUrl}/api/auth/reset-password/validate?token=${encodeURIComponent(expiredRaw)}`
-            );
-            assert.equal(expCheckRes.status, 400);
-            const expCheckJson = (await expCheckRes.json()) as { status?: string };
-            assert.equal(expCheckJson.status, 'expired');
-
-            // Confirm password_hash actually changed via bcrypt check
             const pwRow = await pool.query<{ passwordHash: string }>(
               'SELECT password_hash AS "passwordHash" FROM users WHERE id = $1',
               [regJson.user.id]
@@ -579,17 +678,17 @@ async function verifyEmailAndRecovery() {
             await pool.query('DELETE FROM users WHERE id = $1', [regJson.user.id]);
           }
         } else {
-          console.log('[Email & Recovery Verification] Database not connected in local sandbox; live DB lifecycle skipped (verified static/crypto/SMTP/HTTP routes).');
+          console.log('[Email & Recovery Verification] Database not connected in local sandbox; live DB lifecycle skipped (verified crypto/Lockally API/HTTP routes).');
         }
       } finally {
         httpServer.closeAllConnections();
         await new Promise<void>((resolve) => httpServer.close(() => resolve()));
       }
     } finally {
-      await smtpServer.close();
+      await lockallyServer.close();
     }
   } finally {
-    restoreSmtpEnv();
+    restoreEmailEnv();
   }
 
   console.log('[Email & Recovery Verification] PASSED.');

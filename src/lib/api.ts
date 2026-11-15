@@ -825,17 +825,25 @@ export const api = {
       ),
 
     testEmailConnection: () =>
-      request<{ ok: boolean } & AdminEmailStatusOverview>('/api/admin/email/test-connection', {
-        method: 'POST',
-      }),
-
-    sendTestEmail: (toEmail?: string) =>
-      request<{ ok: boolean; message: string } & AdminEmailStatusOverview>(
-        '/api/admin/email/send-test',
+      request<{ ok: boolean; scopeNote?: string } & AdminEmailStatusOverview>(
+        '/api/admin/email/test-connection',
         {
           method: 'POST',
-          body: JSON.stringify(toEmail ? { toEmail } : {}),
         }
       ),
+
+    sendTestEmail: (toEmail?: string) =>
+      request<
+        {
+          ok: boolean;
+          accepted?: boolean;
+          deliveredConfirmed?: boolean;
+          deliveryStatus?: string;
+          message: string;
+        } & AdminEmailStatusOverview
+      >('/api/admin/email/send-test', {
+        method: 'POST',
+        body: JSON.stringify(toEmail ? { toEmail } : {}),
+      }),
   },
 };

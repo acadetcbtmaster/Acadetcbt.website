@@ -685,32 +685,34 @@ export interface AdminPaymentVerificationLog {
   createdAt: string;
 }
 
-export type SmtpConnectionStatus =
+export type EmailServiceConnectionStatus =
   | 'connected'
   | 'unconfigured'
   | 'connection_failed'
   | 'unknown';
 
 export interface AdminEmailStatusOverview {
-  smtp: {
+  emailService: {
+    provider: 'Lockally Transactional Email API';
     configured: boolean;
     missingVariables: string[];
     validationErrors: string[];
-    host: string | null;
-    port: number | null;
-    secure: boolean;
-    userMasked: string | null;
+    apiUrl: string | null;
+    apiKeyMasked: string | null;
     fromEmail: string | null;
     appBaseUrl: string;
-    connectionStatus: SmtpConnectionStatus;
+    connectionStatus: EmailServiceConnectionStatus;
     lastCheckedAt: string | null;
     lastError: string | null;
   };
   delivery: {
+    totalAcceptedQueued: number;
+    totalDeliveredConfirmed: number;
     totalSent: number;
     totalFailed: number;
     totalSkippedUnconfigured: number;
     lastSuccessfulAttemptAt: string | null;
+    lastDeliveredConfirmedAt: string | null;
     lastFailedAttemptAt: string | null;
     lastFailureReason: string | null;
     recentLogs: Array<{
@@ -719,6 +721,9 @@ export interface AdminEmailStatusOverview {
       emailType: string;
       subject: string;
       deliveryStatus: string;
+      messageId: string | null;
+      providerMessageUuid: string | null;
+      providerStatus: string | null;
       errorMessage: string | null;
       createdAt: string;
     }>;

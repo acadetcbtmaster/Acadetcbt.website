@@ -668,6 +668,8 @@ export const emailDeliveryLogs = pgTable(
     subject: text('subject').notNull(),
     deliveryStatus: text('delivery_status').notNull(),
     messageId: text('message_id'),
+    providerMessageUuid: text('provider_message_uuid'),
+    providerStatus: text('provider_status'),
     errorMessage: text('error_message'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -679,8 +681,8 @@ export const emailDeliveryLogs = pgTable(
       sql`${table.emailType} IN ('verification', 'password_reset', 'password_changed', 'admin_test')`
     ),
     check(
-      'email_delivery_logs_status_check',
-      sql`${table.deliveryStatus} IN ('sent', 'failed', 'skipped_unconfigured')`
+      'email_delivery_logs_delivery_status_check',
+      sql`${table.deliveryStatus} IN ('queued', 'delivered', 'bounced', 'sent', 'failed', 'skipped_unconfigured')`
     ),
   ]
 );

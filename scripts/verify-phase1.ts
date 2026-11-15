@@ -184,6 +184,24 @@ async function verifyPhase1() {
     );
   }
 
+  const sqlPath10 = path.resolve(
+    process.cwd(),
+    'migrations/0010_email_delivery_status_states.sql'
+  );
+  const sqlContent10 = await fs.readFile(sqlPath10, 'utf-8');
+  for (const snippet of [
+    'provider_message_uuid',
+    'provider_status',
+    "'queued'",
+    "'delivered'",
+    "'bounced'",
+  ]) {
+    assert.ok(
+      sqlContent10.includes(snippet),
+      `SQL migration 0010 missing expected definition: ${snippet}`
+    );
+  }
+
   assert.ok(
     sqlContent1.includes("CHECK (correct_option IN ('A', 'B', 'C', 'D'))"),
     'Missing check constraint on correct_option'

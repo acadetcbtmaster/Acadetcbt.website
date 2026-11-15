@@ -8,7 +8,7 @@ import { DEFAULT_USER_PREFERENCES, users } from '../../db/schema.js';
 import { writeAuditLog } from '../lib/audit.js';
 import { resolveBaseUrl } from '../lib/branding.js';
 import {
-  isSmtpConfigured,
+  isEmailConfigured,
   sendPasswordChangedEmail,
   sendPasswordResetEmail,
   sendVerificationEmail,
@@ -349,14 +349,14 @@ router.post('/forgot-password', requireDb, async (req, res) => {
 
     recordPasswordResetRateHit({ email: normalizedEmail, ipAddress: req.ip });
 
-    if (!isSmtpConfigured()) {
+    if (!isEmailConfigured()) {
       console.warn(
-        '[Password Reset] Cannot dispatch recovery email because SMTP environment variables are incomplete.'
+        '[Password Reset] Cannot dispatch recovery email because Lockally email environment variables are incomplete.'
       );
       res.status(503).json({
         error:
-          'Password recovery email delivery is temporarily unavailable because the mail server has not been configured yet. Please contact Acadet CBT support.',
-        code: 'SMTP_NOT_CONFIGURED',
+          'Password recovery email delivery is temporarily unavailable because the email service has not been configured yet. Please contact Acadet CBT support.',
+        code: 'EMAIL_NOT_CONFIGURED',
       });
       return;
     }
@@ -400,7 +400,7 @@ router.post('/forgot-password', requireDb, async (req, res) => {
         res.status(503).json({
           error:
             'We could not deliver the password reset email right now. Please try again shortly or contact Acadet CBT support.',
-          code: 'SMTP_DELIVERY_FAILED',
+          code: 'EMAIL_DELIVERY_FAILED',
         });
         return;
       }
@@ -410,7 +410,7 @@ router.post('/forgot-password', requireDb, async (req, res) => {
     res.json({
       ok: true,
       message:
-        'If an active Acadet CBT account matches that email address, a password reset link has been sent. The link expires in 20 minutes.',
+        'If an active Acadet CBT account matches that email address, a password reset link has been queued for delivery. Please check your inbox and spam folder. The link expires in 20 minutes.',
     });
   } catch (err) {
     handleApiError(res, err, 'forgot password request');
@@ -588,11 +588,11 @@ router.post('/resend-verification', requireDb, optionalAuth, async (req, res) =>
 
     recordVerificationResendHit(targetEmail);
 
-    if (!isSmtpConfigured()) {
+    if (!isEmailConfigured()) {
       res.status(503).json({
         error:
-          'Email delivery is temporarily unavailable because the mail server has not been configured yet. Please contact Acadet CBT support.',
-        code: 'SMTP_NOT_CONFIGURED',
+          'Email delivery is temporarily unavailable because the email service has not been configured yet. Please contact Acadet CBT support.',
+        code: 'EMAIL_NOT_CONFIGURED',
       });
       return;
     }
@@ -649,7 +649,7 @@ router.post('/resend-verification', requireDb, optionalAuth, async (req, res) =>
         res.status(503).json({
           error:
             'We could not deliver the verification email right now. Please try again shortly or contact Acadet CBT support.',
-          code: 'SMTP_DELIVERY_FAILED',
+          code: 'EMAIL_DELIVERY_FAILED',
         });
         return;
       }
@@ -658,8 +658,8 @@ router.post('/resend-verification', requireDb, optionalAuth, async (req, res) =>
     res.json({
       ok: true,
       message: authedUser
-        ? `A fresh verification link has been sent to ${authedUser.email}. Please check your inbox and spam folder.`
-        : 'If an unverified account matches that email address, a verification link has been sent.',
+        ? `A fresh verification link has been queued for delivery to ${authedUser.email}. Please check your inbox and spam folder shortly.`
+        : 'If an unverified account matches that email address, a verification link has been queued for delivery.',
     });
   } catch (err) {
     handleApiError(res, err, 'resending verification email');

@@ -51,8 +51,9 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
       setFeedback({
         type: res.ok ? 'ok' : 'err',
         text: res.ok
-          ? `SMTP connection verified successfully (${res.smtp.host}:${res.smtp.port}).`
-          : res.smtp.lastError || 'SMTP connection test failed.',
+          ? res.scopeNote ||
+            `Lockally Email API verified (${res.emailService.apiUrl || 'https://api.lockally.com/v1'}).`
+          : res.emailService.lastError || 'Lockally API connection check failed.',
       });
     } catch (err) {
       setFeedback({
@@ -60,7 +61,7 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
         text:
           err instanceof ApiError
             ? err.message
-            : 'Unable to test SMTP connection right now.',
+            : 'Unable to test Lockally Email API connection right now.',
       });
     } finally {
       setTestingConn(false);
@@ -91,27 +92,27 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
   if (!status) {
     return (
       <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-5 text-sm text-slate-500 dark:text-slate-400">
-        Loading SMTP email &amp; password recovery diagnostics...
+        Loading Lockally email &amp; password recovery diagnostics...
       </div>
     );
   }
 
-  const { smtp, delivery, verificationStats, passwordRecoveryStats } = status;
+  const { emailService, delivery, verificationStats, passwordRecoveryStats } = status;
 
   return (
     <div className="space-y-4">
-      {!smtp.configured && (
+      {!emailService.configured && (
         <div className="rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/40 p-4 text-xs sm:text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
           <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
           <div className="space-y-1">
             <div className="font-extrabold">
-              Administrative Notice: SMTP Credentials Not Fully Configured
+              Administrative Notice: Lockally Email API Not Fully Configured
             </div>
             <p className="leading-relaxed">
               Password recovery links and verification emails cannot be delivered until the following Render environment variables are configured:
             </p>
             <div className="flex flex-wrap gap-1.5 pt-1">
-              {smtp.missingVariables.map((v) => (
+              {emailService.missingVariables.map((v) => (
                 <code
                   key={v}
                   className="px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-900/60 font-mono text-xs font-bold"
@@ -120,9 +121,9 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
                 </code>
               ))}
             </div>
-            {smtp.validationErrors.length > 0 && (
+            {emailService.validationErrors.length > 0 && (
               <p className="text-xs font-semibold text-red-700 dark:text-red-300 pt-1">
-                {smtp.validationErrors.join(' ')}
+                {emailService.validationErrors.join(' ')}
               </p>
             )}
           </div>
@@ -145,67 +146,67 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-1.5">
           <div className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            SMTP Configuration
+            Lockally Email API
           </div>
           <div className="flex items-center gap-2">
-            {smtp.configured ? (
+            {emailService.configured ? (
               <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
             ) : (
               <ShieldAlert className="w-5 h-5 text-amber-600 dark:text-amber-400" />
             )}
             <span className="text-base font-extrabold text-slate-900 dark:text-white">
-              {smtp.configured ? 'Configured' : 'Missing Vars'}
+              {emailService.configured ? 'Configured' : 'Missing Vars'}
             </span>
           </div>
           <div className="text-xs text-slate-600 dark:text-slate-400 truncate">
-            {smtp.host ? `${smtp.host}:${smtp.port ?? '—'}` : 'No SMTP host configured'}
+            {emailService.apiUrl ? `${emailService.apiUrl}/send` : 'LOCKALLY_API_URL not set'}
           </div>
         </div>
 
         <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-1.5">
           <div className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Email Service Connection
+            API Connection
           </div>
           <div className="flex items-center gap-2">
             <span
               className={`w-2.5 h-2.5 rounded-full ${
-                smtp.connectionStatus === 'connected'
+                emailService.connectionStatus === 'connected'
                   ? 'bg-emerald-500'
-                  : smtp.connectionStatus === 'connection_failed'
+                  : emailService.connectionStatus === 'connection_failed'
                     ? 'bg-red-500'
                     : 'bg-amber-500'
               }`}
             />
             <span className="text-base font-extrabold text-slate-900 dark:text-white capitalize">
-              {smtp.connectionStatus.replace('_', ' ')}
+              {emailService.connectionStatus.replace('_', ' ')}
             </span>
           </div>
           <div className="text-xs text-slate-600 dark:text-slate-400 truncate">
-            From: {smtp.fromEmail || 'Not set'}
+            Sender: {emailService.fromEmail || 'Not set'}
           </div>
         </div>
 
         <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-1.5">
           <div className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Last Successful Delivery
+            Last Accepted / Queued
           </div>
           <div className="text-sm font-extrabold text-[#0b337a] dark:text-blue-400">
             {formatDateTime(delivery.lastSuccessfulAttemptAt)}
           </div>
           <div className="text-xs text-slate-600 dark:text-slate-400 tabular-nums">
-            Sent: {delivery.totalSent} · Failed: {delivery.totalFailed}
+            Queued: {delivery.totalAcceptedQueued} · Delivered: {delivery.totalDeliveredConfirmed} · Failed: {delivery.totalFailed}
           </div>
         </div>
 
         <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-1.5">
           <div className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Base URL &amp; Transport
+            Base URL &amp; API Key
           </div>
           <div className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
-            {smtp.appBaseUrl}
+            {emailService.appBaseUrl}
           </div>
-          <div className="text-xs text-slate-600 dark:text-slate-400">
-            User: {smtp.userMasked || '—'} · TLS: {smtp.secure ? 'Implicit TLS' : 'STARTTLS'}
+          <div className="text-xs text-slate-600 dark:text-slate-400 truncate">
+            Key: {emailService.apiKeyMasked || '—'} · REST HTTPS
           </div>
         </div>
       </div>
@@ -319,12 +320,12 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
             ) : (
               <RefreshCw className="w-3.5 h-3.5" />
             )}
-            <span>{testingConn ? 'Testing SMTP...' : 'Test SMTP Connection'}</span>
+            <span>{testingConn ? 'Checking API...' : 'Test Lockally API'}</span>
           </button>
 
-          {smtp.lastError && (
+          {emailService.lastError && (
             <span className="text-xs font-semibold text-red-700 dark:text-red-300">
-              Last diagnostic: {smtp.lastError}
+              Last diagnostic: {emailService.lastError}
             </span>
           )}
         </div>
@@ -340,7 +341,7 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
           />
           <button
             type="submit"
-            disabled={sendingTest || !smtp.configured}
+            disabled={sendingTest || !emailService.configured}
             className="px-3.5 py-1.5 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-extrabold inline-flex items-center gap-1.5 disabled:opacity-50"
           >
             {sendingTest ? (
@@ -395,18 +396,20 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
                     <td className="py-2 px-3">
                       <span
                         className={`inline-block px-2 py-0.5 rounded font-bold text-[11px] ${
-                          log.deliveryStatus === 'sent'
+                          log.deliveryStatus === 'delivered'
                             ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
-                            : log.deliveryStatus === 'failed'
-                              ? 'bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300'
-                              : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
+                            : log.deliveryStatus === 'queued' || log.deliveryStatus === 'sent'
+                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300'
+                              : log.deliveryStatus === 'failed' || log.deliveryStatus === 'bounced'
+                                ? 'bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300'
+                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
                         }`}
                       >
-                        {log.deliveryStatus}
+                        {log.deliveryStatus === 'queued' ? 'queued (202)' : log.deliveryStatus}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-slate-500 dark:text-slate-400 max-w-xs truncate">
-                      {log.errorMessage || log.subject}
+                      {log.errorMessage || log.messageId || log.subject}
                     </td>
                   </tr>
                 ))}
