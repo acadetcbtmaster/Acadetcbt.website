@@ -3465,9 +3465,9 @@ router.post('/email/test-connection', async (req, res) => {
       actorUserId: req.user!.id,
       action: 'admin.email_connection_tested',
       entityType: 'system',
-      entityId: 'lockally',
+      entityId: 'resend',
       metadata: {
-        provider: 'lockally',
+        provider: 'resend',
         configured: emailService.configured,
         connectionStatus: emailService.connectionStatus,
       },
@@ -3479,7 +3479,7 @@ router.post('/email/test-connection', async (req, res) => {
       ...overview,
     });
   } catch (err) {
-    handleApiError(res, err, 'testing Lockally email API connection');
+    handleApiError(res, err, 'testing Resend email API connection');
   }
 });
 
@@ -3504,9 +3504,9 @@ router.post('/email/send-test', async (req, res) => {
       actorUserId: req.user!.id,
       action: 'admin.email_test_dispatched',
       entityType: 'system',
-      entityId: 'lockally',
+      entityId: 'resend',
       metadata: {
-        provider: 'lockally',
+        provider: 'resend',
         recipientEmail: recipient,
         deliveryStatus: sendResult.status,
         deliveredConfirmed: sendResult.deliveredConfirmed,
@@ -3517,15 +3517,15 @@ router.post('/email/send-test', async (req, res) => {
 
     if (!sendResult.sent) {
       res.status(503).json({
-        error: sendResult.error || 'Failed to submit Lockally diagnostic email.',
+        error: sendResult.error || 'Failed to submit Resend diagnostic email.',
         ...overview,
       });
       return;
     }
 
     const message = sendResult.deliveredConfirmed
-      ? `Lockally confirmed delivery of the test email to ${recipient} (status: delivered).`
-      : `Lockally accepted and queued the test email for ${recipient} (HTTP 202, status: ${sendResult.status}). Queueing does not confirm final inbox delivery—check the recipient mailbox to verify receipt.`;
+      ? `Resend confirmed delivery of the test email to ${recipient} (status: delivered).`
+      : `Resend accepted the test email for ${recipient} (status: ${sendResult.status}). Check your recipient inbox (and spam folder) or Resend Logs to confirm final receipt.`;
 
     res.json({
       ok: true,

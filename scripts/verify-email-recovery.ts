@@ -14,7 +14,7 @@ import {
 } from '../src/server/lib/emailAuth.js';
 import {
   getEmailConfigSummary,
-  normalizeLockallyApiBaseUrl,
+  normalizeResendApiBaseUrl,
   sendAdminTestEmail,
   sendPasswordChangedEmail,
   sendPasswordResetEmail,
@@ -23,7 +23,7 @@ import {
   verifyEmailServiceConnection,
 } from '../src/server/lib/email.js';
 
-interface CapturedLockallyRequest {
+interface CapturedResendRequest {
   method: string;
   url: string;
   authorization: string;
@@ -32,10 +32,10 @@ interface CapturedLockallyRequest {
   body: {
     from: string;
     to: string[];
+    reply_to?: string;
     subject: string;
     html: string;
     text: string;
-    headers?: Record<string, string>;
   };
 }
 
@@ -43,52 +43,46 @@ type ServerMode =
   | 'ok_queued'
   | 'ok_delivered_via_lookup'
   | 'accepted_then_bounced'
-  | 'send_write_only_403_domains'
+  | 'sending_only_401_restricted'
   | 'invalid_key'
   | 'unprocessable'
   | 'retry_once_500';
 
-async function startLocalLockallyTestServer(): Promise<{
-  baseUrlV1: string;
-  requests: CapturedLockallyRequest[];
+async function startLocalResendTestServer(): Promise<{
+  baseUrl: string;
+  requests: CapturedResendRequest[];
   setMode: (mode: ServerMode) => void;
   close: () => Promise<void>;
 }> {
-  const requests: CapturedLockallyRequest[] = [];
+  const requests: CapturedResendRequest[] = [];
   let mode: ServerMode = 'ok_queued';
   let transientFailuresRemaining = 0;
-  const messageStatuses = new Map<string, { status: string; error?: string }>();
+  const messageStatuses = new Map<string, { last_event: string; error?: string }>();
 
   const server = http.createServer((req, res) => {
     const auth = req.headers.authorization || '';
     const url = req.url || '/';
 
-    if (req.method === 'GET' && url === '/v1/domains') {
+    if (req.method === 'GET' && url === '/domains') {
       if (mode === 'invalid_key') {
-        res.writeHead(401, { 'Content-Type': 'application/problem+json' });
+        res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(
           JSON.stringify({
-            type: 'about:blank',
-            status: 401,
-            title: 'Unauthorized',
-            detail: 'The API key provided is invalid or expired.',
-            code: 'invalid_api_key',
-            request_id: 'req-401-domains',
+            statusCode: 401,
+            name: 'invalid_api_key',
+            message: 'API key is invalid',
           })
         );
         return;
       }
 
-      if (mode === 'send_write_only_403_domains') {
-        res.writeHead(403, { 'Content-Type': 'application/problem+json' });
+      if (mode === 'sending_only_401_restricted') {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(
           JSON.stringify({
-            type: 'about:blank',
-            status: 403,
-            title: 'Forbidden',
-            detail: 'Token scope send:write does not include domains:read.',
-            code: 'insufficient_scope',
-            request_id: 'req-403-domains',
+            statusCode: 401,
+            name: 'restricted_api_key',
+            message: 'This API key is restricted to only send emails',
           })
         );
         return;
@@ -97,39 +91,37 @@ async function startLocalLockallyTestServer(): Promise<{
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
         JSON.stringify({
-          data: [{ domain: 'acadetcbt.website', verified: true }],
+          data: [{ id: 'dom_1', name: 'acadetcbt.website', status: 'verified' }],
         })
       );
       return;
     }
 
-    if (req.method === 'GET' && url.startsWith('/v1/messages/')) {
-      const msgId = decodeURIComponent(url.slice('/v1/messages/'.length));
-      if (mode === 'send_write_only_403_domains') {
-        res.writeHead(403, { 'Content-Type': 'application/problem+json' });
+    if (req.method === 'GET' && url.startsWith('/emails/')) {
+      const emailId = decodeURIComponent(url.slice('/emails/'.length));
+      if (mode === 'sending_only_401_restricted') {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
         res.end(
           JSON.stringify({
-            type: 'about:blank',
-            status: 403,
-            title: 'Forbidden',
-            detail: 'Token scope send:write cannot read messages.',
-            code: 'insufficient_scope',
+            statusCode: 401,
+            name: 'restricted_api_key',
+            message: 'This API key is restricted to only send emails',
           })
         );
         return;
       }
-      const st = messageStatuses.get(msgId);
+      const st = messageStatuses.get(emailId);
       if (!st) {
         res.writeHead(404, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'Message not found' }));
+        res.end(JSON.stringify({ statusCode: 404, name: 'not_found', message: 'Email not found' }));
         return;
       }
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ id: msgId, ...st }));
+      res.end(JSON.stringify({ object: 'email', id: emailId, ...st }));
       return;
     }
 
-    if (req.method === 'POST' && url === '/v1/send') {
+    if (req.method === 'POST' && url === '/emails') {
       const chunks: Buffer[] = [];
       req.on('data', (c: Buffer) => chunks.push(c));
       req.on('end', () => {
@@ -138,45 +130,36 @@ async function startLocalLockallyTestServer(): Promise<{
         const contentType = String(req.headers['content-type'] || '');
 
         if (!auth.startsWith('Bearer ') || mode === 'invalid_key') {
-          res.writeHead(401, { 'Content-Type': 'application/problem+json' });
+          res.writeHead(401, { 'Content-Type': 'application/json' });
           res.end(
             JSON.stringify({
-              type: 'about:blank',
-              status: 401,
-              title: 'Unauthorized',
-              detail: 'The API key provided is invalid or expired.',
-              code: 'invalid_api_key',
-              request_id: 'req-401-send',
+              statusCode: 401,
+              name: 'invalid_api_key',
+              message: 'API key is invalid',
             })
           );
           return;
         }
 
         if (!idempotencyKey) {
-          res.writeHead(422, { 'Content-Type': 'application/problem+json' });
+          res.writeHead(422, { 'Content-Type': 'application/json' });
           res.end(
             JSON.stringify({
-              type: 'about:blank',
-              status: 422,
-              title: 'Unprocessable Entity',
-              detail: 'Idempotency-Key header is required.',
-              code: 'missing_idempotency_key',
-              request_id: 'req-422-idemp',
+              statusCode: 422,
+              name: 'validation_error',
+              message: 'Idempotency-Key header is required.',
             })
           );
           return;
         }
 
         if (mode === 'unprocessable') {
-          res.writeHead(422, { 'Content-Type': 'application/problem+json' });
+          res.writeHead(422, { 'Content-Type': 'application/json' });
           res.end(
             JSON.stringify({
-              type: 'about:blank',
-              status: 422,
-              title: 'Unprocessable Entity',
-              detail: 'Sender domain is not verified.',
-              code: 'unverified_domain',
-              request_id: 'req-422-domain',
+              statusCode: 422,
+              name: 'validation_error',
+              message: 'The acadetcbt.website domain is not verified.',
             })
           );
           return;
@@ -184,36 +167,18 @@ async function startLocalLockallyTestServer(): Promise<{
 
         if (mode === 'retry_once_500' && transientFailuresRemaining > 0) {
           transientFailuresRemaining -= 1;
-          res.writeHead(500, { 'Content-Type': 'application/problem+json' });
+          res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(
             JSON.stringify({
-              type: 'about:blank',
-              status: 500,
-              title: 'Internal Server Error',
-              detail: 'Temporary queue outage.',
-              code: 'internal_error',
-              request_id: 'req-500-retry',
+              statusCode: 500,
+              name: 'internal_server_error',
+              message: 'Temporary Resend upstream error.',
             })
           );
           return;
         }
 
-        const parsedBody = JSON.parse(raw) as CapturedLockallyRequest['body'];
-        const replyTo = parsedBody.headers?.['Reply-To'];
-        if (/^no-?reply@/i.test(parsedBody.from || '') && (!replyTo || !replyTo.includes('@'))) {
-          res.writeHead(400, { 'Content-Type': 'application/problem+json' });
-          res.end(
-            JSON.stringify({
-              type: 'about:blank',
-              status: 400,
-              title: 'Bad Request',
-              detail: 'Sending from a no-reply address requires a Reply-To header.',
-              code: 'missing_reply_to',
-              request_id: 'req-400-reply-to',
-            })
-          );
-          return;
-        }
+        const parsedBody = JSON.parse(raw) as CapturedResendRequest['body'];
         requests.push({
           method: req.method || 'POST',
           url,
@@ -223,24 +188,22 @@ async function startLocalLockallyTestServer(): Promise<{
           body: parsedBody,
         });
 
-        const msgUuid = `msg_${requests.length}`;
+        const emailUuid = `re_msg_${requests.length}`;
         if (mode === 'ok_delivered_via_lookup') {
-          messageStatuses.set(msgUuid, { status: 'delivered' });
+          messageStatuses.set(emailUuid, { last_event: 'delivered' });
         } else if (mode === 'accepted_then_bounced') {
-          messageStatuses.set(msgUuid, {
-            status: 'bounced',
+          messageStatuses.set(emailUuid, {
+            last_event: 'bounced',
             error: '550 5.1.1 The email account does not exist.',
           });
         } else {
-          messageStatuses.set(msgUuid, { status: 'queued' });
+          messageStatuses.set(emailUuid, { last_event: 'sent' });
         }
 
-        res.writeHead(202, { 'Content-Type': 'application/json' });
+        res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(
           JSON.stringify({
-            id: msgUuid,
-            message_id: `<${msgUuid}@lockally.com>`,
-            status: 'queued',
+            id: emailUuid,
           })
         );
       });
@@ -259,7 +222,7 @@ async function startLocalLockallyTestServer(): Promise<{
   assert.ok(addr && typeof addr === 'object');
 
   return {
-    baseUrlV1: `http://127.0.0.1:${addr.port}/v1`,
+    baseUrl: `http://127.0.0.1:${addr.port}`,
     requests,
     setMode: (next) => {
       mode = next;
@@ -274,8 +237,9 @@ async function startLocalLockallyTestServer(): Promise<{
 
 function saveAndClearEmailEnv() {
   const keys = [
-    'LOCKALLY_API_KEY',
-    'LOCKALLY_API_URL',
+    'RESEND_API_KEY',
+    'RESEND_API_URL',
+    'EMAIL_REPLY_TO',
     'SMTP_FROM_EMAIL',
     'APP_BASE_URL',
   ] as const;
@@ -294,13 +258,12 @@ function saveAndClearEmailEnv() {
 }
 
 async function verifyEmailAndRecovery() {
-  console.log('[Email & Recovery Verification] 1. Testing token cryptography, password rules & /v1 URL normalization...');
+  console.log('[Email & Recovery Verification] 1. Testing token cryptography, password rules & Resend URL normalization...');
   assert.equal(PASSWORD_RESET_TTL_MINUTES, 20);
   assert.equal(EMAIL_VERIFICATION_TTL_HOURS, 24);
-  assert.equal(normalizeLockallyApiBaseUrl('https://api.lockally.com/v1'), 'https://api.lockally.com/v1');
-  assert.equal(normalizeLockallyApiBaseUrl('https://api.lockally.com/v1/'), 'https://api.lockally.com/v1');
-  assert.equal(normalizeLockallyApiBaseUrl('https://api.lockally.com/v1/send'), 'https://api.lockally.com/v1');
-  assert.equal(normalizeLockallyApiBaseUrl('https://api.lockally.com'), 'https://api.lockally.com/v1');
+  assert.equal(normalizeResendApiBaseUrl(undefined), 'https://api.resend.com');
+  assert.equal(normalizeResendApiBaseUrl('https://api.resend.com/'), 'https://api.resend.com');
+  assert.equal(normalizeResendApiBaseUrl('https://api.resend.com/emails'), 'https://api.resend.com');
 
   const raw1 = generateRawAuthToken();
   const raw2 = generateRawAuthToken();
@@ -330,25 +293,25 @@ async function verifyEmailAndRecovery() {
   for (const rel of clientFilesToCheck) {
     const src = await fs.readFile(path.resolve(process.cwd(), rel), 'utf-8');
     assert.equal(
-      src.includes('LOCKALLY_API_KEY') ||
+      src.includes('RESEND_API_KEY') ||
+        src.includes('LOCKALLY_API_KEY') ||
         src.includes('SMTP_PASSWORD') ||
         src.includes('nodemailer'),
       false,
-      `Frontend file ${rel} must never reference LOCKALLY_API_KEY, SMTP_PASSWORD, or nodemailer`
+      `Frontend file ${rel} must never reference RESEND_API_KEY, LOCKALLY_API_KEY, SMTP_PASSWORD, or nodemailer`
     );
   }
   const emailServerSrc = await fs.readFile(path.resolve(process.cwd(), 'src/server/lib/email.ts'), 'utf-8');
   assert.equal(emailServerSrc.includes('nodemailer'), false, 'email.ts must not use nodemailer/SMTP');
 
-  console.log('[Email & Recovery Verification] 3. Testing missing Lockally credentials graceful handling...');
+  console.log('[Email & Recovery Verification] 3. Testing missing Resend credentials graceful handling...');
   const restoreEmailEnv = saveAndClearEmailEnv();
   try {
     const startupMissing = validateEmailStartup();
     assert.equal(startupMissing.configured, false);
     assert.equal(startupMissing.connectionStatus, 'unconfigured');
     assert.deepEqual(startupMissing.missingVariables, [
-      'LOCKALLY_API_KEY',
-      'LOCKALLY_API_URL',
+      'RESEND_API_KEY',
       'SMTP_FROM_EMAIL',
       'APP_BASE_URL',
     ]);
@@ -364,9 +327,9 @@ async function verifyEmailAndRecovery() {
     assert.equal(skippedSend.deliveredConfirmed, false);
     assert.equal(skippedSend.status, 'skipped_unconfigured');
 
-    console.log('[Email & Recovery Verification] 4. Testing unreachable Lockally endpoint, sender rules & secret redaction...');
-    process.env.LOCKALLY_API_KEY = 'lk_live_prefix99_SECRET_TOKEN_SHOULD_NOT_APPEAR_ANYWHERE';
-    process.env.LOCKALLY_API_URL = 'http://127.0.0.1:19/v1';
+    console.log('[Email & Recovery Verification] 4. Testing unreachable Resend endpoint, sender rules & secret redaction...');
+    process.env.RESEND_API_KEY = 're_test_prefix99_SECRET_TOKEN_SHOULD_NOT_APPEAR_ANYWHERE';
+    process.env.RESEND_API_URL = 'http://127.0.0.1:19';
     process.env.SMTP_FROM_EMAIL = 'menmexsupport@gmail.com';
     process.env.APP_BASE_URL = 'https://acadetcbt.website';
 
@@ -380,8 +343,9 @@ async function verifyEmailAndRecovery() {
     process.env.SMTP_FROM_EMAIL = 'noreply@acadetcbt.website';
     const summaryMasked = getEmailConfigSummary();
     assert.equal(summaryMasked.configured, true);
+    assert.equal(summaryMasked.provider, 'Resend Transactional Email API');
     assert.equal(summaryMasked.replyToEmail, 'support@acadetcbt.website');
-    assert.equal(summaryMasked.apiKeyMasked, 'lk_live_...HERE');
+    assert.equal(summaryMasked.apiKeyMasked, 're_test...HERE');
     assert.equal(JSON.stringify(summaryMasked).includes('SECRET_TOKEN_SHOULD_NOT_APPEAR_ANYWHERE'), false);
 
     const failedConn = await verifyEmailServiceConnection();
@@ -391,21 +355,21 @@ async function verifyEmailAndRecovery() {
     assert.equal(
       (failedConn.lastError || '').includes('SECRET_TOKEN_SHOULD_NOT_APPEAR_ANYWHERE'),
       false,
-      'LOCKALLY_API_KEY must be redacted from error messages'
+      'RESEND_API_KEY must be redacted from error messages'
     );
 
-    console.log('[Email & Recovery Verification] 5. Testing Lockally POST /v1/send HTTP API, send:write scope & queued vs delivered truthfulness...');
-    const lockallyServer = await startLocalLockallyTestServer();
+    console.log('[Email & Recovery Verification] 5. Testing Resend POST /emails HTTP API, Sending-access scope & queued vs delivered truthfulness...');
+    const resendServer = await startLocalResendTestServer();
     try {
-      process.env.LOCKALLY_API_URL = lockallyServer.baseUrlV1;
+      process.env.RESEND_API_URL = resendServer.baseUrl;
 
-      // 5a. Token scoped strictly to send:write (403 on /v1/domains) authenticates cleanly
-      lockallyServer.setMode('send_write_only_403_domains');
+      // 5a. Token scoped strictly to Sending access (401 restricted_api_key on GET /domains) authenticates cleanly
+      resendServer.setMode('sending_only_401_restricted');
       const scopedConn = await verifyEmailServiceConnection();
       assert.equal(scopedConn.connectionStatus, 'connected');
-      assert.ok(scopedConn.scopeNote?.includes('send:write'));
+      assert.ok(scopedConn.scopeNote?.includes('Sending access'));
 
-      // 5a-2. Send email with send:write-only token -> 202 queued, NOT claiming deliveredConfirmed
+      // 5a-2. Send email with Sending-access-only token -> accepted queued, NOT claiming deliveredConfirmed
       const scopedSend = await sendAdminTestEmail({
         adminUserId: '22222222-2222-4222-8222-222222222222',
         toEmail: 'admin@acadetcbt.website',
@@ -417,7 +381,7 @@ async function verifyEmailAndRecovery() {
       assert.equal(scopedSend.status, 'queued');
 
       // 5b. 401 unauthorized test (no secret leak)
-      lockallyServer.setMode('invalid_key');
+      resendServer.setMode('invalid_key');
       const unauthConn = await verifyEmailServiceConnection();
       assert.equal(unauthConn.connectionStatus, 'connection_failed');
       assert.ok((unauthConn.lastError || '').includes('401'));
@@ -427,7 +391,7 @@ async function verifyEmailAndRecovery() {
       );
 
       // 5c. 422 payload/domain error test (non-retryable)
-      lockallyServer.setMode('unprocessable');
+      resendServer.setMode('unprocessable');
       const unprocRes = await sendAdminTestEmail({
         adminUserId: '22222222-2222-4222-8222-222222222222',
         toEmail: 'admin@acadetcbt.website',
@@ -438,8 +402,8 @@ async function verifyEmailAndRecovery() {
       assert.equal(unprocRes.deliveredConfirmed, false);
       assert.ok((unprocRes.error || '').includes('422'));
 
-      // 5d. 202 Accepted followed by bounced lookup MUST NOT report success!
-      lockallyServer.setMode('accepted_then_bounced');
+      // 5d. Accepted followed by bounced lookup MUST NOT report success!
+      resendServer.setMode('accepted_then_bounced');
       const bouncedRes = await sendAdminTestEmail({
         adminUserId: '22222222-2222-4222-8222-222222222222',
         toEmail: 'bounced@example.com',
@@ -451,8 +415,8 @@ async function verifyEmailAndRecovery() {
       assert.equal(bouncedRes.status, 'bounced');
       assert.ok((bouncedRes.error || '').includes('550'));
 
-      // 5e. 202 Accepted followed by confirmed delivered lookup
-      lockallyServer.setMode('ok_delivered_via_lookup');
+      // 5e. Accepted followed by confirmed delivered lookup
+      resendServer.setMode('ok_delivered_via_lookup');
       const deliveredRes = await sendAdminTestEmail({
         adminUserId: '22222222-2222-4222-8222-222222222222',
         toEmail: 'admin@acadetcbt.website',
@@ -464,7 +428,7 @@ async function verifyEmailAndRecovery() {
       assert.equal(deliveredRes.status, 'delivered');
 
       // 5f. 500 transient error retries safely with identical Idempotency-Key
-      lockallyServer.setMode('retry_once_500');
+      resendServer.setMode('retry_once_500');
       const retrySuccess = await sendAdminTestEmail({
         adminUserId: '22222222-2222-4222-8222-222222222222',
         toEmail: 'admin@acadetcbt.website',
@@ -475,8 +439,8 @@ async function verifyEmailAndRecovery() {
       assert.equal(retrySuccess.deliveredConfirmed, false);
       assert.equal(retrySuccess.status, 'queued');
 
-      // 5g. Send verification, password reset & password changed notifications (status = queued from 202 Accepted)
-      lockallyServer.setMode('ok_queued');
+      // 5g. Send verification, password reset & password changed notifications (status = queued)
+      resendServer.setMode('ok_queued');
       const verifyToken = generateRawAuthToken();
       const resetToken = generateRawAuthToken();
 
@@ -511,16 +475,16 @@ async function verifyEmailAndRecovery() {
       assert.equal(changedRes.accepted, true);
       assert.equal(changedRes.status, 'queued');
 
-      // Total accepted POST /v1/send calls = scoped(1) + bounced(1) + delivered(1) + retry(1) + verify(1) + reset(1) + changed(1) = 7
-      assert.equal(lockallyServer.requests.length, 7);
+      // Total accepted POST /emails calls = scoped(1) + bounced(1) + delivered(1) + retry(1) + verify(1) + reset(1) + changed(1) = 7
+      assert.equal(resendServer.requests.length, 7);
 
-      const reqVerify = lockallyServer.requests[4];
-      assert.equal(reqVerify.url, '/v1/send');
-      assert.equal(reqVerify.authorization, `Bearer ${process.env.LOCKALLY_API_KEY}`);
+      const reqVerify = resendServer.requests[4];
+      assert.equal(reqVerify.url, '/emails');
+      assert.equal(reqVerify.authorization, `Bearer ${process.env.RESEND_API_KEY}`);
       assert.ok(reqVerify.idempotencyKey.startsWith('acadet-verification-'));
       assert.equal(reqVerify.contentType, 'application/json');
-      assert.equal(reqVerify.body.from, 'noreply@acadetcbt.website');
-      assert.equal(reqVerify.body.headers?.['Reply-To'], 'support@acadetcbt.website');
+      assert.equal(reqVerify.body.from, 'Acadet CBT <noreply@acadetcbt.website>');
+      assert.equal(reqVerify.body.reply_to, 'support@acadetcbt.website');
       assert.deepEqual(reqVerify.body.to, ['verify-student@example.com']);
       assert.equal(reqVerify.body.subject, 'Verify Your Acadet CBT Account');
       assert.ok(
@@ -530,10 +494,10 @@ async function verifyEmailAndRecovery() {
       );
       assert.ok(reqVerify.body.html.includes('https://acadetcbt.website/acadet-logo.png'));
 
-      const reqReset = lockallyServer.requests[5];
-      assert.equal(reqReset.url, '/v1/send');
+      const reqReset = resendServer.requests[5];
+      assert.equal(reqReset.url, '/emails');
       assert.ok(reqReset.idempotencyKey.startsWith('acadet-password_reset-'));
-      assert.equal(reqReset.body.from, 'noreply@acadetcbt.website');
+      assert.equal(reqReset.body.from, 'Acadet CBT <noreply@acadetcbt.website>');
       assert.deepEqual(reqReset.body.to, ['reset-student@example.com']);
       assert.equal(reqReset.body.subject, 'Acadet CBT – Password Reset Request');
       assert.ok(
@@ -547,10 +511,10 @@ async function verifyEmailAndRecovery() {
         false
       );
 
-      const reqChanged = lockallyServer.requests[6];
-      assert.equal(reqChanged.url, '/v1/send');
+      const reqChanged = resendServer.requests[6];
+      assert.equal(reqChanged.url, '/emails');
       assert.ok(reqChanged.idempotencyKey.startsWith('acadet-password_changed-'));
-      assert.equal(reqChanged.body.from, 'noreply@acadetcbt.website');
+      assert.equal(reqChanged.body.from, 'Acadet CBT <noreply@acadetcbt.website>');
       assert.deepEqual(reqChanged.body.to, ['reset-student@example.com']);
       assert.equal(reqChanged.body.subject, 'Acadet CBT – Password Successfully Changed');
 
@@ -571,7 +535,7 @@ async function verifyEmailAndRecovery() {
           email?: { configured: boolean; provider?: string };
         };
         assert.equal(healthBody.email?.configured, true);
-        assert.equal(healthBody.email?.provider, 'lockally');
+        assert.equal(healthBody.email?.provider, 'resend');
 
         for (const privRoute of ['/forgot-password', '/reset-password', '/verify-email']) {
           const r = await fetch(`${baseUrl}${privRoute}`, { redirect: 'manual' });
@@ -634,7 +598,7 @@ async function verifyEmailAndRecovery() {
             );
             assert.equal(dbTokenCheck.rowCount, 1);
 
-            const capturedVerify = lockallyServer.requests.find(
+            const capturedVerify = resendServer.requests.find(
               (r) =>
                 r.body.subject === 'Verify Your Acadet CBT Account' &&
                 r.body.to.includes(testEmail)
@@ -661,7 +625,7 @@ async function verifyEmailAndRecovery() {
             });
             assert.equal(forgotRes.status, 200);
 
-            const capturedReset = lockallyServer.requests.find(
+            const capturedReset = resendServer.requests.find(
               (r) =>
                 r.body.subject === 'Acadet CBT – Password Reset Request' &&
                 r.body.to.includes(testEmail)
@@ -705,14 +669,14 @@ async function verifyEmailAndRecovery() {
             await pool.query('DELETE FROM users WHERE id = $1', [regJson.user.id]);
           }
         } else {
-          console.log('[Email & Recovery Verification] Database not connected in local sandbox; live DB lifecycle skipped (verified crypto/Lockally API/HTTP routes).');
+          console.log('[Email & Recovery Verification] Database not connected in local sandbox; live DB lifecycle skipped (verified crypto/Resend API/HTTP routes).');
         }
       } finally {
         httpServer.closeAllConnections();
         await new Promise<void>((resolve) => httpServer.close(() => resolve()));
       }
     } finally {
-      await lockallyServer.close();
+      await resendServer.close();
     }
   } finally {
     restoreEmailEnv();

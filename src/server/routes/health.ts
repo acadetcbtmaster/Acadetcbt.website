@@ -26,7 +26,7 @@ router.get('/', async (_req, res) => {
     },
     email: {
       configured: emailConfigured,
-      provider: 'lockally',
+      provider: 'resend',
     },
   });
 });

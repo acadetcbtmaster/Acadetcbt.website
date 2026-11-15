@@ -351,7 +351,7 @@ router.post('/forgot-password', requireDb, async (req, res) => {
 
     if (!isEmailConfigured()) {
       console.warn(
-        '[Password Reset] Cannot dispatch recovery email because Lockally email environment variables are incomplete.'
+        '[Password Reset] Cannot dispatch recovery email because Resend email environment variables are incomplete.'
       );
       res.status(503).json({
         error:

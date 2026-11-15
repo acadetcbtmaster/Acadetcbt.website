@@ -693,7 +693,7 @@ export type EmailServiceConnectionStatus =
 
 export interface AdminEmailStatusOverview {
   emailService: {
-    provider: 'Lockally Transactional Email API';
+    provider: 'Resend Transactional Email API';
     configured: boolean;
     missingVariables: string[];
     validationErrors: string[];

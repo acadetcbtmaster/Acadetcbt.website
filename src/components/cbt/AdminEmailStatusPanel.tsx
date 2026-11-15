@@ -52,8 +52,8 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
         type: res.ok ? 'ok' : 'err',
         text: res.ok
           ? res.scopeNote ||
-            `Lockally Email API verified (${res.emailService.apiUrl || 'https://api.lockally.com/v1'}).`
-          : res.emailService.lastError || 'Lockally API connection check failed.',
+            `Resend Email API verified (${res.emailService.apiUrl || 'https://api.resend.com'}).`
+          : res.emailService.lastError || 'Resend API connection check failed.',
       });
     } catch (err) {
       setFeedback({
@@ -61,7 +61,7 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
         text:
           err instanceof ApiError
             ? err.message
-            : 'Unable to test Lockally Email API connection right now.',
+            : 'Unable to test Resend Email API connection right now.',
       });
     } finally {
       setTestingConn(false);
@@ -92,7 +92,7 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
   if (!status) {
     return (
       <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-5 text-sm text-slate-500 dark:text-slate-400">
-        Loading Lockally email &amp; password recovery diagnostics...
+        Loading Resend email &amp; password recovery diagnostics...
       </div>
     );
   }
@@ -107,8 +107,8 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
           <div className="space-y-1">
             <div className="font-extrabold">
               {emailService.missingVariables.length > 0
-                ? 'Administrative Notice: Lockally Email API Not Fully Configured'
-                : 'Administrative Notice: Invalid Lockally Sender Configuration'}
+                ? 'Administrative Notice: Resend Email API Not Fully Configured'
+                : 'Administrative Notice: Invalid Resend Sender Configuration'}
             </div>
             {emailService.missingVariables.length > 0 && (
               <>
@@ -152,7 +152,7 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <div className="rounded-xl border border-[#dce6f5] dark:border-slate-800 bg-white dark:bg-slate-900 p-4 space-y-1.5">
           <div className="text-xs font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Lockally Email API
+            Resend Email API
           </div>
           <div className="flex items-center gap-2">
             {emailService.configured ? (
@@ -165,7 +165,7 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
             </span>
           </div>
           <div className="text-xs text-slate-600 dark:text-slate-400 truncate">
-            {emailService.apiUrl ? `${emailService.apiUrl}/send` : 'LOCKALLY_API_URL not set'}
+            {emailService.apiUrl ? `${emailService.apiUrl}/emails` : 'RESEND_API_URL not set'}
           </div>
         </div>
 
@@ -327,7 +327,7 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
             ) : (
               <RefreshCw className="w-3.5 h-3.5" />
             )}
-            <span>{testingConn ? 'Checking API...' : 'Test Lockally API'}</span>
+            <span>{testingConn ? 'Checking API...' : 'Test Resend API'}</span>
           </button>
 
           {emailService.lastError && (
@@ -412,7 +412,7 @@ export const AdminEmailStatusPanel: React.FC<AdminEmailStatusPanelProps> = ({
                                 : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
                         }`}
                       >
-                        {log.deliveryStatus === 'queued' ? 'queued (202)' : log.deliveryStatus}
+                        {log.deliveryStatus === 'queued' ? 'queued' : log.deliveryStatus}
                       </span>
                     </td>
                     <td
