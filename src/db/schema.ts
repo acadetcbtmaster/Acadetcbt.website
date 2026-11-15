@@ -127,10 +127,7 @@ export const courses = pgTable(
       sql`${table.publicationStatus} IN ('draft', 'published', 'archived')`
     ),
     check('courses_registration_fee_check', sql`${table.registrationFee} >= 0`),
-    check(
-      'courses_standardized_pricing_check',
-      sql`${table.courseValue} = 2300.00 AND ${table.registrationFee} = 2350.00`
-    ),
+    check('courses_course_value_check', sql`${table.courseValue} >= 0`),
   ]
 );
 

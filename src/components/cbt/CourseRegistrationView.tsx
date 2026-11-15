@@ -168,7 +168,7 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                 Course Registration
               </h2>
               <p className="text-[11px] sm:text-xs text-blue-100 truncate">
-                Select a course and complete Paystack payment (₦2,350) to unlock CBT exams.
+                Select a course and complete Paystack payment to unlock CBT exams.
               </p>
             </div>
           </div>
@@ -304,10 +304,10 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                       <div className="flex items-center justify-between gap-2">
                         <div>
                           <div className="text-base sm:text-lg font-extrabold text-[#082252] dark:text-white tabular-nums leading-tight">
-                            {formatCurrency(2350, course.currency)}
+                            {formatCurrency(course.registrationFee, course.currency)}
                           </div>
                           <div className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums leading-tight">
-                            Value {formatCurrency(course.courseValue ?? 2300, course.currency)} · Charges absorbed
+                            Value {formatCurrency(course.courseValue ?? course.registrationFee, course.currency)} · Charges absorbed
                           </div>
                         </div>
 
@@ -529,7 +529,7 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <span className="text-slate-600 dark:text-slate-400">Course Value</span>
                       <span className="font-bold text-slate-900 dark:text-white tabular-nums">
-                        {formatCurrency(confirmCourse.courseValue ?? 2300, confirmCourse.currency)}
+                        {formatCurrency(confirmCourse.courseValue ?? confirmCourse.registrationFee, confirmCourse.currency)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2 text-xs">
@@ -544,7 +544,7 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                         Total Amount Payable
                       </span>
                       <span className="text-lg font-extrabold text-[#0a58ed] dark:text-blue-400 tabular-nums">
-                        {formatCurrency(2350, confirmCourse.currency)}
+                        {formatCurrency(confirmCourse.registrationFee, confirmCourse.currency)}
                       </span>
                     </div>
                   </div>

@@ -14,6 +14,7 @@ import {
   COURSE_VALUE_KOBO,
   TOTAL_STUDENT_PAYABLE_KOBO,
   computeApplicablePaystackFeeKobo,
+  deriveDefaultCourseValueNaira,
   reconcileCoursePayment,
 } from '../src/server/lib/pricing.js';
 import {
@@ -86,6 +87,30 @@ async function verifyUpgrade() {
   assert.equal(intlRec.paystackFeeKobo, 19165);
   assert.equal(intlRec.coversCourseValue, false);
   assert.equal(intlRec.reconciliationStatus, 'shortfall');
+
+  // Custom per-course pricing reconciliation (e.g. ₦1,500 below and ₦5,000 above default ₦2,350)
+  assert.equal(deriveDefaultCourseValueNaira(2350), 2300);
+  const lowValue = deriveDefaultCourseValueNaira(1500);
+  assert.equal(lowValue, 1477.5);
+  const lowRec = reconcileCoursePayment({
+    totalChargedKobo: nairaToKobo(1500),
+    courseValueKobo: nairaToKobo(lowValue),
+    currency: 'NGN',
+    countryCode: 'NG',
+  });
+  assert.equal(lowRec.coversCourseValue, true);
+  assert.equal(lowRec.reconciliationStatus, 'reconciled');
+
+  const highValue = deriveDefaultCourseValueNaira(5000);
+  assert.equal(highValue, 4825);
+  const highRec = reconcileCoursePayment({
+    totalChargedKobo: nairaToKobo(5000),
+    courseValueKobo: nairaToKobo(highValue),
+    currency: 'NGN',
+    countryCode: 'NG',
+  });
+  assert.equal(highRec.coversCourseValue, true);
+  assert.equal(highRec.reconciliationStatus, 'reconciled');
 
   console.log('[Upgrade Verification] Checking Paystack crypto & kobo helpers...');
   assert.equal(nairaToKobo(2350), 235000);
@@ -184,9 +209,9 @@ async function verifyUpgrade() {
     'Settlement must lock payment row with SELECT ... FOR UPDATE'
   );
   assert.ok(
-    settlementSrc.includes('actualKobo > TOTAL_STUDENT_PAYABLE_KOBO') &&
+    settlementSrc.includes('actualKobo > expectedKobo') &&
       settlementSrc.includes('isPaystackFeePassThrough'),
-    'Settlement must reject unauthorized charges above TOTAL_STUDENT_PAYABLE_KOBO while permitting exact Paystack pass-through recovery'
+    'Settlement must reject unauthorized charges above course expectedKobo while permitting exact Paystack pass-through recovery'
   );
   assert.ok(
     settlementSrc.includes('actualKobo !== expectedKobo'),

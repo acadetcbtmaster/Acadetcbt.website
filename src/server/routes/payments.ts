@@ -138,18 +138,22 @@ router.post('/initialize', requireAuth, async (req, res) => {
       return;
     }
 
-    // Authoritative standardized pricing structure:
-    // Course value = ₦2,300; Paystack processing fees absorbed by Acadet CBT; Total payable = ₦2,350.
-    const amountKobo = TOTAL_STUDENT_PAYABLE_KOBO;
-    if (amountKobo > TOTAL_STUDENT_PAYABLE_KOBO || amountKobo <= 0) {
+    const courseRegistrationFeeNaira = Number(
+      course.registrationFee ?? TOTAL_STUDENT_PAYABLE_NAIRA
+    );
+    const courseValueNaira = Number(course.courseValue ?? COURSE_VALUE_NAIRA);
+    const amountKobo = Math.round(courseRegistrationFeeNaira * 100);
+    const courseValueKobo = Math.round(courseValueNaira * 100);
+
+    if (!Number.isFinite(amountKobo) || amountKobo < 10_000) {
       res.status(400).json({
-        error: 'Configured student payable amount violates platform pricing cap.',
+        error: 'Configured course registration price is below the minimum Paystack checkout amount (₦100).',
       });
       return;
     }
 
     const reference = generatePaymentReference();
-    const currency = STANDARD_CURRENCY;
+    const currency = (course.currency || STANDARD_CURRENCY).toUpperCase();
     const callbackUrl = resolveCallbackUrl(req);
 
     // Save latest verified/entered WhatsApp number on student's profile for convenience
@@ -161,7 +165,7 @@ router.post('/initialize', requireAuth, async (req, res) => {
       })
       .where(eq(users.id, student.id));
 
-    // Create pending payment record first with the authoritative DB pricing snapshot
+    // Create pending payment record first with the authoritative DB pricing snapshot for this course
     const [pendingPayment] = await db
       .insert(payments)
       .values({
@@ -170,9 +174,9 @@ router.post('/initialize', requireAuth, async (req, res) => {
         paymentReference: reference,
         gateway: 'paystack',
         whatsappNumber: parsed.whatsappNumber,
-        courseValue: COURSE_VALUE_NAIRA.toFixed(2),
-        totalAmountCharged: TOTAL_STUDENT_PAYABLE_NAIRA.toFixed(2),
-        amount: TOTAL_STUDENT_PAYABLE_NAIRA.toFixed(2),
+        courseValue: courseValueNaira.toFixed(2),
+        totalAmountCharged: courseRegistrationFeeNaira.toFixed(2),
+        amount: courseRegistrationFeeNaira.toFixed(2),
         currency,
         reconciliationStatus: 'pending',
         feeAbsorbedBy: FEE_ABSORBER_LABEL,
@@ -195,7 +199,7 @@ router.post('/initialize', requireAuth, async (req, res) => {
           course_id: course.id,
           course_code: course.code,
           course_title: course.title,
-          course_value_kobo: COURSE_VALUE_KOBO,
+          course_value_kobo: courseValueKobo,
           expected_amount_kobo: amountKobo,
           expected_currency: currency,
           fee_absorbed_by: FEE_ABSORBER_LABEL,
@@ -234,8 +238,8 @@ router.post('/initialize', requireAuth, async (req, res) => {
         courseId: course.id,
         courseCode: course.code,
         whatsappNumber: parsed.whatsappNumber,
-        courseValue: COURSE_VALUE_NAIRA,
-        totalAmountCharged: TOTAL_STUDENT_PAYABLE_NAIRA,
+        courseValue: courseValueNaira,
+        totalAmountCharged: courseRegistrationFeeNaira,
         feeAbsorbedBy: FEE_ABSORBER_LABEL,
         currency,
       },
@@ -247,8 +251,8 @@ router.post('/initialize', requireAuth, async (req, res) => {
       reference,
       authorizationUrl: paystackInit.authorization_url,
       accessCode: paystackInit.access_code,
-      courseValue: COURSE_VALUE_NAIRA,
-      amount: TOTAL_STUDENT_PAYABLE_NAIRA,
+      courseValue: courseValueNaira,
+      amount: courseRegistrationFeeNaira,
       feeAbsorbedBy: FEE_ABSORBER_LABEL,
       currency,
       course: {

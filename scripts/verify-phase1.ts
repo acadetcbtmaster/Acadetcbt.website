@@ -202,6 +202,23 @@ async function verifyPhase1() {
     );
   }
 
+  const sqlPath11 = path.resolve(
+    process.cwd(),
+    'migrations/0011_editable_course_registration_price.sql'
+  );
+  const sqlContent11 = await fs.readFile(sqlPath11, 'utf-8');
+  for (const snippet of [
+    'DROP CONSTRAINT IF EXISTS courses_standardized_pricing_check',
+    'DROP CONSTRAINT IF EXISTS payments_total_cap_check',
+    'courses_registration_fee_check',
+    'courses_course_value_check',
+  ]) {
+    assert.ok(
+      sqlContent11.includes(snippet),
+      `SQL migration 0011 missing expected definition: ${snippet}`
+    );
+  }
+
   assert.ok(
     sqlContent1.includes("CHECK (correct_option IN ('A', 'B', 'C', 'D'))"),
     'Missing check constraint on correct_option'

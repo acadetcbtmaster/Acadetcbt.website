@@ -129,3 +129,22 @@ export function reconcileCoursePayment(params: {
     reconciliationStatus: coversCourseValue ? 'reconciled' : 'shortfall',
   };
 }
+
+/**
+ * Computes a default net course value from a configurable student registration fee
+ * after reserving local NGN Paystack processing fees so verified local payments reconcile cleanly.
+ */
+export function deriveDefaultCourseValueNaira(registrationFeeNaira: number): number {
+  const cleanFee = Math.max(0, Number(registrationFeeNaira.toFixed(2)));
+  if (Math.abs(cleanFee - TOTAL_STUDENT_PAYABLE_NAIRA) < 0.01) {
+    return COURSE_VALUE_NAIRA;
+  }
+  const amountKobo = Math.round(cleanFee * 100);
+  const feeInfo = computeApplicablePaystackFeeKobo({
+    amountKobo,
+    currency: STANDARD_CURRENCY,
+    countryCode: 'NG',
+  });
+  const netKobo = Math.max(0, amountKobo - feeInfo.paystackFeeKobo);
+  return koboToNaira(netKobo);
+}

@@ -237,6 +237,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
   const [cTitle, setCTitle] = useState('');
   const [cLevel, setCLevel] = useState('100 Level');
   const [cFee, setCFee] = useState('2350');
+  const [cValue, setCValue] = useState('2300');
+  const [cValueCustom, setCValueCustom] = useState(false);
   const [cPubStatus, setCPubStatus] = useState<PublicationStatus>('published');
   const [cDuration, setCDuration] = useState('60');
   const [cDesc, setCDesc] = useState('');
@@ -577,12 +579,37 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     }
   }, [courses, qCourseId]);
 
+  const derivePreviewCourseValue = (feeNaira: number): number => {
+    if (!Number.isFinite(feeNaira) || feeNaira <= 0) return 0;
+    const cleanFee = Number(feeNaira.toFixed(2));
+    if (Math.abs(cleanFee - 2350) < 0.01) return 2300;
+    const amountKobo = Math.round(cleanFee * 100);
+    const percentageFee = Math.round(amountKobo * 0.015);
+    const flatFee = amountKobo < 250_000 ? 0 : 10_000;
+    const gatewayFee = Math.min(200_000, percentageFee + flatFee);
+    return Number((Math.max(0, amountKobo - gatewayFee) / 100).toFixed(2));
+  };
+
+  const handleCourseFeeChange = (nextFeeStr: string) => {
+    setCFee(nextFeeStr);
+    if (!cValueCustom) {
+      const parsedFee = Number(nextFeeStr);
+      if (Number.isFinite(parsedFee) && parsedFee > 0) {
+        setCValue(String(derivePreviewCourseValue(parsedFee)));
+      } else {
+        setCValue('');
+      }
+    }
+  };
+
   const resetCourseForm = () => {
     setEditingCourseId(null);
     setCCode('');
     setCTitle('');
     setCLevel('100 Level');
     setCFee('2350');
+    setCValue('2300');
+    setCValueCustom(false);
     setCPubStatus('published');
     setCDuration('60');
     setCDesc('');
@@ -590,11 +617,16 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
   };
 
   const startEditCourse = (c: AdminCourseItem) => {
+    const existingFee = Number(c.registrationFee ?? 2350);
+    const autoValue = derivePreviewCourseValue(existingFee);
+    const existingVal = Number(c.courseValue ?? autoValue);
     setEditingCourseId(c.id);
     setCCode(c.code);
     setCTitle(c.title);
     setCLevel(c.level);
-    setCFee('2350');
+    setCFee(String(existingFee));
+    setCValue(String(existingVal));
+    setCValueCustom(Math.abs(existingVal - autoValue) > 0.01);
     setCPubStatus(c.publicationStatus);
     setCDuration(String(c.defaultDurationMinutes));
     setCDesc(c.description);
@@ -607,6 +639,23 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     setBusy(true);
     setFeedback(null);
     try {
+      const feeNum = Number(cFee);
+      if (!Number.isFinite(feeNum) || feeNum < 100) {
+        setFeedback({ type: 'err', text: 'Course registration price must be at least ₦100.' });
+        setBusy(false);
+        return;
+      }
+      const valNum =
+        cValue.trim() !== '' ? Number(cValue) : derivePreviewCourseValue(feeNum);
+      if (!Number.isFinite(valNum) || valNum < 0 || valNum > feeNum) {
+        setFeedback({
+          type: 'err',
+          text: 'Net course value must be between ₦0 and the student registration price.',
+        });
+        setBusy(false);
+        return;
+      }
+
       const durNum = Number(cDuration) || 60;
       const trimmedGroupLink = cWhatsappLink.trim();
       if (editingCourseId) {
@@ -615,7 +664,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
           title: cTitle.trim(),
           level: cLevel.trim(),
           description: cDesc.trim(),
-          registrationFee: 2350,
+          registrationFee: Number(feeNum.toFixed(2)),
+          courseValue: Number(valNum.toFixed(2)),
           publicationStatus: cPubStatus,
           defaultDurationMinutes: durNum,
           whatsappGroupLink: trimmedGroupLink || null,
@@ -627,7 +677,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
           title: cTitle.trim(),
           level: cLevel.trim() || '100 Level',
           description: cDesc.trim(),
-          registrationFee: 2350,
+          registrationFee: Number(feeNum.toFixed(2)),
+          courseValue: Number(valNum.toFixed(2)),
           currency: 'NGN',
           publicationStatus: cPubStatus,
           defaultDurationMinutes: durNum,
@@ -1482,7 +1533,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                   Financial Settlement & Charge Reconciliation
                 </h3>
                 <span className="text-xs font-semibold text-slate-600 dark:text-slate-400">
-                  Standardized: ₦2,300 Course Value · Paystack Fees Absorbed by Acadet CBT · ₦2,350 Student Payable
+                  Per-Course Configured Pricing · Paystack Fees Absorbed by Acadet CBT
                 </span>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -1527,7 +1578,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
         {section === 'courses' && (
           <div className="space-y-5">
             <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/70 border border-[#d6e4fa] dark:border-slate-700 px-4 py-3 text-xs font-semibold text-[#082252] dark:text-blue-200">
-              All courses use standardized pricing: ₦2,300 course value + processing fees absorbed by Acadet CBT = ₦2,350 total payable.
+              Set the student registration price (₦) for each course below (minimum ₦100). Net course value updates automatically after Paystack fee reserve, or you can fine-tune it manually.
             </div>
 
             <form
@@ -1568,42 +1619,103 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                <input
-                  type="text"
-                  required
-                  placeholder="Level (e.g. 100 Level)"
-                  value={cLevel}
-                  onChange={(e) => setCLevel(e.target.value)}
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
-                />
-                <div
-                  title="Standardized pricing locked at ₦2,350 student payable (₦2,300 course value)"
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800/80 px-3 py-2 text-sm font-extrabold text-[#082252] dark:text-blue-300 tabular-nums flex items-center justify-between"
-                >
-                  <span>₦{Number(cFee || 2350).toLocaleString()}</span>
-                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                    ₦2,300 value
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                <label className="space-y-1">
+                  <span className="block text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                    Academic Level
                   </span>
-                </div>
-                <select
-                  value={cPubStatus}
-                  onChange={(e) => setCPubStatus(e.target.value as PublicationStatus)}
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-semibold"
-                >
-                  <option value="published">Published (Visible)</option>
-                  <option value="draft">Draft (Hidden)</option>
-                  <option value="archived">Archived</option>
-                </select>
-                <input
-                  type="number"
-                  min={5}
-                  max={240}
-                  placeholder="Duration (mins)"
-                  value={cDuration}
-                  onChange={(e) => setCDuration(e.target.value)}
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm tabular-nums"
-                />
+                  <input
+                    type="text"
+                    required
+                    placeholder="Level (e.g. 100 Level)"
+                    value={cLevel}
+                    onChange={(e) => setCLevel(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="block text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                    Registration Price (₦)
+                  </span>
+                  <input
+                    type="number"
+                    required
+                    min={100}
+                    max={1000000}
+                    step="1"
+                    placeholder="e.g. 2350"
+                    value={cFee}
+                    onChange={(e) => handleCourseFeeChange(e.target.value)}
+                    className="w-full rounded-lg border border-[#0a58ed]/40 dark:border-blue-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm font-extrabold text-[#082252] dark:text-blue-300 tabular-nums"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                      Net Course Value (₦)
+                    </span>
+                    {cValueCustom && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCValueCustom(false);
+                          const parsedFee = Number(cFee);
+                          if (Number.isFinite(parsedFee) && parsedFee > 0) {
+                            setCValue(String(derivePreviewCourseValue(parsedFee)));
+                          }
+                        }}
+                        className="text-[10px] font-extrabold text-[#0a58ed] dark:text-blue-400 hover:underline"
+                      >
+                        Auto
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    type="number"
+                    min={0}
+                    max={1000000}
+                    step="0.01"
+                    placeholder="Net value"
+                    value={cValue}
+                    onChange={(e) => {
+                      setCValueCustom(true);
+                      setCValue(e.target.value);
+                    }}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-bold text-slate-700 dark:text-slate-200 tabular-nums"
+                  />
+                </label>
+
+                <label className="space-y-1">
+                  <span className="block text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                    Publication Status
+                  </span>
+                  <select
+                    value={cPubStatus}
+                    onChange={(e) => setCPubStatus(e.target.value as PublicationStatus)}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-semibold"
+                  >
+                    <option value="published">Published (Visible)</option>
+                    <option value="draft">Draft (Hidden)</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </label>
+
+                <label className="space-y-1">
+                  <span className="block text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                    Duration (mins)
+                  </span>
+                  <input
+                    type="number"
+                    min={5}
+                    max={240}
+                    placeholder="Duration (mins)"
+                    value={cDuration}
+                    onChange={(e) => setCDuration(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm tabular-nums"
+                  />
+                </label>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1803,10 +1915,10 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                         </td>
                         <td className="px-4 py-3 tabular-nums">
                           <div className="font-extrabold text-[#082252] dark:text-blue-300">
-                            {formatCurrency(2350, c.currency)}
+                            {formatCurrency(c.registrationFee, c.currency)}
                           </div>
                           <div className="text-[11px] text-slate-500">
-                            Value: {formatCurrency(c.courseValue ?? 2300, c.currency)}
+                            Value: {formatCurrency(c.courseValue ?? c.registrationFee, c.currency)}
                           </div>
                         </td>
                         <td className="px-4 py-3">

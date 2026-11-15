@@ -55,6 +55,7 @@ import {
 } from '../lib/paystack.js';
 import {
   COURSE_VALUE_NAIRA,
+  deriveDefaultCourseValueNaira,
   FEE_ABSORBER_LABEL,
   STANDARD_CURRENCY,
   TOTAL_STUDENT_PAYABLE_NAIRA,
@@ -96,8 +97,22 @@ const courseCreateSchema = z.object({
   title: z.string().trim().min(2).max(160),
   level: z.string().trim().min(2).max(40).default('100 Level'),
   description: z.string().trim().max(1000).default(''),
-  registrationFee: z.coerce.number().min(0).max(TOTAL_STUDENT_PAYABLE_NAIRA).default(TOTAL_STUDENT_PAYABLE_NAIRA),
-  currency: z.string().trim().length(3).default(STANDARD_CURRENCY),
+  registrationFee: z.coerce
+    .number()
+    .min(100, 'Minimum course registration price is ₦100')
+    .max(1_000_000, 'Maximum course registration price is ₦1,000,000')
+    .default(TOTAL_STUDENT_PAYABLE_NAIRA),
+  courseValue: z.coerce
+    .number()
+    .min(0, 'Net course value cannot be negative')
+    .max(1_000_000, 'Maximum course value is ₦1,000,000')
+    .optional(),
+  currency: z
+    .string()
+    .trim()
+    .length(3)
+    .transform((v) => v.toUpperCase())
+    .default(STANDARD_CURRENCY),
   publicationStatus: z.enum(['draft', 'published', 'archived']).default('published'),
   examCategory: z.string().trim().min(2).max(120).default('Acadet CBT Examination'),
   defaultDurationMinutes: z.coerce.number().int().min(5).max(240).default(60),
@@ -300,9 +315,9 @@ router.get('/courses', async (_req, res) => {
     res.json({
       courses: result.rows.map((r) => ({
         ...r,
-        courseValue: COURSE_VALUE_NAIRA,
-        registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA,
-        currency: STANDARD_CURRENCY,
+        courseValue: Number(r.courseValue ?? COURSE_VALUE_NAIRA),
+        registrationFee: Number(r.registrationFee ?? TOTAL_STUDENT_PAYABLE_NAIRA),
+        currency: r.currency || STANDARD_CURRENCY,
         cbtReady: r.questionCount >= CBT_RECOMMENDED_MIN_QUESTIONS,
         totalRevenue: Number(r.totalRevenue),
       })),
@@ -331,6 +346,19 @@ router.post('/courses', async (req, res) => {
       return;
     }
 
+    const feeNaira = Number(parsed.registrationFee.toFixed(2));
+    const valueNaira =
+      parsed.courseValue !== undefined
+        ? Number(parsed.courseValue.toFixed(2))
+        : deriveDefaultCourseValueNaira(feeNaira);
+
+    if (valueNaira > feeNaira) {
+      res.status(400).json({
+        error: 'Net course value cannot exceed the student registration price.',
+      });
+      return;
+    }
+
     const [created] = await db
       .insert(courses)
       .values({
@@ -338,9 +366,9 @@ router.post('/courses', async (req, res) => {
         title: parsed.title,
         level: parsed.level,
         description: parsed.description,
-        courseValue: COURSE_VALUE_NAIRA.toFixed(2),
-        registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA.toFixed(2),
-        currency: STANDARD_CURRENCY,
+        courseValue: valueNaira.toFixed(2),
+        registrationFee: feeNaira.toFixed(2),
+        currency: parsed.currency,
         publicationStatus: parsed.publicationStatus,
         examCategory: parsed.examCategory,
         defaultDurationMinutes: parsed.defaultDurationMinutes,
@@ -368,8 +396,8 @@ router.post('/courses', async (req, res) => {
     res.status(201).json({
       course: {
         ...created,
-        courseValue: COURSE_VALUE_NAIRA,
-        registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA,
+        courseValue: Number(created.courseValue),
+        registrationFee: Number(created.registrationFee),
         questionCount: 0,
         easyCount: 0,
         mediumCount: 0,
@@ -391,11 +419,45 @@ router.patch('/courses/:id', async (req, res) => {
     const parsed = courseUpdateSchema.parse(req.body);
     const db = getDb();
 
-    // All courses use standardized platform pricing (₦2,300 course value, ₦2,350 student payable)
+    const [existingCourse] = await db
+      .select()
+      .from(courses)
+      .where(eq(courses.id, req.params.id))
+      .limit(1);
+
+    if (!existingCourse) {
+      res.status(404).json({ error: 'Course not found.' });
+      return;
+    }
+
+    const currentFeeNaira = Number(existingCourse.registrationFee ?? TOTAL_STUDENT_PAYABLE_NAIRA);
+    const currentValueNaira = Number(existingCourse.courseValue ?? COURSE_VALUE_NAIRA);
+
+    const nextFeeNaira =
+      parsed.registrationFee !== undefined
+        ? Number(parsed.registrationFee.toFixed(2))
+        : currentFeeNaira;
+
+    let nextValueNaira: number;
+    if (parsed.courseValue !== undefined) {
+      nextValueNaira = Number(parsed.courseValue.toFixed(2));
+    } else if (parsed.registrationFee !== undefined) {
+      nextValueNaira = deriveDefaultCourseValueNaira(nextFeeNaira);
+    } else {
+      nextValueNaira = currentValueNaira;
+    }
+
+    if (nextValueNaira > nextFeeNaira) {
+      res.status(400).json({
+        error: 'Net course value cannot exceed the student registration price.',
+      });
+      return;
+    }
+
     const updateValues: Record<string, unknown> = {
-      courseValue: COURSE_VALUE_NAIRA.toFixed(2),
-      registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA.toFixed(2),
-      currency: STANDARD_CURRENCY,
+      courseValue: nextValueNaira.toFixed(2),
+      registrationFee: nextFeeNaira.toFixed(2),
+      currency: parsed.currency ?? existingCourse.currency ?? STANDARD_CURRENCY,
       updatedAt: new Date(),
     };
     if (parsed.code !== undefined) updateValues.code = parsed.code.toUpperCase();
@@ -430,15 +492,21 @@ router.patch('/courses/:id', async (req, res) => {
       action: 'admin.course.update',
       entityType: 'course',
       entityId: updated.id,
-      metadata: parsed,
+      metadata: {
+        ...parsed,
+        previousRegistrationFee: existingCourse.registrationFee,
+        newRegistrationFee: updated.registrationFee,
+        previousCourseValue: existingCourse.courseValue,
+        newCourseValue: updated.courseValue,
+      },
       ipAddress: req.ip,
     });
 
     res.json({
       course: {
         ...updated,
-        courseValue: COURSE_VALUE_NAIRA,
-        registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA,
+        courseValue: Number(updated.courseValue),
+        registrationFee: Number(updated.registrationFee),
       },
     });
   } catch (err) {
@@ -1239,10 +1307,10 @@ async function queryAdminRegistrations(filters: {
        c.title AS "courseTitle",
        COALESCE(p.id::text, cr.id::text) AS "paymentId",
        COALESCE(p.payment_reference, cr.preserved_payment_ref, 'PRESERVED-REG') AS "paymentReference",
-       COALESCE(p.course_value, 2300.00)::text AS "courseValue",
-       COALESCE(p.total_amount_charged, cr.preserved_amount_paid, 2350.00)::text AS "totalAmountCharged",
-       COALESCE(p.amount, cr.preserved_amount_paid, 2350.00)::text AS "amount",
-       COALESCE(p.currency, 'NGN') AS currency,
+       COALESCE(p.course_value, c.course_value, 2300.00)::text AS "courseValue",
+       COALESCE(p.total_amount_charged, cr.preserved_amount_paid, c.registration_fee, 2350.00)::text AS "totalAmountCharged",
+       COALESCE(p.amount, cr.preserved_amount_paid, c.registration_fee, 2350.00)::text AS "amount",
+       COALESCE(p.currency, c.currency, 'NGN') AS currency,
        p.gateway_fee::text AS "gatewayFee",
        p.net_settlement_amount::text AS "netSettlementAmount",
        p.settlement_variance::text AS "settlementVariance",
@@ -1855,9 +1923,9 @@ router.get('/users/:id/profile', async (req, res) => {
       code: r.code,
       title: r.title,
       level: r.level,
-      courseValue: COURSE_VALUE_NAIRA,
-      registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA,
-      currency: STANDARD_CURRENCY,
+      courseValue: Number(r.courseValue ?? COURSE_VALUE_NAIRA),
+      registrationFee: Number(r.registrationFee ?? TOTAL_STUDENT_PAYABLE_NAIRA),
+      currency: r.currency || STANDARD_CURRENCY,
       isRegistered:
         r.registrationStatus === 'active' &&
         (r.paymentStatus === 'successful' ||

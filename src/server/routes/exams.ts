@@ -110,9 +110,9 @@ router.post('/start', requireAuth, async (req, res) => {
           code: course.code,
           title: course.title,
           level: course.level,
-          courseValue: COURSE_VALUE_NAIRA,
-          registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA,
-          currency: STANDARD_CURRENCY,
+          courseValue: Number(course.courseValue ?? COURSE_VALUE_NAIRA),
+          registrationFee: Number(course.registrationFee ?? TOTAL_STUDENT_PAYABLE_NAIRA),
+          currency: course.currency || STANDARD_CURRENCY,
         },
       });
       return;

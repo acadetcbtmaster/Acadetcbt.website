@@ -269,6 +269,9 @@ export async function getPublicPublishedCourses(): Promise<PublicCourseSummary[]
       title: string;
       level: string;
       description: string;
+      courseValue: string;
+      registrationFee: string;
+      currency: string;
       examCategory: string;
       defaultDurationMinutes: number;
       questionCount: number;
@@ -279,6 +282,9 @@ export async function getPublicPublishedCourses(): Promise<PublicCourseSummary[]
          c.title,
          c.level,
          c.description,
+         c.course_value::text AS "courseValue",
+         c.registration_fee::text AS "registrationFee",
+         c.currency,
          c.exam_category AS "examCategory",
          c.default_duration_minutes AS "defaultDurationMinutes",
          (
@@ -292,10 +298,17 @@ export async function getPublicPublishedCourses(): Promise<PublicCourseSummary[]
     );
 
     return result.rows.map((r) => ({
-      ...r,
-      courseValue: COURSE_VALUE_NAIRA,
-      registrationFee: TOTAL_STUDENT_PAYABLE_NAIRA,
-      currency: STANDARD_CURRENCY,
+      id: r.id,
+      code: r.code,
+      title: r.title,
+      level: r.level,
+      description: r.description,
+      examCategory: r.examCategory,
+      defaultDurationMinutes: r.defaultDurationMinutes,
+      questionCount: r.questionCount,
+      courseValue: Number(r.courseValue ?? COURSE_VALUE_NAIRA),
+      registrationFee: Number(r.registrationFee ?? TOTAL_STUDENT_PAYABLE_NAIRA),
+      currency: r.currency || STANDARD_CURRENCY,
     }));
   } catch {
     return [];
@@ -552,7 +565,7 @@ export function getSeoMetaForPath(
     return {
       title: `Available Courses & CBT Practice | ${siteName}`,
       description:
-        'Browse published 100 Level university tutorial and JAMB UTME CBT preparation courses on Acadet CBT, fixed ₦2,350 course registration, and timed exam access.',
+        'Browse published 100 Level university tutorial and JAMB UTME CBT preparation courses on Acadet CBT with transparent course registration and timed exam access.',
       keywords: branding.seoKeywords,
       canonicalUrl: `${cleanBase}/courses`,
       robots: 'index, follow',
@@ -584,7 +597,7 @@ export function getSeoMetaForPath(
     return {
       title: `Frequently Asked Questions (FAQ) | ${siteName}`,
       description:
-        'Answers to common student questions on Acadet CBT course registration, fixed ₦2,350 pricing, Paystack reference verification, official receipts, and CBT exams.',
+        'Answers to common student questions on Acadet CBT course registration, transparent course pricing, Paystack reference verification, official receipts, and CBT exams.',
       keywords: `Acadet CBT FAQ, Course Registration FAQ, Paystack Payment Verification, ${branding.seoKeywords}`,
       canonicalUrl: `${cleanBase}/faq`,
       robots: 'index, follow',
@@ -632,7 +645,7 @@ export function getSeoMetaForPath(
     return {
       title: `Terms of Use | ${siteName}`,
       description:
-        'Review Acadet CBT terms of use covering student accounts, ₦2,350 course registration, Paystack payment verification, and computer-based examination conduct.',
+        'Review Acadet CBT terms of use covering student accounts, course registration pricing, Paystack payment verification, and computer-based examination conduct.',
       keywords: `Acadet CBT Terms of Use, Course Registration Policy, ${branding.seoKeywords}`,
       canonicalUrl: `${cleanBase}/terms`,
       robots: 'index, follow',

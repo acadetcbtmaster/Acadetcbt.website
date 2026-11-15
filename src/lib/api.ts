@@ -414,6 +414,7 @@ export const api = {
       level?: string;
       description?: string;
       registrationFee: number;
+      courseValue?: number;
       currency?: string;
       publicationStatus?: PublicationStatus;
       examCategory?: string;
@@ -432,6 +433,7 @@ export const api = {
         level: string;
         description: string;
         registrationFee: number;
+        courseValue: number;
         publicationStatus: PublicationStatus;
         examCategory: string;
         defaultDurationMinutes: number;

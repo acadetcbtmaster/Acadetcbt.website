@@ -127,7 +127,7 @@ router.get('/courses', requireDb, optionalAuth, async (req, res) => {
       return {
         ...c,
         courseValue: Number(c.courseValue ?? 2300),
-        registrationFee: 2350,
+        registrationFee: Number(c.registrationFee ?? 2350),
         isRegistered: Boolean(activeReg),
         registrationState,
         registeredAt: activeReg?.registeredAt ?? null,
@@ -173,8 +173,8 @@ router.get('/my-courses', requireAuth, async (req, res) => {
         paymentId: courseRegistrations.paymentId,
         paymentReference: sql<string>`COALESCE(${payments.paymentReference}, ${courseRegistrations.preservedPaymentRef}, 'PRESERVED-REG')`,
         paymentStatus: sql<string>`COALESCE(${payments.paymentStatus}, 'successful')`,
-        courseValue: sql<string>`COALESCE(${payments.courseValue}, '2300.00')`,
-        amountPaid: sql<string>`COALESCE(${payments.totalAmountCharged}, ${courseRegistrations.preservedAmountPaid}, '2350.00')`,
+        courseValue: sql<string>`COALESCE(${payments.courseValue}, ${courses.courseValue}, '2300.00')`,
+        amountPaid: sql<string>`COALESCE(${payments.totalAmountCharged}, ${courseRegistrations.preservedAmountPaid}, ${courses.registrationFee}, '2350.00')`,
         currency: sql<string>`COALESCE(${payments.currency}, ${courses.currency}, 'NGN')`,
         paidAt: sql<Date | null>`COALESCE(${payments.paidAt}, ${courseRegistrations.registeredAt})`,
         questionCount: sql<number>`(

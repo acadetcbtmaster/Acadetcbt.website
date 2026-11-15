@@ -511,6 +511,7 @@ export default function App() {
                 id: string;
                 code: string;
                 title: string;
+                courseValue?: number;
                 registrationFee: number;
                 currency?: string;
               }
@@ -522,6 +523,7 @@ export default function App() {
               title: coursePayload.title,
               level: '100 Level',
               description: '',
+              courseValue: Number(coursePayload.courseValue ?? coursePayload.registrationFee ?? 2300),
               registrationFee: Number(coursePayload.registrationFee ?? 2350),
               currency: coursePayload.currency || 'NGN',
               publicationStatus: 'published',

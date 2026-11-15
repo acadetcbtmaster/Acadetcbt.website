@@ -12,9 +12,9 @@ import {
   COURSE_VALUE_KOBO,
   COURSE_VALUE_NAIRA,
   FEE_ABSORBER_LABEL,
+  koboToNaira,
   reconcileCoursePayment,
   STANDARD_CURRENCY,
-  TOTAL_STUDENT_PAYABLE_KOBO,
   TOTAL_STUDENT_PAYABLE_NAIRA,
 } from './pricing.js';
 
@@ -254,7 +254,7 @@ export async function settlePaystackTransaction(params: {
         unlocked: existingReg.rows.length > 0 && !isShortfall,
         message:
           isShortfall && existingReg.rows.length === 0
-            ? 'Payment recorded with a net settlement shortfall below the ₦2,300 course value. Admin reconciliation required.'
+            ? `Payment recorded with a net settlement shortfall below the ₦${Number(pRow.course_value || COURSE_VALUE_NAIRA).toLocaleString()} course value. Admin reconciliation required.`
             : 'This payment has already been verified. Your course registration is active.',
         payment: mapPaymentOutcome(pRow),
         registration: existingReg.rows[0]
@@ -302,18 +302,18 @@ export async function settlePaystackTransaction(params: {
           ? Math.round(paystackData.fees)
           : null;
 
-      // Detect Paystack dashboard "Pass fees to customers" gross-up (e.g. 235000 -> 238579 with fees = 3579)
+      // Detect Paystack dashboard "Pass fees to customers" gross-up against course expectedKobo
       const isPaystackFeePassThrough =
         reportedFeesKobo !== null &&
         reportedFeesKobo > 0 &&
-        expectedKobo === TOTAL_STUDENT_PAYABLE_KOBO &&
+        expectedKobo > 0 &&
         Number.isFinite(actualKobo) &&
-        actualKobo > TOTAL_STUDENT_PAYABLE_KOBO &&
+        actualKobo > expectedKobo &&
         Math.abs(actualKobo - reportedFeesKobo - expectedKobo) <= 1;
 
-      if (!Number.isFinite(actualKobo) || (actualKobo > TOTAL_STUDENT_PAYABLE_KOBO && !isPaystackFeePassThrough)) {
+      if (!Number.isFinite(actualKobo) || (actualKobo > expectedKobo && !isPaystackFeePassThrough)) {
         throw new PaymentValidationError(
-          `Student charge exceeds maximum allowed ₦2,350 (${TOTAL_STUDENT_PAYABLE_KOBO} kobo): received ${actualKobo} kobo. In Paystack Dashboard → Settings → Preferences → Transaction fees, uncheck "Pass fees to customers" so Acadet CBT absorbs the charges.`,
+          `Student charge exceeds configured course price ₦${koboToNaira(expectedKobo).toLocaleString()} (${expectedKobo} kobo): received ${actualKobo} kobo. In Paystack Dashboard → Settings → Preferences → Transaction fees, uncheck "Pass fees to customers" so Acadet CBT absorbs the charges.`,
           400
         );
       }
@@ -1239,6 +1239,12 @@ export async function verifyAndSettleStudentReference(params: {
   const emailMatches = paystackEmail === userEmailLower;
   const studentReliablyMatched = metaStudentId === params.requestingUser.id || emailMatches;
 
+  const expectedCourseKobo = matchedCourse
+    ? nairaToKobo(matchedCourse.registration_fee || TOTAL_STUDENT_PAYABLE_NAIRA)
+    : nairaToKobo(TOTAL_STUDENT_PAYABLE_NAIRA);
+  const expectedCourseNaira = koboToNaira(expectedCourseKobo);
+  const expectedCourseCurrency = (matchedCourse?.currency || STANDARD_CURRENCY).toUpperCase();
+
   const actualKobo = Number(paystackData.amount);
   const actualCurrency = String(paystackData.currency || '').toUpperCase();
   const reportedFeesKobo =
@@ -1249,12 +1255,12 @@ export async function verifyAndSettleStudentReference(params: {
     reportedFeesKobo !== null &&
     reportedFeesKobo > 0 &&
     Number.isFinite(actualKobo) &&
-    actualKobo > TOTAL_STUDENT_PAYABLE_KOBO &&
-    Math.abs(actualKobo - reportedFeesKobo - TOTAL_STUDENT_PAYABLE_KOBO) <= 1;
+    actualKobo > expectedCourseKobo &&
+    Math.abs(actualKobo - reportedFeesKobo - expectedCourseKobo) <= 1;
 
   const amountValid =
-    actualCurrency === STANDARD_CURRENCY &&
-    (actualKobo === TOTAL_STUDENT_PAYABLE_KOBO || isPassThrough);
+    actualCurrency === expectedCourseCurrency &&
+    (actualKobo === expectedCourseKobo || isPassThrough);
 
   // If student ownership, course metadata, or amount/currency cannot be reliably established -> route to Admin Review
   if (!studentReliablyMatched || !matchedCourse || !amountValid) {
@@ -1269,7 +1275,7 @@ export async function verifyAndSettleStudentReference(params: {
     }
     if (!amountValid) {
       reasonParts.push(
-        `Paystack amount/currency (${actualCurrency} ${(actualKobo / 100).toFixed(2)}) differs from standardized ₦${TOTAL_STUDENT_PAYABLE_NAIRA}`
+        `Paystack amount/currency (${actualCurrency} ${(actualKobo / 100).toFixed(2)}) differs from course price ${expectedCourseCurrency} ${expectedCourseNaira.toFixed(2)}`
       );
     }
 
@@ -1391,10 +1397,10 @@ export async function verifyAndSettleStudentReference(params: {
       matchedCourse.id,
       reference,
       recoveredWhatsapp,
-      COURSE_VALUE_NAIRA.toFixed(2),
-      TOTAL_STUDENT_PAYABLE_NAIRA.toFixed(2),
-      TOTAL_STUDENT_PAYABLE_NAIRA.toFixed(2),
-      STANDARD_CURRENCY,
+      Number(matchedCourse.course_value || COURSE_VALUE_NAIRA).toFixed(2),
+      Number(matchedCourse.registration_fee || TOTAL_STUDENT_PAYABLE_NAIRA).toFixed(2),
+      Number(matchedCourse.registration_fee || TOTAL_STUDENT_PAYABLE_NAIRA).toFixed(2),
+      expectedCourseCurrency,
       FEE_ABSORBER_LABEL,
     ]
   );
@@ -1563,8 +1569,16 @@ export async function resolveAdminVerificationLog(params: {
       `SELECT id, whatsapp_number FROM users WHERE id = $1 LIMIT 1`,
       [targetStudentId]
     ),
-    pool.query<{ id: string; code: string; title: string }>(
-      `SELECT id, code, title FROM courses WHERE id = $1 AND is_active = TRUE LIMIT 1`,
+    pool.query<{
+      id: string;
+      code: string;
+      title: string;
+      course_value: string;
+      registration_fee: string;
+      currency: string;
+    }>(
+      `SELECT id, code, title, course_value::text, registration_fee::text, currency
+       FROM courses WHERE id = $1 AND is_active = TRUE LIMIT 1`,
       [targetCourseId]
     ),
   ]);
@@ -1610,6 +1624,13 @@ export async function resolveAdminVerificationLog(params: {
   }
 
   if (!existingPay.rows[0]) {
+    const resolvedCourse = courseRes.rows[0];
+    const resolvedCourseValue = Number(resolvedCourse.course_value || COURSE_VALUE_NAIRA).toFixed(2);
+    const resolvedRegistrationFee = Number(
+      resolvedCourse.registration_fee || TOTAL_STUDENT_PAYABLE_NAIRA
+    ).toFixed(2);
+    const resolvedCurrency = String(resolvedCourse.currency || STANDARD_CURRENCY).toUpperCase();
+
     await pool.query(
       `INSERT INTO payments (
          student_id, course_id, payment_reference, gateway, whatsapp_number,
@@ -1623,10 +1644,10 @@ export async function resolveAdminVerificationLog(params: {
         targetCourseId,
         logRow.payment_reference,
         studentRes.rows[0].whatsapp_number,
-        COURSE_VALUE_NAIRA.toFixed(2),
-        TOTAL_STUDENT_PAYABLE_NAIRA.toFixed(2),
-        TOTAL_STUDENT_PAYABLE_NAIRA.toFixed(2),
-        STANDARD_CURRENCY,
+        resolvedCourseValue,
+        resolvedRegistrationFee,
+        resolvedRegistrationFee,
+        resolvedCurrency,
         FEE_ABSORBER_LABEL,
       ]
     );

@@ -130,7 +130,7 @@ export const PracticeExamsView: React.FC<PracticeExamsViewProps> = ({
                     ) : (
                       <span className="inline-flex items-center gap-1 font-bold text-slate-500 dark:text-slate-400 tabular-nums">
                         <Lock className="w-3.5 h-3.5" />
-                        {formatCurrency(2350, course.currency)}
+                        {formatCurrency(course.registrationFee, course.currency)}
                       </span>
                     )}
                   </div>

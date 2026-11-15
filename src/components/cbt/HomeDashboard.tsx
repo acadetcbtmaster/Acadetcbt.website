@@ -467,9 +467,9 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                     <div className="mt-0.5">
                       Total payable:{' '}
                       <span className="font-extrabold tabular-nums">
-                        {formatCurrency(2350, selectedModalCourse.currency)}
+                        {formatCurrency(selectedModalCourse.registrationFee, selectedModalCourse.currency)}
                       </span>{' '}
-                      (₦2,300 course value · processing charges absorbed by Acadet CBT). Complete Paystack registration to unlock this exam.
+                      ({formatCurrency(selectedModalCourse.courseValue ?? selectedModalCourse.registrationFee, selectedModalCourse.currency)} course value · processing charges absorbed by Acadet CBT). Complete Paystack registration to unlock this exam.
                     </div>
                   </div>
                 </div>

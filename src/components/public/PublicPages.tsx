@@ -33,6 +33,31 @@ function formatCurrency(amount: number, currency = 'NGN'): string {
   }
 }
 
+function summarizeCoursePricing(courses: PublicCourseSummary[]): {
+  headlinePrice: string;
+  rangePhrase: string;
+} {
+  const validFees = courses
+    .map((c) => Number(c.registrationFee))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (validFees.length === 0) {
+    return { headlinePrice: '₦2,350', rangePhrase: '₦2,350 per course' };
+  }
+  const minFee = Math.min(...validFees);
+  const maxFee = Math.max(...validFees);
+  const currency = courses[0]?.currency || 'NGN';
+  if (Math.abs(minFee - maxFee) < 0.01) {
+    const formatted = formatCurrency(minFee, currency);
+    return { headlinePrice: formatted, rangePhrase: `${formatted} per course` };
+  }
+  const minFormatted = formatCurrency(minFee, currency);
+  const maxFormatted = formatCurrency(maxFee, currency);
+  return {
+    headlinePrice: `From ${minFormatted}`,
+    rangePhrase: `${minFormatted} – ${maxFormatted} per course`,
+  };
+}
+
 interface PublicPageBaseProps {
   courses: PublicCourseSummary[];
   user: SafeUser | null;
@@ -48,6 +73,7 @@ export const PublicHomeView: React.FC<PublicPageBaseProps> = ({
 }) => {
   const { branding, founder } = useBranding();
   const featuredCourses = courses.slice(0, 6);
+  const pricingSummary = useMemo(() => summarizeCoursePricing(courses), [courses]);
 
   return (
     <div className="space-y-8 pb-10">
@@ -132,9 +158,9 @@ export const PublicHomeView: React.FC<PublicPageBaseProps> = ({
                 </div>
                 <div>
                   <div className="font-extrabold text-[#0b337a] dark:text-blue-300 tabular-nums text-sm">
-                    ₦2,350
+                    {pricingSummary.headlinePrice}
                   </div>
-                  <div className="text-slate-500 dark:text-slate-400">Per Course</div>
+                  <div className="text-slate-500 dark:text-slate-400">Course Fee</div>
                 </div>
                 <div>
                   <div className="font-extrabold text-[#0b337a] dark:text-blue-300 text-sm">
@@ -224,7 +250,7 @@ export const PublicHomeView: React.FC<PublicPageBaseProps> = ({
                 OUR COMMITMENT
               </h3>
               <p className="text-sm text-slate-700 dark:text-slate-300 leading-relaxed">
-                We are committed to transparent ₦2,350 course registration via Paystack (with processing charges absorbed by Acadet CBT), verified instant course unlocking, downloadable study materials, and detailed answer explanations.{' '}
+                We are committed to transparent course registration via Paystack ({pricingSummary.rangePhrase}, with processing charges absorbed by Acadet CBT), verified instant course unlocking, downloadable study materials, and detailed answer explanations.{' '}
                 <strong className="text-[#082252] dark:text-white">Learn. Practice. Excel.</strong>
               </p>
             </div>
@@ -240,7 +266,7 @@ export const PublicHomeView: React.FC<PublicPageBaseProps> = ({
               Available Courses on Acadet CBT
             </h2>
             <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-400">
-              All published university and JAMB CBT courses on Acadet CBT are standardized at ₦2,350 total payable (₦2,300 course value, Paystack charges absorbed).
+              Published university and JAMB CBT courses on Acadet CBT ({pricingSummary.rangePhrase}, Paystack processing charges absorbed).
             </p>
           </div>
           <a
@@ -344,8 +370,8 @@ export const PublicHomeView: React.FC<PublicPageBaseProps> = ({
                 2
               </span>
               <div>
-                <strong className="text-slate-900 dark:text-white">Register Selected Course (₦2,350):</strong>{' '}
-                Confirm your WhatsApp number and complete Paystack checkout securely.
+                <strong className="text-slate-900 dark:text-white">Register Selected Course:</strong>{' '}
+                Confirm your WhatsApp number and complete Paystack checkout securely ({pricingSummary.rangePhrase}).
               </div>
             </li>
             <li className="flex items-start gap-3">
@@ -421,8 +447,14 @@ export const PublicHomeView: React.FC<PublicPageBaseProps> = ({
   );
 };
 
-export const PublicAboutView: React.FC<PublicPageBaseProps> = ({ onNavigate, user, onOpenDashboard }) => {
+export const PublicAboutView: React.FC<PublicPageBaseProps> = ({
+  courses,
+  onNavigate,
+  user,
+  onOpenDashboard,
+}) => {
   const { branding, founder } = useBranding();
+  const pricingSummary = useMemo(() => summarizeCoursePricing(courses), [courses]);
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-6">
@@ -473,7 +505,7 @@ export const PublicAboutView: React.FC<PublicPageBaseProps> = ({ onNavigate, use
               <li className="flex items-start gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-1" />
                 <span>
-                  Fixed ₦2,350 course registration fee with Paystack charges absorbed by Acadet CBT.
+                  Transparent course registration pricing ({pricingSummary.rangePhrase}) with Paystack charges absorbed by Acadet CBT.
                 </span>
               </li>
               <li className="flex items-start gap-2">
@@ -557,6 +589,8 @@ export const PublicCoursesView: React.FC<PublicPageBaseProps> = ({
     );
   }, [courses, query]);
 
+  const pricingSummary = useMemo(() => summarizeCoursePricing(courses), [courses]);
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-5">
       <div className="rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 shadow-sm overflow-hidden">
@@ -566,7 +600,7 @@ export const PublicCoursesView: React.FC<PublicPageBaseProps> = ({
               Acadet CBT Course Catalogue
             </h1>
             <p className="text-xs sm:text-sm text-blue-100 mt-0.5">
-              Published 100 Level university tutorial and JAMB CBT courses on Acadet CBT — ₦2,350 per course (₦2,300 course value, Paystack charges absorbed).
+              Published 100 Level university tutorial and JAMB CBT courses on Acadet CBT — {pricingSummary.rangePhrase} (Paystack charges absorbed).
             </p>
           </div>
           <div className="text-xs font-bold text-blue-100 tabular-nums">
@@ -669,10 +703,13 @@ export const PublicCoursesView: React.FC<PublicPageBaseProps> = ({
 };
 
 export const PublicHowItWorksView: React.FC<PublicPageBaseProps> = ({
+  courses,
   onNavigate,
   user,
   onOpenDashboard,
 }) => {
+  const pricingSummary = useMemo(() => summarizeCoursePricing(courses), [courses]);
+
   const steps = [
     {
       num: '01',
@@ -685,7 +722,7 @@ export const PublicHowItWorksView: React.FC<PublicPageBaseProps> = ({
       num: '02',
       title: 'Choose a Course & Confirm WhatsApp Number',
       detail:
-        'Browse all published courses in Course Registration, review the fixed ₦2,350 fee (with Paystack fees absorbed by Acadet CBT), and input your correct WhatsApp number for verification and tutorial notifications.',
+        `Browse all published courses in Course Registration, review each course's total fee (${pricingSummary.rangePhrase}, with Paystack fees absorbed by Acadet CBT), and input your correct WhatsApp number for verification and tutorial notifications.`,
       icon: BookCheck,
     },
     {
@@ -887,16 +924,18 @@ export const PublicContactView: React.FC<PublicPageBaseProps> = ({ onNavigate })
 };
 
 export const PublicFaqView: React.FC<PublicPageBaseProps> = ({
+  courses,
   onNavigate,
   user,
   onOpenDashboard,
 }) => {
   const { branding } = useBranding();
+  const pricingSummary = useMemo(() => summarizeCoursePricing(courses), [courses]);
 
   const faqs = [
     {
       q: 'How much does one course registration cost on Acadet CBT?',
-      a: 'Every published course on Acadet CBT has a fixed total student payable amount of ₦2,350 (comprising ₦2,300 course registration value with Paystack transaction charges absorbed by Acadet CBT). Students are never charged extra gateway fees above ₦2,350.',
+      a: `Each published course on Acadet CBT displays its exact student registration fee directly on its course card (${pricingSummary.rangePhrase}, with Paystack transaction charges absorbed by Acadet CBT). Students are never charged extra gateway fees above the displayed course price.`,
     },
     {
       q: 'How do I verify my payment if my browser closed before activation?',
@@ -1047,8 +1086,9 @@ export const PublicPrivacyView: React.FC<PublicPageBaseProps> = ({ onNavigate })
   );
 };
 
-export const PublicTermsView: React.FC<PublicPageBaseProps> = ({ onNavigate }) => {
+export const PublicTermsView: React.FC<PublicPageBaseProps> = ({ courses, onNavigate }) => {
   const { branding } = useBranding();
+  const pricingSummary = useMemo(() => summarizeCoursePricing(courses), [courses]);
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
@@ -1069,7 +1109,7 @@ export const PublicTermsView: React.FC<PublicPageBaseProps> = ({ onNavigate }) =
               1. Course Registration &amp; Pricing
             </h2>
             <p>
-              Each published course unlocks access to its timed CBT simulations, practice banks, and associated study resources at a standardized registration fee of ₦2,350 total payable (₦2,300 course value, Paystack charges absorbed by {branding.siteName}). Access is bound to the verified student account and payment reference.
+              Each published course unlocks access to its timed CBT simulations, practice banks, and associated study resources at the registration price displayed for that course ({pricingSummary.rangePhrase}, with Paystack processing charges absorbed by {branding.siteName}). Access is bound to the verified student account and payment reference.
             </p>
           </section>
 

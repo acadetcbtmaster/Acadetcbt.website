@@ -115,7 +115,7 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
       } else if (norm === '/courses') {
         title = `Available Courses & CBT Practice | ${branding.siteName}`;
         description =
-          'Browse published 100 Level university tutorial and JAMB UTME CBT preparation courses on Acadet CBT, fixed ₦2,350 course registration, and timed exam access.';
+          'Browse published 100 Level university tutorial and JAMB UTME CBT preparation courses on Acadet CBT with transparent course registration and timed exam access.';
       } else if (norm === '/how-it-works') {
         title = `How It Works | ${branding.siteName} Registration & CBT Access`;
         description =
@@ -123,7 +123,7 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
       } else if (norm === '/faq') {
         title = `Frequently Asked Questions (FAQ) | ${branding.siteName}`;
         description =
-          'Answers to common student questions on Acadet CBT course registration, fixed ₦2,350 pricing, Paystack reference verification, official receipts, and CBT exams.';
+          'Answers to common student questions on Acadet CBT course registration, transparent course pricing, Paystack reference verification, official receipts, and CBT exams.';
       } else if (norm === '/contact') {
         title = `Contact ${branding.siteName} | Student Support`;
         description =
@@ -135,7 +135,7 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
       } else if (norm === '/terms') {
         title = `Terms of Use | ${branding.siteName}`;
         description =
-          'Review Acadet CBT terms of use covering student accounts, ₦2,350 course registration, Paystack payment verification, and computer-based examination conduct.';
+          'Review Acadet CBT terms of use covering student accounts, course registration pricing, Paystack payment verification, and computer-based examination conduct.';
       } else if (norm === '/founder') {
         title = `${founder.fullName} — ${founder.positionTitle}`;
         description = founder.biography.slice(0, 160);
