@@ -10,6 +10,7 @@ export interface AuthTokenPayload {
   sub: string;
   role: UserRole;
   email: string;
+  ver?: number;
 }
 
 export interface SafeUser {
@@ -20,6 +21,8 @@ export interface SafeUser {
   role: UserRole;
   examTarget: string;
   whatsappNumber: string | null;
+  emailVerified: boolean;
+  emailVerifiedAt: Date | null;
   isActive: boolean;
   accountStatus: AccountStatus;
   suspendedReason: string | null;
@@ -77,6 +80,8 @@ export function verifyAuthToken(token: string): AuthTokenPayload {
     throw new Error('Invalid token payload');
   }
 
+  const rawVer = (decoded as { ver?: unknown }).ver;
+
   return {
     sub: decoded.sub,
     role: (decoded as { role: UserRole }).role,
@@ -84,6 +89,7 @@ export function verifyAuthToken(token: string): AuthTokenPayload {
       typeof (decoded as { email?: unknown }).email === 'string'
         ? (decoded as { email: string }).email
         : '',
+    ...(typeof rawVer === 'number' && Number.isFinite(rawVer) ? { ver: rawVer } : {}),
   };
 }
 
@@ -95,6 +101,8 @@ export function sanitizeUser(row: {
   role: string;
   examTarget: string;
   whatsappNumber?: string | null;
+  emailVerified?: boolean | null;
+  emailVerifiedAt?: Date | null;
   isActive: boolean;
   accountStatus?: string | null;
   suspendedReason?: string | null;
@@ -113,6 +121,8 @@ export function sanitizeUser(row: {
     role: (row.role as UserRole) || 'student',
     examTarget: row.examTarget,
     whatsappNumber: row.whatsappNumber ?? null,
+    emailVerified: Boolean(row.emailVerified),
+    emailVerifiedAt: row.emailVerifiedAt ?? null,
     isActive: row.isActive && resolvedAccountStatus === 'active',
     accountStatus: resolvedAccountStatus,
     suspendedReason: row.suspendedReason ?? null,

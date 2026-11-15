@@ -25,6 +25,9 @@ async function verifyPhase1() {
     'siteBranding',
     'founderProfile',
     'paymentVerificationLogs',
+    'emailVerificationTokens',
+    'passwordResetTokens',
+    'emailDeliveryLogs',
   ] as const;
 
   for (const key of expectedTables) {
@@ -159,6 +162,25 @@ async function verifyPhase1() {
     assert.ok(
       sqlContent7.includes(snippet),
       `SQL migration 0007 missing expected definition: ${snippet}`
+    );
+  }
+
+  const sqlPath9 = path.resolve(
+    process.cwd(),
+    'migrations/0009_email_verification_and_password_recovery.sql'
+  );
+  const sqlContent9 = await fs.readFile(sqlPath9, 'utf-8');
+  for (const snippet of [
+    'email_verified',
+    'session_version',
+    'CREATE TABLE IF NOT EXISTS email_verification_tokens',
+    'CREATE TABLE IF NOT EXISTS password_reset_tokens',
+    'CREATE TABLE IF NOT EXISTS email_delivery_logs',
+    'token_hash',
+  ]) {
+    assert.ok(
+      sqlContent9.includes(snippet),
+      `SQL migration 0009 missing expected definition: ${snippet}`
     );
   }
 

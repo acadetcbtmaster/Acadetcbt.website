@@ -15,6 +15,7 @@ import {
   normalizeAppPath,
   resolveBaseUrl,
 } from './src/server/lib/branding.js';
+import { validateSmtpStartup } from './src/server/lib/email.js';
 import adminRoutes from './src/server/routes/admin.js';
 import authRoutes from './src/server/routes/auth.js';
 import catalogRoutes from './src/server/routes/catalog.js';
@@ -43,6 +44,7 @@ function decodeLegacySpaQueryRoute(originalUrl: string): string | null {
 }
 
 export async function createApp(options?: { skipVite?: boolean }) {
+  validateSmtpStartup();
   const app = express();
   app.set('trust proxy', 1);
 
@@ -149,6 +151,9 @@ export async function createApp(options?: { skipVite?: boolean }) {
       'Disallow: /payments',
       'Disallow: /notifications',
       'Disallow: /materials',
+      'Disallow: /forgot-password',
+      'Disallow: /reset-password',
+      'Disallow: /verify-email',
       'Disallow: /404.html',
       '',
       'User-agent: Googlebot',
@@ -183,6 +188,9 @@ export async function createApp(options?: { skipVite?: boolean }) {
       'Disallow: /payments',
       'Disallow: /notifications',
       'Disallow: /materials',
+      'Disallow: /forgot-password',
+      'Disallow: /reset-password',
+      'Disallow: /verify-email',
       'Disallow: /404.html',
       '',
       'User-agent: Googlebot-Image',

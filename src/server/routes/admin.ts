@@ -25,6 +25,12 @@ import {
   sanitizePublicUrl,
   sanitizeSocialLinks,
 } from '../lib/branding.js';
+import { resolveBaseUrl } from '../lib/branding.js';
+import {
+  getAdminEmailStatusOverview,
+  sendAdminTestEmail,
+  verifySmtpConnection,
+} from '../lib/email.js';
 import { sanitizeUser } from '../lib/jwt.js';
 import {
   createStudentNotification,
@@ -3373,5 +3379,85 @@ router.post('/verification-logs/:id/resolve', async (req, res) => {
   }
 });
 
-export default router;
+router.get('/email/status', async (req, res) => {
+  try {
+    const verify = req.query.verify === 'true';
+    const statusOverview = await getAdminEmailStatusOverview(verify);
+    res.json(statusOverview);
+  } catch (err) {
+    handleApiError(res, err, 'fetching email and recovery diagnostics');
+  }
+});
 
+router.post('/email/test-connection', async (req, res) => {
+  try {
+    const smtp = await verifySmtpConnection();
+    const overview = await getAdminEmailStatusOverview(false);
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.email_connection_tested',
+      entityType: 'system',
+      entityId: 'smtp',
+      metadata: {
+        configured: smtp.configured,
+        connectionStatus: smtp.connectionStatus,
+      },
+      ipAddress: req.ip,
+    });
+    res.json({
+      ok: smtp.connectionStatus === 'connected',
+      ...overview,
+    });
+  } catch (err) {
+    handleApiError(res, err, 'testing SMTP connection');
+  }
+});
+
+router.post('/email/send-test', async (req, res) => {
+  try {
+    const schema = z.object({
+      toEmail: z.string().trim().email('Please enter a valid recipient email address.').optional(),
+    });
+    const parsed = schema.parse(req.body ?? {});
+    const recipient = parsed.toEmail || req.user!.email;
+
+    const sendResult = await sendAdminTestEmail({
+      adminUserId: req.user!.id,
+      toEmail: recipient,
+      adminName: req.user!.fullName,
+      requestBaseUrl: resolveBaseUrl(req),
+    });
+
+    const overview = await getAdminEmailStatusOverview(false);
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.email_test_dispatched',
+      entityType: 'system',
+      entityId: 'smtp',
+      metadata: {
+        recipientEmail: recipient,
+        deliveryStatus: sendResult.status,
+      },
+      ipAddress: req.ip,
+    });
+
+    if (!sendResult.sent) {
+      res.status(503).json({
+        error: sendResult.error || 'Failed to send SMTP diagnostic email.',
+        ...overview,
+      });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      message: `Test email delivered successfully to ${recipient}.`,
+      ...overview,
+    });
+  } catch (err) {
+    handleApiError(res, err, 'sending test email');
+  }
+});
+
+export default router;

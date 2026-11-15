@@ -7,25 +7,31 @@ import {
   CreditCard,
   FileEdit,
   History,
+  Loader2,
   Lock,
+  MailCheck,
   Megaphone,
   Play,
+  Send,
   Settings,
   ShieldCheck,
   Trophy,
   X,
 } from 'lucide-react';
 import React, { useState } from 'react';
+import { api, ApiError } from '../../lib/api';
 import type {
   ActivitySummary,
   AnnouncementItem,
   CourseCatalogueItem,
   DifficultyLevel,
+  SafeUser,
 } from '../../types/cbt';
 import { AcadetCrest, HeroStudyGraphic, useBranding } from './AcadetLogo';
 import { formatCurrency } from './CourseRegistrationView';
 
 interface HomeDashboardProps {
+  user?: SafeUser | null;
   courses: CourseCatalogueItem[];
   selectedCourseId: string | null;
   defaultDifficulty: DifficultyLevel;
@@ -49,6 +55,7 @@ interface HomeDashboardProps {
 }
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
+  user,
   courses,
   selectedCourseId,
   defaultDifficulty,
@@ -75,6 +82,30 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     useState<DifficultyLevel>(defaultDifficulty);
   const [questionCount, setQuestionCount] = useState<number>(20);
   const [startError, setStartError] = useState<string | null>(null);
+  const [resendingVerif, setResendingVerif] = useState(false);
+  const [verifFeedback, setVerifFeedback] = useState<{
+    type: 'ok' | 'err';
+    text: string;
+  } | null>(null);
+
+  const handleResendVerification = async () => {
+    setResendingVerif(true);
+    setVerifFeedback(null);
+    try {
+      const res = await api.auth.resendVerification();
+      setVerifFeedback({ type: 'ok', text: res.message });
+    } catch (err) {
+      setVerifFeedback({
+        type: 'err',
+        text:
+          err instanceof ApiError
+            ? err.message
+            : 'Unable to send verification email right now.',
+      });
+    } finally {
+      setResendingVerif(false);
+    }
+  };
 
   const activeCourseId = selectedCourseId || courses[0]?.id || '';
   const pinnedAnnouncement = announcements[0] || null;
@@ -173,6 +204,54 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           <HeroStudyGraphic />
         </div>
       </section>
+
+      {user && !user.emailVerified && (
+        <section className="rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/90 dark:bg-amber-950/40 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <MailCheck className="w-5 h-5 shrink-0 text-amber-700 dark:text-amber-400 mt-0.5" />
+            <div className="min-w-0 text-xs sm:text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-extrabold text-amber-950 dark:text-amber-100">
+                  Email Not Verified
+                </span>
+                <span className="text-amber-800 dark:text-amber-300 font-semibold truncate">
+                  ({user.email})
+                </span>
+              </div>
+              <p className="text-amber-900/90 dark:text-amber-200/90 mt-0.5 leading-snug">
+                Verify your email address using the 24-hour link we sent so you can recover forgotten passwords securely.
+              </p>
+              {verifFeedback && (
+                <p
+                  className={`mt-1 font-bold ${
+                    verifFeedback.type === 'ok'
+                      ? 'text-emerald-700 dark:text-emerald-300'
+                      : 'text-red-700 dark:text-red-300'
+                  }`}
+                >
+                  {verifFeedback.text}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleResendVerification}
+            disabled={resendingVerif}
+            className="shrink-0 px-3.5 py-2 rounded-lg bg-[#0b337a] hover:bg-[#082252] text-white text-xs font-extrabold inline-flex items-center justify-center gap-1.5 min-h-[38px] disabled:opacity-60"
+          >
+            {resendingVerif ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Send className="w-3.5 h-3.5" />
+            )}
+            <span>
+              {resendingVerif ? 'Sending...' : 'Resend Verification Email'}
+            </span>
+          </button>
+        </section>
+      )}
 
       {/* 4 Horizontal Action Cards */}
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">

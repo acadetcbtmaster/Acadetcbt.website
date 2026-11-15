@@ -30,6 +30,9 @@ Disallow: /results
 Disallow: /payments
 Disallow: /notifications
 Disallow: /materials
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /verify-email
 Disallow: /404.html
 
 User-agent: Googlebot
@@ -64,6 +67,9 @@ Disallow: /results
 Disallow: /payments
 Disallow: /notifications
 Disallow: /materials
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /verify-email
 Disallow: /404.html
 
 User-agent: Googlebot-Image

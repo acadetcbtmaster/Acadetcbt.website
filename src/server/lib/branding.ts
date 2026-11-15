@@ -317,6 +317,9 @@ export const PUBLIC_INDEXABLE_PATHS = [
 export const APP_PRIVATE_PATHS = [
   '/login',
   '/register',
+  '/forgot-password',
+  '/reset-password',
+  '/verify-email',
   '/dashboard',
   '/exam',
   '/results',
@@ -685,7 +688,13 @@ export function getSeoMetaForPath(
         ? 'Student & Staff Sign In'
         : norm === '/register'
           ? 'Create Student Account'
-          : branding.tagline;
+          : norm === '/forgot-password'
+            ? 'Forgot Password'
+            : norm === '/reset-password'
+              ? 'Reset Password'
+              : norm === '/verify-email'
+                ? 'Verify Email Address'
+                : branding.tagline;
     return {
       title: `${pageLabel} | ${siteName}`,
       description: branding.seoDescription,

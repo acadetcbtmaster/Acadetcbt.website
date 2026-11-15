@@ -86,6 +86,18 @@ export async function requireAuth(
       return;
     }
 
+    const dbSessionVersion = Number(foundUser.sessionVersion ?? 1);
+    if (
+      (typeof payload.ver === 'number' && payload.ver !== dbSessionVersion) ||
+      (typeof payload.ver !== 'number' && dbSessionVersion > 1)
+    ) {
+      res.status(401).json({
+        error: 'Your session expired after a password change. Please sign in again.',
+        code: 'SESSION_INVALIDATED',
+      });
+      return;
+    }
+
     if (!foundUser.isActive || foundUser.accountStatus === 'suspended') {
       const reasonSuffix = foundUser.suspendedReason
         ? ` Reason: ${foundUser.suspendedReason}`
@@ -131,7 +143,18 @@ export async function optionalAuth(
       .where(eq(users.id, payload.sub))
       .limit(1);
 
-    if (foundUser && foundUser.isActive && foundUser.accountStatus !== 'suspended') {
+    const dbSessionVersion = Number(foundUser?.sessionVersion ?? 1);
+    const versionMatches =
+      foundUser &&
+      ((typeof payload.ver === 'number' && payload.ver === dbSessionVersion) ||
+        (typeof payload.ver !== 'number' && dbSessionVersion === 1));
+
+    if (
+      foundUser &&
+      versionMatches &&
+      foundUser.isActive &&
+      foundUser.accountStatus !== 'suspended'
+    ) {
       req.user = sanitizeUser(foundUser);
     }
   } catch {

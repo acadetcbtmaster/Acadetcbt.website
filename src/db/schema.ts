@@ -46,6 +46,9 @@ export const users = pgTable(
     role: text('role').notNull().default('student'),
     examTarget: text('exam_target').notNull().default('Acadet CBT Examination'),
     whatsappNumber: text('whatsapp_number'),
+    emailVerified: boolean('email_verified').notNull().default(false),
+    emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
+    sessionVersion: integer('session_version').notNull().default(1),
     isActive: boolean('is_active').notNull().default(true),
     accountStatus: text('account_status').notNull().default('active'),
     suspendedReason: text('suspended_reason'),
@@ -63,6 +66,7 @@ export const users = pgTable(
     uniqueIndex('users_username_unique_idx').on(table.username),
     index('users_role_idx').on(table.role),
     index('users_account_status_idx').on(table.accountStatus, table.isActive),
+    index('users_email_verified_idx').on(table.emailVerified, table.isActive),
     check('users_role_check', sql`${table.role} IN ('student', 'admin', 'super_admin')`),
     check('users_account_status_check', sql`${table.accountStatus} IN ('active', 'suspended')`),
   ]
@@ -600,6 +604,87 @@ export const paymentVerificationLogs = pgTable(
     ),
   ]
 );
+
+export const emailVerificationTokens = pgTable(
+  'email_verification_tokens',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    email: text('email').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    invalidatedAt: timestamp('invalidated_at', { withTimezone: true }),
+    requestIp: text('request_ip'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('email_verification_tokens_hash_unique_idx').on(table.tokenHash),
+    index('email_verification_tokens_user_created_idx').on(table.userId, table.createdAt),
+    index('email_verification_tokens_expires_idx').on(table.expiresAt),
+    index('email_verification_tokens_active_user_idx')
+      .on(table.userId)
+      .where(sql`${table.usedAt} IS NULL AND ${table.invalidatedAt} IS NULL`),
+  ]
+);
+
+export const passwordResetTokens = pgTable(
+  'password_reset_tokens',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    tokenHash: text('token_hash').notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    usedAt: timestamp('used_at', { withTimezone: true }),
+    invalidatedAt: timestamp('invalidated_at', { withTimezone: true }),
+    requestIp: text('request_ip'),
+    usedIp: text('used_ip'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('password_reset_tokens_hash_unique_idx').on(table.tokenHash),
+    index('password_reset_tokens_user_created_idx').on(table.userId, table.createdAt),
+    index('password_reset_tokens_ip_created_idx')
+      .on(table.requestIp, table.createdAt)
+      .where(sql`${table.requestIp} IS NOT NULL`),
+    index('password_reset_tokens_expires_idx').on(table.expiresAt),
+    index('password_reset_tokens_active_user_idx')
+      .on(table.userId)
+      .where(sql`${table.usedAt} IS NULL AND ${table.invalidatedAt} IS NULL`),
+  ]
+);
+
+export const emailDeliveryLogs = pgTable(
+  'email_delivery_logs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    recipientEmail: text('recipient_email').notNull(),
+    emailType: text('email_type').notNull(),
+    subject: text('subject').notNull(),
+    deliveryStatus: text('delivery_status').notNull(),
+    messageId: text('message_id'),
+    errorMessage: text('error_message'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('email_delivery_logs_status_created_idx').on(table.deliveryStatus, table.createdAt),
+    index('email_delivery_logs_type_created_idx').on(table.emailType, table.createdAt),
+    check(
+      'email_delivery_logs_type_check',
+      sql`${table.emailType} IN ('verification', 'password_reset', 'password_changed', 'admin_test')`
+    ),
+    check(
+      'email_delivery_logs_status_check',
+      sql`${table.deliveryStatus} IN ('sent', 'failed', 'skipped_unconfigured')`
+    ),
+  ]
+);
+
 
 
 

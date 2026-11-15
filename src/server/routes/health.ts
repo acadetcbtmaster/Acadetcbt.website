@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { checkDatabaseHealth } from '../../db/index.js';
+import { isSmtpConfigured } from '../lib/email.js';
 import { isObjectStorageConfigured } from '../lib/objectStorage.js';
 import { isPaystackConfigured } from '../lib/paystack.js';
 
@@ -9,6 +10,7 @@ router.get('/', async (_req, res) => {
   const dbHealth = await checkDatabaseHealth();
   const objectStorageConfigured = isObjectStorageConfigured();
   const paystackConfigured = isPaystackConfigured();
+  const emailConfigured = isSmtpConfigured();
   const status = dbHealth.configured && !dbHealth.connected ? 'degraded' : 'ok';
 
   res.status(200).json({
@@ -21,6 +23,9 @@ router.get('/', async (_req, res) => {
     },
     paystack: {
       configured: paystackConfigured,
+    },
+    email: {
+      configured: emailConfigured,
     },
   });
 });

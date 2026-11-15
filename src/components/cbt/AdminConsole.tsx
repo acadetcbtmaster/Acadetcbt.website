@@ -19,6 +19,7 @@ import {
   Globe,
   Image as ImageIcon,
   Lock,
+  Mail,
   Megaphone,
   MessageCircle,
   Palette,
@@ -42,6 +43,7 @@ import { api, getClientAuthToken } from '../../lib/api';
 import type {
   AccountStatus,
   AdminCourseItem,
+  AdminEmailStatusOverview,
   AdminNotificationRecord,
   AdminOverview,
   AdminPaymentRecord,
@@ -75,6 +77,7 @@ import {
   DEFAULT_CLIENT_FOUNDER,
   useBranding,
 } from './AcadetLogo';
+import { AdminEmailStatusPanel } from './AdminEmailStatusPanel';
 import { CopyReferenceButton } from './CopyReferenceButton';
 import { formatCurrency } from './CourseRegistrationView';
 import { PaymentReceiptModal } from './PaymentReceiptModal';
@@ -83,6 +86,7 @@ import { QuestionStatsDashboard } from './QuestionStatsDashboard';
 interface AdminConsoleProps {
   onCatalogUpdated: () => Promise<void>;
   userRole?: SafeUser['role'];
+  userEmail?: string;
   onNavigatePublic?: (path: string) => void;
 }
 
@@ -97,6 +101,7 @@ type AdminSection =
   | 'announcements'
   | 'notifications'
   | 'users'
+  | 'email'
   | 'branding';
 
 function StatusBadge({ status }: { status: PaymentStatus }) {
@@ -205,6 +210,7 @@ function VerificationResultBadge({ result }: { result: PaymentVerificationResult
 export const AdminConsole: React.FC<AdminConsoleProps> = ({
   onCatalogUpdated,
   userRole = 'admin',
+  userEmail = '',
   onNavigatePublic,
 }) => {
   const { refreshBranding } = useBranding();
@@ -344,6 +350,10 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
   const [founderForm, setFounderForm] = useState<FounderProfileData>(DEFAULT_CLIENT_FOUNDER);
   const [uploadingSlot, setUploadingSlot] = useState<'logo' | 'favicon' | 'founder-photo' | null>(null);
 
+  // SMTP Email, Verification & Password Recovery Overview
+  const [emailStatusOverview, setEmailStatusOverview] =
+    useState<AdminEmailStatusOverview | null>(null);
+
   const loadRegistrations = async () => {
     const res = await api.admin.listRegistrations({
       search: regSearch || undefined,
@@ -455,6 +465,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       resetRes,
       brandRes,
       verifRes,
+      emailStatusRes,
     ] = await Promise.allSettled([
       api.admin.getOverview(),
       api.admin.listCourses(),
@@ -484,6 +495,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
         courseId: verifCourseId || undefined,
         search: verifSearch || undefined,
       }),
+      api.admin.getEmailStatus(false),
     ]);
 
     const errors: string[] = [];
@@ -539,6 +551,10 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     if (verifRes.status === 'fulfilled') {
       setVerificationLogs(verifRes.value.logs);
       setVerificationSummary(verifRes.value.summary);
+    }
+
+    if (emailStatusRes.status === 'fulfilled') {
+      setEmailStatusOverview(emailStatusRes.value);
     }
 
     if (errors.length > 0) {
@@ -1362,6 +1378,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     { id: 'announcements', label: 'Notices', icon: Megaphone },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'users', label: 'Users', icon: Users },
+    { id: 'email', label: 'Email & Recovery', icon: Mail },
     ...(isSuperAdmin
       ? [{ id: 'branding' as AdminSection, label: 'Branding & Founder', icon: Palette }]
       : []),
@@ -4113,6 +4130,15 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
               </div>
             </form>
           </div>
+        )}
+
+        {/* SMTP EMAIL, VERIFICATION & PASSWORD RECOVERY MONITORING */}
+        {section === 'email' && (
+          <AdminEmailStatusPanel
+            status={emailStatusOverview}
+            adminEmail={userEmail}
+            onUpdated={setEmailStatusOverview}
+          />
         )}
       </div>
 

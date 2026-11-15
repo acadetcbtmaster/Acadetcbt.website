@@ -75,6 +75,11 @@ const PaymentVerificationView = lazy(() =>
 const PracticeExamsView = lazy(() =>
   import('./components/cbt/PracticeExamsView').then((m) => ({ default: m.PracticeExamsView }))
 );
+const ResetPasswordScreen = lazy(() =>
+  import('./components/cbt/ResetPasswordScreen').then((m) => ({
+    default: m.ResetPasswordScreen,
+  }))
+);
 const ResultsView = lazy(() =>
   import('./components/cbt/ResultsView').then((m) => ({ default: m.ResultsView }))
 );
@@ -88,6 +93,11 @@ const StudyMaterialsView = lazy(() =>
 );
 const TopHeader = lazy(() =>
   import('./components/cbt/TopHeader').then((m) => ({ default: m.TopHeader }))
+);
+const VerifyEmailScreen = lazy(() =>
+  import('./components/cbt/VerifyEmailScreen').then((m) => ({
+    default: m.VerifyEmailScreen,
+  }))
 );
 const WorkspaceSidebar = lazy(() =>
   import('./components/cbt/WorkspaceSidebar').then((m) => ({ default: m.WorkspaceSidebar }))
@@ -125,6 +135,9 @@ const INDEXABLE_PUBLIC_PATHS = new Set(['/', ...SUB_PUBLIC_PATHS]);
 const APP_PRIVATE_PATHS = new Set([
   '/login',
   '/register',
+  '/forgot-password',
+  '/reset-password',
+  '/verify-email',
   '/dashboard',
   '/exam',
   '/results',
@@ -204,11 +217,17 @@ export default function App() {
   const [paymentVerifyError, setPaymentVerifyError] = useState<string | null>(null);
 
   const navigateTo = useCallback((targetPath: string) => {
-    const next = normalizePathname(targetPath);
-    if (typeof window !== 'undefined' && normalizePathname(window.location.pathname) !== next) {
-      window.history.pushState({}, '', next);
+    const [rawPath, rawSearch] = (targetPath || '/').split('?');
+    const nextPath = normalizePathname(rawPath);
+    const fullTarget = rawSearch ? `${nextPath}?${rawSearch}` : nextPath;
+    if (
+      typeof window !== 'undefined' &&
+      (normalizePathname(window.location.pathname) !== nextPath ||
+        window.location.search !== (rawSearch ? `?${rawSearch}` : ''))
+    ) {
+      window.history.pushState({}, '', fullTarget);
     }
-    setCurrentPath(next);
+    setCurrentPath(nextPath);
     if (typeof window !== 'undefined') {
       window.scrollTo({ top: 0, behavior: 'auto' });
     }
@@ -393,7 +412,13 @@ export default function App() {
     setSuspensionNotice(null);
     setUser(signedInUser);
     setActiveTab('home');
-    if (currentPath === '/login' || currentPath === '/register') {
+    if (
+      currentPath === '/login' ||
+      currentPath === '/register' ||
+      currentPath === '/forgot-password' ||
+      currentPath === '/reset-password' ||
+      currentPath === '/verify-email'
+    ) {
       navigateTo('/');
     }
     await loadWorkspaceData(signedInUser);
@@ -758,7 +783,40 @@ export default function App() {
       );
     }
 
-    // Signed out view routing: '/' renders Public Website, '/login'|'/register'|protected render AuthScreen
+    // Dedicated Email Verification & Password Reset routes work seamlessly regardless of session state
+    if (currentPath === '/reset-password') {
+      return (
+        <ResetPasswordScreen
+          onNavigate={navigateTo}
+          onPasswordResetSuccess={() => {
+            setUser(null);
+            setActiveExam(null);
+            setLatestResult(null);
+          }}
+        />
+      );
+    }
+
+    if (currentPath === '/verify-email') {
+      return (
+        <VerifyEmailScreen
+          currentUser={user}
+          onNavigate={navigateTo}
+          onVerifiedRefreshUser={async () => {
+            if (getClientAuthToken()) {
+              try {
+                const me = await api.auth.me();
+                setUser(me.user);
+              } catch {
+                // Ignore refresh failure
+              }
+            }
+          }}
+        />
+      );
+    }
+
+    // Signed out view routing: '/' renders Public Website, '/login'|'/register'|'/forgot-password'|protected render AuthScreen
     if (!user) {
       if (currentPath === '/') {
         return (
@@ -775,7 +833,13 @@ export default function App() {
           dbConnected={healthState.dbConnected}
           dbError={healthState.dbError}
           suspensionNotice={suspensionNotice}
-          initialMode={currentPath === '/register' ? 'register' : 'login'}
+          initialMode={
+            currentPath === '/register'
+              ? 'register'
+              : currentPath === '/forgot-password'
+                ? 'forgot'
+                : 'login'
+          }
           onNavigatePublic={navigateTo}
         />
       );
@@ -816,6 +880,7 @@ export default function App() {
             />
             <main className="flex-1 flex flex-col">
               <HomeDashboard
+                user={user}
                 courses={courses}
                 selectedCourseId={selectedCourseId}
                 defaultDifficulty={user.preferences.defaultDifficulty}
@@ -958,6 +1023,7 @@ export default function App() {
                   (user.role === 'admin' || user.role === 'super_admin') && (
                     <AdminConsole
                       userRole={user.role}
+                      userEmail={user.email}
                       onNavigatePublic={navigateTo}
                       onCatalogUpdated={async () => {
                         await Promise.all([loadWorkspaceData(user), loadPublicSiteData()]);

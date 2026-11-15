@@ -37,6 +37,8 @@ export interface SafeUser {
   role: UserRole;
   examTarget: string;
   whatsappNumber?: string | null;
+  emailVerified?: boolean;
+  emailVerifiedAt?: string | null;
   isActive: boolean;
   accountStatus: AccountStatus;
   suspendedReason?: string | null;
@@ -683,4 +685,56 @@ export interface AdminPaymentVerificationLog {
   createdAt: string;
 }
 
+export type SmtpConnectionStatus =
+  | 'connected'
+  | 'unconfigured'
+  | 'connection_failed'
+  | 'unknown';
 
+export interface AdminEmailStatusOverview {
+  smtp: {
+    configured: boolean;
+    missingVariables: string[];
+    validationErrors: string[];
+    host: string | null;
+    port: number | null;
+    secure: boolean;
+    userMasked: string | null;
+    fromEmail: string | null;
+    appBaseUrl: string;
+    connectionStatus: SmtpConnectionStatus;
+    lastCheckedAt: string | null;
+    lastError: string | null;
+  };
+  delivery: {
+    totalSent: number;
+    totalFailed: number;
+    totalSkippedUnconfigured: number;
+    lastSuccessfulAttemptAt: string | null;
+    lastFailedAttemptAt: string | null;
+    lastFailureReason: string | null;
+    recentLogs: Array<{
+      id: string;
+      recipientEmail: string;
+      emailType: string;
+      subject: string;
+      deliveryStatus: string;
+      errorMessage: string | null;
+      createdAt: string;
+    }>;
+  };
+  verificationStats: {
+    totalUsers: number;
+    verifiedUsers: number;
+    unverifiedUsers: number;
+    activePendingTokens: number;
+    totalVerificationsCompleted: number;
+  };
+  passwordRecoveryStats: {
+    requestsLast24h: number;
+    requestsTotal: number;
+    completedResetsTotal: number;
+    activePendingTokens: number;
+    expiredOrInvalidatedTokens: number;
+  };
+}

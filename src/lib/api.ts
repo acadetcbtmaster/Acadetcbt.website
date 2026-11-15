@@ -4,6 +4,7 @@ import type {
   ActiveExamSession,
   ActivitySummary,
   AdminCourseItem,
+  AdminEmailStatusOverview,
   AdminNotificationRecord,
   AdminOverview,
   AdminPaymentRecord,
@@ -152,6 +153,7 @@ export const api = {
       database: { configured: boolean; connected: boolean; error?: string };
       objectStorage: { configured: boolean };
       paystack: { configured: boolean };
+      email?: { configured: boolean };
     }>('/api/health'),
 
   public: {
@@ -166,7 +168,12 @@ export const api = {
       password: string;
       examTarget?: string;
     }) => {
-      const data = await request<{ token: string; user: SafeUser }>('/api/auth/register', {
+      const data = await request<{
+        token: string;
+        user: SafeUser;
+        verificationEmailSent?: boolean;
+        verificationNotice?: string;
+      }>('/api/auth/register', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
@@ -208,6 +215,48 @@ export const api = {
         method: 'PATCH',
         body: JSON.stringify(payload),
       }),
+
+    forgotPassword: (email: string) =>
+      request<{ ok: boolean; message: string }>('/api/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      }),
+
+    validateResetToken: (token: string) =>
+      request<{ valid: boolean; status: string; expiresAt?: string }>(
+        `/api/auth/reset-password/validate?token=${encodeURIComponent(token)}`
+      ),
+
+    resetPassword: (payload: {
+      token: string;
+      newPassword: string;
+      confirmPassword: string;
+    }) =>
+      request<{ ok: boolean; message: string; confirmationEmailSent?: boolean }>(
+        '/api/auth/reset-password',
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }
+      ),
+
+    verifyEmail: (token: string) =>
+      request<{ ok: boolean; alreadyVerified?: boolean; emailVerified?: boolean; message: string }>(
+        '/api/auth/verify-email',
+        {
+          method: 'POST',
+          body: JSON.stringify({ token }),
+        }
+      ),
+
+    resendVerification: (email?: string) =>
+      request<{ ok: boolean; alreadyVerified?: boolean; message: string }>(
+        '/api/auth/resend-verification',
+        {
+          method: 'POST',
+          body: JSON.stringify(email ? { email } : {}),
+        }
+      ),
   },
 
   catalog: {
@@ -769,5 +818,24 @@ export const api = {
           submittedAt: string | null;
         }>;
       }>('/api/admin/results'),
+
+    getEmailStatus: (verify = false) =>
+      request<AdminEmailStatusOverview>(
+        `/api/admin/email/status${verify ? '?verify=true' : ''}`
+      ),
+
+    testEmailConnection: () =>
+      request<{ ok: boolean } & AdminEmailStatusOverview>('/api/admin/email/test-connection', {
+        method: 'POST',
+      }),
+
+    sendTestEmail: (toEmail?: string) =>
+      request<{ ok: boolean; message: string } & AdminEmailStatusOverview>(
+        '/api/admin/email/send-test',
+        {
+          method: 'POST',
+          body: JSON.stringify(toEmail ? { toEmail } : {}),
+        }
+      ),
   },
 };
