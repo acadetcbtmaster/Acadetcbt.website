@@ -25,6 +25,7 @@ import {
   recordVerificationResendHit,
   validateNewPasswordStrength,
 } from '../lib/emailAuth.js';
+import { generateUniqueRegistrationCode } from '../lib/gst111.js';
 import { sanitizeUser, signAuthToken } from '../lib/jwt.js';
 import {
   AUTH_COOKIE_NAME,
@@ -123,12 +124,14 @@ router.post('/register', requireDb, async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(parsed.password, 12);
+    const registrationCode = await generateUniqueRegistrationCode();
     const [created] = await db
       .insert(users)
       .values({
         fullName: parsed.fullName,
         email: normalizedEmail,
         username: normalizedUsername,
+        registrationCode,
         passwordHash,
         role: 'student',
         examTarget: parsed.examTarget || 'Acadet CBT Examination',

@@ -56,6 +56,7 @@ async function hasActivePaidCourseRegistration(
   const rows = await db
     .select({ id: courseRegistrations.id })
     .from(courseRegistrations)
+    .innerJoin(courses, eq(courseRegistrations.courseId, courses.id))
     .leftJoin(payments, eq(courseRegistrations.paymentId, payments.id))
     .where(
       and(
@@ -67,6 +68,10 @@ async function hasActivePaidCourseRegistration(
           and(
             isNull(courseRegistrations.paymentId),
             isNotNull(courseRegistrations.preservedPaymentRef)
+          ),
+          and(
+            eq(courseRegistrations.activationSource, 'admin_manual'),
+            sql`UPPER(REGEXP_REPLACE(${courses.code}, '\\s+', '', 'g')) = 'GST111'`
           )
         )
       )

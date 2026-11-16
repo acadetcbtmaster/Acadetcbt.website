@@ -408,6 +408,49 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [activeExam]);
 
+  // Real-time subscription status synchronization across tabs/devices:
+  // Re-fetch authoritative DB state on tab switch, window focus, tab visibility, and every 15s.
+  useEffect(() => {
+    if (!user || activeExam) return;
+
+    const syncNow = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      void loadWorkspaceData(user);
+      setMyCoursesRefreshKey((k) => k + 1);
+    };
+
+    const handleVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        syncNow();
+      }
+    };
+
+    window.addEventListener('focus', syncNow);
+    document.addEventListener('visibilitychange', handleVisibility);
+    const interval = window.setInterval(syncNow, 15_000);
+
+    return () => {
+      window.removeEventListener('focus', syncNow);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.clearInterval(interval);
+    };
+  }, [user, activeExam, loadWorkspaceData]);
+
+  useEffect(() => {
+    if (!user || activeExam) return;
+    if (
+      activeTab === 'home' ||
+      activeTab === 'catalogue' ||
+      activeTab === 'my-courses' ||
+      activeTab === 'practice'
+    ) {
+      void loadWorkspaceData(user);
+      if (activeTab === 'my-courses') {
+        setMyCoursesRefreshKey((k) => k + 1);
+      }
+    }
+  }, [activeTab, user, activeExam, loadWorkspaceData]);
+
   const handleAuthenticated = async (signedInUser: SafeUser) => {
     setSuspensionNotice(null);
     setUser(signedInUser);

@@ -3,6 +3,7 @@ import {
   BookCheck,
   BookOpen,
   Calendar,
+  CheckCircle2,
   ChevronRight,
   CreditCard,
   FileEdit,
@@ -92,8 +93,11 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
     setResendingVerif(true);
     setVerifFeedback(null);
     try {
-      const res = await api.auth.resendVerification();
-      setVerifFeedback({ type: 'ok', text: res.message });
+      await api.auth.resendVerification();
+      setVerifFeedback({
+        type: 'ok',
+        text: "We've sent a verification link to your registered email address. Please check your inbox and click the verification link to activate your account.",
+      });
     } catch (err) {
       setVerifFeedback({
         type: 'err',
@@ -111,6 +115,8 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   const pinnedAnnouncement = announcements[0] || null;
   const registeredCount = courses.filter((c) => c.isRegistered).length;
   const selectedModalCourse = courses.find((c) => c.id === modalCourseId) || null;
+  const gst111Course =
+    courses.find((c) => c.code.replace(/\s+/g, '').toUpperCase() === 'GST111') || null;
 
   const openExamModal = () => {
     const firstRegistered = courses.find((c) => c.isRegistered);
@@ -162,6 +168,12 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
           <p className="text-sm sm:text-lg font-semibold text-[#1e3a6e] dark:text-blue-200">
             Prepare smart. Practice well. Score higher.
           </p>
+          {user?.registrationCode && (
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-[#9dc0f5] dark:border-slate-700 text-xs font-extrabold text-[#0b337a] dark:text-blue-300">
+              <span className="text-slate-500 dark:text-slate-400 font-bold">Student Reg Code:</span>
+              <span className="font-mono">{user.registrationCode}</span>
+            </div>
+          )}
           <div className="w-16 h-1 rounded-full bg-[#0a58ed] mx-auto md:mx-0" />
 
           <div className="pt-1.5 flex flex-wrap items-center justify-center md:justify-start gap-2">
@@ -212,25 +224,34 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
             <div className="min-w-0 text-xs sm:text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-extrabold text-amber-950 dark:text-amber-100">
-                  Email Not Verified
+                  {verifFeedback?.type === 'ok'
+                    ? 'Verification Email Sent Successfully!'
+                    : 'Email Verification'}
                 </span>
                 <span className="text-amber-800 dark:text-amber-300 font-semibold truncate">
                   ({user.email})
                 </span>
               </div>
-              <p className="text-amber-900/90 dark:text-amber-200/90 mt-0.5 leading-snug">
-                Verify your email address using the 24-hour link we sent so you can recover forgotten passwords securely.
-              </p>
-              {verifFeedback && (
-                <p
-                  className={`mt-1 font-bold ${
-                    verifFeedback.type === 'ok'
-                      ? 'text-emerald-700 dark:text-emerald-300'
-                      : 'text-red-700 dark:text-red-300'
-                  }`}
-                >
-                  {verifFeedback.text}
-                </p>
+              {verifFeedback?.type === 'ok' ? (
+                <div className="mt-0.5 space-y-1">
+                  <p className="text-emerald-800 dark:text-emerald-300 font-semibold leading-snug">
+                    {verifFeedback.text}
+                  </p>
+                  <p className="text-amber-900/90 dark:text-amber-200/90 text-xs font-medium leading-snug">
+                    Can&apos;t find the email? Check your spam or junk folder.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <p className="text-amber-900/90 dark:text-amber-200/90 mt-0.5 leading-snug">
+                    Please verify your email address to activate your account and access all Acadet CBT features.
+                  </p>
+                  {verifFeedback && (
+                    <p className="mt-1 font-bold text-red-700 dark:text-red-300">
+                      {verifFeedback.text}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -247,9 +268,84 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
               <Send className="w-3.5 h-3.5" />
             )}
             <span>
-              {resendingVerif ? 'Sending...' : 'Resend Verification Email'}
+              {resendingVerif
+                ? 'Sending...'
+                : verifFeedback?.type === 'ok'
+                  ? 'Resend Verification Email'
+                  : 'Verify Email Address'}
             </span>
           </button>
+        </section>
+      )}
+
+      {gst111Course && (
+        <section
+          className={`rounded-xl border px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+            gst111Course.isRegistered
+              ? 'border-emerald-300 dark:border-emerald-800 bg-emerald-50/75 dark:bg-emerald-950/30'
+              : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900'
+          }`}
+        >
+          <div className="flex items-start gap-2.5 min-w-0">
+            {gst111Course.isRegistered ? (
+              <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+            ) : (
+              <Lock className="w-5 h-5 shrink-0 text-slate-500 dark:text-slate-400 mt-0.5" />
+            )}
+            <div className="min-w-0 text-xs sm:text-sm space-y-0.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-extrabold text-[#082252] dark:text-white">
+                  {gst111Course.isRegistered
+                    ? 'GST 111 – Subscription Active'
+                    : 'GST 111 – Subscription Inactive / Locked'}
+                </span>
+                {gst111Course.isRegistered && gst111Course.activationSource === 'admin_manual' && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950/60 border border-[#c6daf7] dark:border-blue-800 text-[#0b337a] dark:text-blue-300 text-[11px] font-extrabold">
+                    Admin Activated
+                  </span>
+                )}
+              </div>
+              <div className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                {gst111Course.isRegistered ? (
+                  <span className="text-emerald-700 dark:text-emerald-400 font-bold">
+                    Payment Status: Successful
+                  </span>
+                ) : (
+                  <span>
+                    Payment Status: Payment Required ({formatCurrency(gst111Course.registrationFee, gst111Course.currency)}) — Complete Paystack payment to unlock CBT access.
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {gst111Course.isRegistered ? (
+            <button
+              type="button"
+              disabled={startingExam || gst111Course.questionCount === 0}
+              onClick={() => {
+                onSelectCourse(gst111Course.id);
+                void onStartExam({
+                  courseId: gst111Course.id,
+                  difficulty: defaultDifficulty,
+                  questionCount: 20,
+                });
+              }}
+              className="shrink-0 px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-extrabold inline-flex items-center justify-center gap-1.5 min-h-[38px]"
+            >
+              <Play className="w-3.5 h-3.5" />
+              <span>{gst111Course.questionCount === 0 ? 'Unlocked (No Qs)' : 'Start GST 111 CBT'}</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onRequireRegistration(gst111Course)}
+              className="shrink-0 px-3.5 py-2 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-extrabold inline-flex items-center justify-center gap-1.5 min-h-[38px]"
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              <span>Unlock GST 111</span>
+            </button>
+          )}
         </section>
       )}
 

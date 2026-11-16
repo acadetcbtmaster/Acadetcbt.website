@@ -85,10 +85,12 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({
     setResending(true);
 
     try {
-      const res = await api.auth.resendVerification(
+      await api.auth.resendVerification(
         currentUser ? undefined : resendEmail.trim()
       );
-      setResendSuccess(res.message);
+      setResendSuccess(
+        "We've sent a verification link to your registered email address. Please check your inbox and click the verification link to activate your account."
+      );
     } catch (err) {
       setResendError(
         err instanceof ApiError
@@ -138,10 +140,14 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({
             <AcadetCrest className="w-9 h-9" />
             <div className="min-w-0">
               <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
-                Email Verification
+                {resendSuccess
+                  ? 'Verification Email Sent Successfully!'
+                  : 'Email Verification'}
               </h1>
               <p className="text-xs text-blue-100 mt-0.5">
-                Confirm your {branding.siteName} student email address.
+                {resendSuccess
+                  ? "We've sent a verification link to your registered email address. Please check your inbox and click the verification link to activate your account."
+                  : 'Please verify your email address to activate your account and access all Acadet CBT features.'}
               </p>
             </div>
           </div>
@@ -174,7 +180,20 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({
               </div>
             ) : (
               <div className="space-y-4">
-                {errorMessage ? (
+                {resendSuccess ? (
+                  <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 p-4 text-sm text-emerald-800 dark:text-emerald-200 flex items-start gap-2.5">
+                    <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                    <div>
+                      <div className="font-extrabold">
+                        Verification Email Sent Successfully!
+                      </div>
+                      <p className="mt-1 leading-relaxed">{resendSuccess}</p>
+                      <p className="mt-2 text-xs font-semibold opacity-90">
+                        Can&apos;t find the email? Check your spam or junk folder.
+                      </p>
+                    </div>
+                  </div>
+                ) : errorMessage ? (
                   <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 p-4 text-red-700 dark:text-red-300 text-sm flex items-start gap-2.5">
                     <AlertTriangle className="w-5 h-5 shrink-0 text-red-600 dark:text-red-400 mt-0.5" />
                     <div>
@@ -186,17 +205,11 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({
                   <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/70 border border-[#d6e4fa] dark:border-slate-700 p-4 text-sm text-[#082252] dark:text-slate-200 flex items-start gap-2.5">
                     <MailCheck className="w-5 h-5 shrink-0 text-[#0a58ed] mt-0.5" />
                     <div>
-                      <div className="font-extrabold">Request Verification Email</div>
+                      <div className="font-extrabold">Email Verification</div>
                       <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                        Enter your registered email address below to receive a fresh 24-hour verification link.
+                        Please verify your email address to activate your account and access all Acadet CBT features.
                       </p>
                     </div>
-                  </div>
-                )}
-
-                {resendSuccess && (
-                  <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-3.5 py-2.5 text-sm text-emerald-800 dark:text-emerald-200 font-medium">
-                    {resendSuccess}
                   </div>
                 )}
 
@@ -234,7 +247,11 @@ export const VerifyEmailScreen: React.FC<VerifyEmailScreenProps> = ({
                       <Send className="w-4 h-4" />
                     )}
                     <span>
-                      {resending ? 'Sending Link...' : 'Send New Verification Email'}
+                      {resending
+                        ? 'Sending...'
+                        : resendSuccess
+                          ? 'Resend Verification Email'
+                          : 'Verify Email Address'}
                     </span>
                   </button>
                 </form>

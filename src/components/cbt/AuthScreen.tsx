@@ -64,7 +64,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     if (typeof window === 'undefined') return null;
     const params = new URLSearchParams(window.location.search);
     if (params.get('reset') === 'success') {
-      return 'Your password has been reset successfully. You can now sign in with your new password.';
+      return 'Your password has been updated successfully. You can now log in using your new password.';
     }
     if (params.get('verified') === '1') {
       return 'Your email address has been verified. Please sign in to continue.';
@@ -123,10 +123,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setForgotSubmitting(true);
 
     try {
-      const res = await api.auth.forgotPassword(forgotEmail.trim());
+      await api.auth.forgotPassword(forgotEmail.trim());
       setForgotSuccess(
-        res.message ||
-          'If an active account matches that email address, a password reset link has been sent.'
+        'If an account exists with the email address provided, a password reset link has been sent. Please check your inbox and follow the instructions to reset your password. Also, check your spam or junk folder.'
       );
     } catch (err) {
       if (err instanceof ApiError) {
@@ -229,14 +228,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     ? 'Student & Staff Sign In'
                     : mode === 'register'
                       ? 'Create Student Account'
-                      : 'Forgot Password'}
+                      : forgotSuccess
+                        ? 'Password Reset Link Sent!'
+                        : 'Forgot Your Password?'}
                 </h1>
                 <p className="text-xs text-blue-100 mt-0.5">
                   {mode === 'login'
                     ? `Sign in to access ${branding.siteName} practice exams, verified results, and study materials.`
                     : mode === 'register'
                       ? `Register on ${branding.siteName} to save exam attempts, track trends, and verify your email.`
-                      : 'Enter your registered email address to receive a single-use password reset link.'}
+                      : "Enter the email address linked to your Acadet CBT account. We'll send you a password reset link to securely reset your password."}
                 </p>
               </div>
             </div>
@@ -291,60 +292,74 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               )}
 
               {mode === 'forgot' ? (
-                <form onSubmit={handleForgotSubmit} className="space-y-4">
-                  <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/70 border border-[#d6e4fa] dark:border-slate-700 p-3 text-xs text-[#082252] dark:text-slate-200 leading-relaxed flex items-start gap-2">
-                    <KeyRound className="w-4 h-4 shrink-0 text-[#0a58ed] mt-0.5" />
-                    <span>
-                      For security, existing passwords are never emailed. We will send a single-use recovery link valid for 20 minutes to your registered email address.
-                    </span>
+                forgotSuccess ? (
+                  <div className="space-y-4">
+                    <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 p-4 text-xs sm:text-sm text-emerald-800 dark:text-emerald-200 flex items-start gap-2.5">
+                      <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+                      <div>
+                        <div className="font-extrabold">Password Reset Link Sent!</div>
+                        <p className="mt-1 leading-relaxed">{forgotSuccess}</p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => switchMode('login')}
+                      className="w-full py-2.5 px-4 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white font-extrabold text-sm shadow-sm transition-colors flex items-center justify-center gap-2 min-h-[44px]"
+                    >
+                      <ArrowLeft className="w-4 h-4" />
+                      <span>Back to Login</span>
+                    </button>
                   </div>
-
-                  {forgotError && (
-                    <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-3.5 py-2.5 text-sm font-medium text-red-700 dark:text-red-300">
-                      {forgotError}
+                ) : (
+                  <form onSubmit={handleForgotSubmit} className="space-y-4">
+                    <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/70 border border-[#d6e4fa] dark:border-slate-700 p-3 text-xs text-[#082252] dark:text-slate-200 leading-relaxed flex items-start gap-2">
+                      <KeyRound className="w-4 h-4 shrink-0 text-[#0a58ed] mt-0.5" />
+                      <span>
+                        Enter the email address linked to your Acadet CBT account. We&apos;ll send you a password reset link to securely reset your password.
+                      </span>
                     </div>
-                  )}
 
-                  {forgotSuccess && (
-                    <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-3.5 py-2.5 text-xs sm:text-sm font-medium text-emerald-800 dark:text-emerald-200 flex items-start gap-2">
-                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
-                      <span>{forgotSuccess}</span>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-1.5">
-                      Registered Email Address
-                    </label>
-                    <div className="relative">
-                      <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="email"
-                        required
-                        value={forgotEmail}
-                        onChange={(e) => setForgotEmail(e.target.value)}
-                        placeholder="you@example.com"
-                        autoComplete="email"
-                        className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#0052cc]"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={forgotSubmitting}
-                    className="w-full py-2.5 px-4 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white font-extrabold text-sm shadow-sm transition-colors flex items-center justify-center gap-2 min-h-[44px] disabled:opacity-60"
-                  >
-                    {forgotSubmitting ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <Send className="w-4 h-4" />
+                    {forgotError && (
+                      <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-3.5 py-2.5 text-sm font-medium text-red-700 dark:text-red-300">
+                        {forgotError}
+                      </div>
                     )}
-                    <span>
-                      {forgotSubmitting ? 'Sending Reset Link...' : 'Send Password Reset Link'}
-                    </span>
-                  </button>
-                </form>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wide text-slate-600 dark:text-slate-400 mb-1.5">
+                        Registered Email Address
+                      </label>
+                      <div className="relative">
+                        <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="email"
+                          required
+                          value={forgotEmail}
+                          onChange={(e) => setForgotEmail(e.target.value)}
+                          placeholder="Enter your registered email address."
+                          autoComplete="email"
+                          className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#0052cc]"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={forgotSubmitting}
+                      className="w-full py-2.5 px-4 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white font-extrabold text-sm shadow-sm transition-colors flex items-center justify-center gap-2 min-h-[44px] disabled:opacity-60"
+                    >
+                      {forgotSubmitting ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Send className="w-4 h-4" />
+                      )}
+                      <span>
+                        {forgotSubmitting ? 'Sending Reset Link...' : 'Send Reset Link'}
+                      </span>
+                    </button>
+                  </form>
+                )
               ) : (
                 <>
                   {errorMessage && (
@@ -444,7 +459,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                             onClick={() => switchMode('forgot')}
                             className="text-xs font-bold text-[#0a58ed] dark:text-blue-400 hover:underline"
                           >
-                            Forgot Password?
+                            Forgot Your Password?
                           </button>
                         )}
                       </div>

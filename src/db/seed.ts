@@ -41,69 +41,6 @@ interface SeedCourseEntry {
 
 const STARTER_COURSES: SeedCourseEntry[] = [
   {
-    legacySubjectSlug: 'computer-science',
-    legacySubjectName: 'Computer Science',
-    legacySubjectCode: 'CSC',
-    code: 'CSC 101',
-    title: 'Introduction to Computer Science',
-    level: '100 Level',
-    description:
-      'Computer architecture, binary arithmetic, operating systems, data representation, and algorithmic thinking.',
-    registrationFee: '2350.00',
-    defaultDurationMinutes: 60,
-    questions: [
-      {
-        questionText: 'Which component of the CPU coordinates and directs all operations of the computer?',
-        optionA: 'Arithmetic Logic Unit (ALU)',
-        optionB: 'Control Unit (CU)',
-        optionC: 'Cache Memory',
-        optionD: 'Read-Only Memory (ROM)',
-        correctOption: 'B',
-        explanation:
-          'The Control Unit fetches, decodes, and coordinates execution of instructions across CPU subsystems.',
-        difficulty: 'Easy',
-        topic: 'Computer Architecture',
-        examYear: 2025,
-      },
-      {
-        questionText: 'What is the binary equivalent of the decimal number 25?',
-        optionA: '10101',
-        optionB: '11001',
-        optionC: '11011',
-        optionD: '10011',
-        correctOption: 'B',
-        explanation: '25 = 16 + 8 + 1 = 1*2^4 + 1*2^3 + 0*2^2 + 0*2^1 + 1*2^0 = 11001 in binary.',
-        difficulty: 'Easy',
-        topic: 'Number Systems',
-        examYear: 2025,
-      },
-      {
-        questionText: 'Which data structure operates strictly on a Last-In, First-Out (LIFO) principle?',
-        optionA: 'Queue',
-        optionB: 'Linked List',
-        optionC: 'Stack',
-        optionD: 'Hash Table',
-        correctOption: 'C',
-        explanation: 'A stack pushes and pops elements from the top, enforcing Last-In, First-Out ordering.',
-        difficulty: 'Medium',
-        topic: 'Data Structures',
-        examYear: 2025,
-      },
-      {
-        questionText: 'In relational databases, what ensures each row in a table is uniquely identifiable?',
-        optionA: 'Foreign Key',
-        optionB: 'Primary Key',
-        optionC: 'Check Constraint',
-        optionD: 'View Index',
-        correctOption: 'B',
-        explanation: 'A Primary Key enforces uniqueness and non-null identity for every record in a table.',
-        difficulty: 'Medium',
-        topic: 'Database Systems',
-        examYear: 2025,
-      },
-    ],
-  },
-  {
     legacySubjectSlug: 'biology',
     legacySubjectName: 'Biology',
     legacySubjectCode: 'BIO',
@@ -235,69 +172,6 @@ const STARTER_COURSES: SeedCourseEntry[] = [
         difficulty: 'Hard',
         topic: 'Permutations',
         examYear: 2024,
-      },
-    ],
-  },
-  {
-    legacySubjectSlug: 'use-of-english',
-    legacySubjectName: 'Use of English',
-    legacySubjectCode: 'ENG',
-    code: 'ENG 101',
-    title: 'Use of English & Communication',
-    level: '100 Level',
-    description: 'Lexis, structure, comprehension, oral forms, and academic sentence interpretation.',
-    registrationFee: '2350.00',
-    defaultDurationMinutes: 60,
-    questions: [
-      {
-        questionText:
-          'Choose the option that best completes the sentence: Neither the teacher nor the students ____ aware of the timetable change.',
-        optionA: 'was',
-        optionB: 'were',
-        optionC: 'is',
-        optionD: 'has been',
-        correctOption: 'B',
-        explanation:
-          'With "neither ... nor", the verb agrees with the nearer subject ("students", plural), so "were" is correct.',
-        difficulty: 'Medium',
-        topic: 'Course Concord',
-        examYear: 2024,
-      },
-      {
-        questionText: 'Select the word opposite in meaning to "ephemeral".',
-        optionA: 'Brief',
-        optionB: 'Permanent',
-        optionC: 'Fragile',
-        optionD: 'Sudden',
-        correctOption: 'B',
-        explanation: '"Ephemeral" means lasting for a very short time; its antonym is "Permanent".',
-        difficulty: 'Medium',
-        topic: 'Antonyms',
-        examYear: 2023,
-      },
-      {
-        questionText: 'Choose the word nearest in meaning to "meticulous".',
-        optionA: 'Careless',
-        optionB: 'Thorough',
-        optionC: 'Hasty',
-        optionD: 'Reckless',
-        correctOption: 'B',
-        explanation: '"Meticulous" means showing great attention to detail; very careful and thorough.',
-        difficulty: 'Easy',
-        topic: 'Synonyms',
-        examYear: 2024,
-      },
-      {
-        questionText: 'Identify the vowel sound in the word "seat".',
-        optionA: '/i:/',
-        optionB: '/I/',
-        optionC: '/e/',
-        optionD: '/ae/',
-        correctOption: 'A',
-        explanation: '"Seat" contains the long vowel sound /i:/.',
-        difficulty: 'Easy',
-        topic: 'Oral English',
-        examYear: 2022,
       },
     ],
   },
@@ -596,13 +470,8 @@ export async function seedDatabaseIfEmpty(): Promise<void> {
   await ensureBootstrapAdmin();
   const db = getDb();
   const existing = await db.select({ id: courses.id }).from(courses).limit(1);
-  const hasCsc = await db
-    .select({ id: courses.id })
-    .from(courses)
-    .where(sql`LOWER(${courses.code}) = 'csc 101'`)
-    .limit(1);
 
-  if (existing.length === 0 || hasCsc.length === 0) {
+  if (existing.length === 0) {
     console.log('[Seed] Ensuring starter course catalogue is seeded...');
     await runSeed();
   }

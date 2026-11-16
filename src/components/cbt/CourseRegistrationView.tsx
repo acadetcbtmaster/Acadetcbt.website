@@ -269,6 +269,9 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {filteredCourses.map((course) => {
                 const isRegistered = course.isRegistered;
+                const isGst111 = course.code.replace(/\s+/g, '').toUpperCase() === 'GST111';
+                const isAdminActivated =
+                  isRegistered && course.activationSource === 'admin_manual';
                 const isPending = !isRegistered && course.registrationState === 'pending';
                 const isFailed = !isRegistered && course.registrationState === 'failed';
 
@@ -307,16 +310,27 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                             {formatCurrency(course.registrationFee, course.currency)}
                           </div>
                           <div className="text-[11px] text-slate-500 dark:text-slate-400 tabular-nums leading-tight">
-                            Value {formatCurrency(course.courseValue ?? course.registrationFee, course.currency)} · Charges absorbed
+                            {isAdminActivated
+                              ? 'Payment Status: Successful'
+                              : `Value ${formatCurrency(course.courseValue ?? course.registrationFee, course.currency)} · Charges absorbed`}
                           </div>
                         </div>
 
-                        <div className="text-right shrink-0">
+                        <div className="text-right shrink-0 space-y-1">
                           {isRegistered ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-extrabold text-emerald-700 dark:text-emerald-400">
-                              <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-                              <span>Registered ✓</span>
-                            </span>
+                            <div className="flex flex-col items-end gap-1">
+                              <span className="inline-flex items-center gap-1 text-xs font-extrabold text-emerald-700 dark:text-emerald-400">
+                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                                <span>
+                                  {isGst111 ? 'GST 111 – Subscription Active' : 'Registered ✓'}
+                                </span>
+                              </span>
+                              {isAdminActivated && (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950/60 border border-[#c6daf7] dark:border-blue-800 text-[#0b337a] dark:text-blue-300 text-[10px] font-extrabold">
+                                  Admin Activated
+                                </span>
+                              )}
+                            </div>
                           ) : isPending ? (
                             <span className="inline-flex items-center gap-1 text-xs font-extrabold text-amber-600 dark:text-amber-400">
                               <Clock className="w-3.5 h-3.5 shrink-0" />
@@ -361,7 +375,7 @@ export const CourseRegistrationView: React.FC<CourseRegistrationViewProps> = ({
                             className="flex-1 py-2 px-2.5 rounded-xl bg-emerald-600 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 min-h-[40px] cursor-default"
                           >
                             <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>Registered ✓</span>
+                            <span>{isGst111 ? 'Subscription Active' : 'Registered ✓'}</span>
                           </button>
                           <button
                             type="button"

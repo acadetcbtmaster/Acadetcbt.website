@@ -127,7 +127,12 @@ export const MyRegisteredCoursesView: React.FC<MyRegisteredCoursesViewProps> = (
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {items.map((item) => (
+              {items.map((item) => {
+                const isGst111 =
+                  item.code.replace(/\s+/g, '').toUpperCase() === 'GST111';
+                const isAdminActivated = item.activationSource === 'admin_manual';
+
+                return (
                 <div
                   key={item.registrationId}
                   className="rounded-xl border border-emerald-200 dark:border-emerald-800/80 bg-white dark:bg-slate-900 p-3.5 flex flex-col justify-between gap-3 shadow-xs"
@@ -137,10 +142,19 @@ export const MyRegisteredCoursesView: React.FC<MyRegisteredCoursesViewProps> = (
                       <span className="font-extrabold text-[#0b337a] dark:text-blue-300">
                         {item.code} · {item.level}
                       </span>
-                      <span className="inline-flex items-center gap-1 font-extrabold text-emerald-700 dark:text-emerald-400">
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Registered ✓</span>
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {isAdminActivated && (
+                          <span className="px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-950/60 border border-[#c6daf7] dark:border-blue-800 text-[#0b337a] dark:text-blue-300 text-[10px] font-extrabold">
+                            Admin Activated
+                          </span>
+                        )}
+                        <span className="inline-flex items-center gap-1 font-extrabold text-emerald-700 dark:text-emerald-400">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>
+                            {isGst111 ? 'GST 111 – Subscription Active' : 'Registered ✓'}
+                          </span>
+                        </span>
+                      </div>
                     </div>
 
                     <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white leading-snug">
@@ -151,13 +165,17 @@ export const MyRegisteredCoursesView: React.FC<MyRegisteredCoursesViewProps> = (
                       <div className="flex items-center justify-between">
                         <span>Payment Status:</span>
                         <span className="font-extrabold text-emerald-700 dark:text-emerald-400 capitalize tabular-nums">
-                          {item.paymentStatus} ({formatCurrency(item.amountPaid, item.currency)})
+                          {isAdminActivated
+                            ? 'Successful (Admin Activated)'
+                            : `${item.paymentStatus} (${formatCurrency(item.amountPaid, item.currency)})`}
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span>Course Value:</span>
+                        <span>{isAdminActivated ? 'Authorization:' : 'Course Value:'}</span>
                         <span className="font-semibold text-slate-800 dark:text-slate-200 tabular-nums">
-                          {formatCurrency(item.courseValue ?? 2300, item.currency)} (Fees absorbed)
+                          {isAdminActivated
+                            ? 'Admin Activated'
+                            : `${formatCurrency(item.courseValue ?? 2300, item.currency)} (Fees absorbed)`}
                         </span>
                       </div>
                       <div className="flex items-center justify-between">
@@ -242,7 +260,8 @@ export const MyRegisteredCoursesView: React.FC<MyRegisteredCoursesViewProps> = (
                     )}
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

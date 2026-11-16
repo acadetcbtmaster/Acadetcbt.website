@@ -42,6 +42,7 @@ export const users = pgTable(
     fullName: text('full_name').notNull(),
     email: text('email').notNull(),
     username: text('username').notNull(),
+    registrationCode: text('registration_code'),
     passwordHash: text('password_hash').notNull(),
     role: text('role').notNull().default('student'),
     examTarget: text('exam_target').notNull().default('Acadet CBT Examination'),
@@ -64,6 +65,7 @@ export const users = pgTable(
   (table) => [
     uniqueIndex('users_email_unique_idx').on(table.email),
     uniqueIndex('users_username_unique_idx').on(table.username),
+    uniqueIndex('users_registration_code_unique_idx').on(table.registrationCode),
     index('users_role_idx').on(table.role),
     index('users_account_status_idx').on(table.accountStatus, table.isActive),
     index('users_email_verified_idx').on(table.emailVerified, table.isActive),
@@ -326,6 +328,12 @@ export const courseRegistrations = pgTable(
     preservedAmountPaid: numeric('preserved_amount_paid', { precision: 12, scale: 2 }),
     whatsappNumber: text('whatsapp_number'),
     registrationStatus: text('registration_status').notNull().default('active'),
+    activationSource: text('activation_source').notNull().default('paystack'),
+    activatedBy: uuid('activated_by').references(() => users.id, { onDelete: 'set null' }),
+    activatedAt: timestamp('activated_at', { withTimezone: true }),
+    deactivatedBy: uuid('deactivated_by').references(() => users.id, { onDelete: 'set null' }),
+    deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
+    adminNote: text('admin_note'),
     registeredAt: timestamp('registered_at', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -337,9 +345,18 @@ export const courseRegistrations = pgTable(
       .where(sql`${table.registrationStatus} = 'active'`),
     index('course_registrations_student_idx').on(table.studentId, table.registeredAt),
     index('course_registrations_course_idx').on(table.courseId, table.registeredAt),
+    index('course_registrations_activation_source_idx').on(
+      table.activationSource,
+      table.registrationStatus,
+      table.registeredAt
+    ),
     check(
       'course_registrations_status_check',
       sql`${table.registrationStatus} IN ('active', 'pending', 'revoked', 'expired')`
+    ),
+    check(
+      'course_registrations_activation_source_check',
+      sql`${table.activationSource} IN ('paystack', 'admin_manual')`
     ),
   ]
 );
@@ -684,6 +701,39 @@ export const emailDeliveryLogs = pgTable(
   ]
 );
 
-
-
-
+export const gst111ActivationHistory = pgTable(
+  'gst111_activation_history',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    studentRegistrationCode: text('student_registration_code'),
+    courseId: uuid('course_id')
+      .notNull()
+      .references(() => courses.id, { onDelete: 'cascade' }),
+    courseCode: text('course_code').notNull(),
+    registrationId: uuid('registration_id').references(() => courseRegistrations.id, {
+      onDelete: 'set null',
+    }),
+    action: text('action').notNull(),
+    previousStatus: text('previous_status').notNull(),
+    nextStatus: text('next_status').notNull(),
+    adminUserId: uuid('admin_user_id').references(() => users.id, { onDelete: 'set null' }),
+    adminName: text('admin_name').notNull(),
+    adminEmail: text('admin_email').notNull(),
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('gst111_activation_history_student_created_idx').on(
+      table.studentId,
+      table.createdAt
+    ),
+    index('gst111_activation_history_created_idx').on(table.createdAt),
+    check(
+      'gst111_activation_history_action_check',
+      sql`${table.action} IN ('activated', 'deactivated')`
+    ),
+  ]
+);

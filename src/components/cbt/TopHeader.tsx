@@ -250,6 +250,11 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
                       <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
                         {user.email}
                       </div>
+                      {user.registrationCode && (
+                        <div className="mt-1 text-[11px] font-mono font-extrabold text-[#0b337a] dark:text-blue-300">
+                          Reg Code: {user.registrationCode}
+                        </div>
+                      )}
                     </div>
                     {isAdmin && onOpenAdmin && (
                       <button

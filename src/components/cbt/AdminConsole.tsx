@@ -18,6 +18,7 @@ import {
   FileText,
   Globe,
   Image as ImageIcon,
+  KeyRound,
   Lock,
   Mail,
   Megaphone,
@@ -80,6 +81,7 @@ import {
 import { AdminEmailStatusPanel } from './AdminEmailStatusPanel';
 import { CopyReferenceButton } from './CopyReferenceButton';
 import { formatCurrency } from './CourseRegistrationView';
+import { Gst111ManualActivationPanel } from './Gst111ManualActivationPanel';
 import { PaymentReceiptModal } from './PaymentReceiptModal';
 import { QuestionStatsDashboard } from './QuestionStatsDashboard';
 
@@ -94,6 +96,7 @@ type AdminSection =
   | 'overview'
   | 'courses'
   | 'registrations'
+  | 'gst111'
   | 'payments'
   | 'verifications'
   | 'questions'
@@ -1417,6 +1420,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     { id: 'overview', label: 'Overview', icon: Shield },
     { id: 'courses', label: 'Courses', icon: BookOpen },
     { id: 'registrations', label: 'Registrations', icon: ClipboardList },
+    { id: 'gst111', label: 'Manual Activation', icon: KeyRound },
     { id: 'payments', label: 'Payments', icon: CreditCard },
     {
       id: 'verifications',
@@ -1604,7 +1608,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 <input
                   type="text"
                   required
-                  placeholder="Course Code (e.g. CSC 101)"
+                  placeholder="Course Code (e.g. MTH 101)"
                   value={cCode}
                   onChange={(e) => setCCode(e.target.value)}
                   className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-semibold"
@@ -2085,7 +2089,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                     type="text"
                     value={regSearch}
                     onChange={(e) => setRegSearch(e.target.value)}
-                    placeholder="Search student name, email, or WhatsApp..."
+                    placeholder="Search reg code, name, email, or WhatsApp..."
                     className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-semibold"
                   />
                 </div>
@@ -2181,10 +2185,23 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                           {r.courseCode} — {r.courseTitle}
                         </td>
                         <td className="px-4 py-3 font-extrabold tabular-nums">
-                          {formatCurrency(r.amount, r.currency)}
+                          {r.activationSource === 'admin_manual' ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950/60 text-[#0b337a] dark:text-blue-300 text-xs font-extrabold">
+                              Admin Activated
+                            </span>
+                          ) : (
+                            formatCurrency(r.amount, r.currency)
+                          )}
                         </td>
                         <td className="px-4 py-3">
-                          <StatusBadge status={r.paymentStatus} />
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <StatusBadge status={r.paymentStatus} />
+                            {r.activationSource === 'admin_manual' && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/50 border border-[#c6daf7] dark:border-blue-800 text-[#0b337a] dark:text-blue-300 text-[10px] font-extrabold">
+                                Admin Activated
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">
                           {new Date(r.registeredAt).toLocaleString()}
@@ -2206,6 +2223,14 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
               </table>
             </div>
           </div>
+        )}
+
+        {/* MANUAL SUBSCRIPTION ACTIVATION (GST 111 ONLY) */}
+        {section === 'gst111' && (
+          <Gst111ManualActivationPanel
+            onCatalogUpdated={onCatalogUpdated}
+            onOpenFullProfile={(studentId) => void openStudentProfile(studentId)}
+          />
         )}
 
         {/* PAYMENT RECORDS */}
@@ -3567,7 +3592,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                       void loadUsersFiltered();
                     }
                   }}
-                  placeholder="Search by full name, email, username, or WhatsApp..."
+                  placeholder="Search by registration code, full name, email, username, or WhatsApp..."
                   className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs sm:text-sm font-semibold"
                 />
               </div>
@@ -3629,6 +3654,11 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                           <span className="font-extrabold text-slate-900 dark:text-white">
                             {u.fullName}
                           </span>
+                          {u.registrationCode && (
+                            <span className="px-2 py-0.5 rounded bg-[#eff5ff] dark:bg-slate-800 border border-[#c6daf7] dark:border-slate-700 font-mono text-[11px] font-extrabold text-[#0b337a] dark:text-blue-300">
+                              {u.registrationCode}
+                            </span>
+                          )}
                           <span className="text-xs font-semibold text-slate-500">
                             (@{u.username})
                           </span>
@@ -4286,6 +4316,14 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                   {selectedReg.whatsappNumber || '—'}
                 </span>
               </div>
+              {selectedReg.studentRegistrationCode && (
+                <div className="flex justify-between gap-2">
+                  <span className="text-slate-500">Registration Code</span>
+                  <span className="font-mono text-xs font-extrabold text-[#0b337a] dark:text-blue-300">
+                    {selectedReg.studentRegistrationCode}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between gap-2">
                 <span className="text-slate-500">Course</span>
                 <span className="font-bold text-right">
@@ -4293,18 +4331,27 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 </span>
               </div>
               <div className="flex justify-between gap-2">
-                <span className="text-slate-500">Amount Paid</span>
+                <span className="text-slate-500">Amount / Authorization</span>
                 <span className="font-extrabold tabular-nums">
-                  {formatCurrency(selectedReg.amount, selectedReg.currency)}
+                  {selectedReg.activationSource === 'admin_manual'
+                    ? 'Admin Activated (No Paystack charge)'
+                    : formatCurrency(selectedReg.amount, selectedReg.currency)}
                 </span>
               </div>
               <div className="flex justify-between gap-2">
-                <span className="text-slate-500">Payment Reference</span>
+                <span className="text-slate-500">Reference</span>
                 <span className="font-mono text-xs">{selectedReg.paymentReference}</span>
               </div>
               <div className="flex justify-between gap-2">
                 <span className="text-slate-500">Payment Status</span>
-                <StatusBadge status={selectedReg.paymentStatus} />
+                <div className="flex items-center gap-1.5">
+                  <StatusBadge status={selectedReg.paymentStatus} />
+                  {selectedReg.activationSource === 'admin_manual' && (
+                    <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 border border-[#c6daf7] dark:border-blue-800 text-[#0b337a] dark:text-blue-300 text-[11px] font-extrabold">
+                      Admin Activated
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="flex justify-between gap-2">
                 <span className="text-slate-500">Registered At</span>
@@ -4787,11 +4834,17 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
               </div>
 
               {/* Student Metadata */}
-              <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/80 border border-[#d6e4fa] dark:border-slate-700 p-3 grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+              <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/80 border border-[#d6e4fa] dark:border-slate-700 p-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
                 <div>
                   <span className="text-slate-500 block">Full Name</span>
                   <span className="font-extrabold text-slate-900 dark:text-white">
                     {studentProfile.student.fullName}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-slate-500 block">Registration Code</span>
+                  <span className="font-mono font-extrabold text-[#0b337a] dark:text-blue-300">
+                    {studentProfile.student.registrationCode || '—'}
                   </span>
                 </div>
                 <div>
@@ -4882,14 +4935,23 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                           {cs.code} — {cs.title}
                         </span>
                         <span className="text-xs text-slate-500 ml-2 tabular-nums">
-                          ({formatCurrency(cs.amountPaid ?? cs.registrationFee, cs.currency)})
+                          {cs.activationSource === 'admin_manual'
+                            ? '(Admin Activated)'
+                            : `(${formatCurrency(cs.amountPaid ?? cs.registrationFee, cs.currency)})`}
                         </span>
                       </div>
                       {cs.isRegistered ? (
-                        <span className="inline-flex items-center gap-1 text-xs font-extrabold text-emerald-700 dark:text-emerald-400 shrink-0">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          Registered ✓
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {cs.activationSource === 'admin_manual' && (
+                            <span className="px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950/60 border border-[#c6daf7] dark:border-blue-800 text-[#0b337a] dark:text-blue-300 text-[11px] font-extrabold">
+                              Admin Activated
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-1 text-xs font-extrabold text-emerald-700 dark:text-emerald-400">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Registered ✓
+                          </span>
+                        </div>
                       ) : (
                         <span className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 shrink-0">
                           <Lock className="w-3 h-3" />

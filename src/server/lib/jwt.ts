@@ -18,6 +18,7 @@ export interface SafeUser {
   fullName: string;
   email: string;
   username: string;
+  registrationCode: string | null;
   role: UserRole;
   examTarget: string;
   whatsappNumber: string | null;
@@ -98,6 +99,7 @@ export function sanitizeUser(row: {
   fullName: string;
   email: string;
   username: string;
+  registrationCode?: string | null;
   role: string;
   examTarget: string;
   whatsappNumber?: string | null;
@@ -113,11 +115,16 @@ export function sanitizeUser(row: {
   const resolvedAccountStatus: AccountStatus =
     row.accountStatus === 'suspended' || !row.isActive ? 'suspended' : 'active';
 
+  const resolvedRegCode =
+    row.registrationCode?.trim() ||
+    `ACD-${row.id.replace(/-/g, '').slice(0, 8).toUpperCase()}`;
+
   return {
     id: row.id,
     fullName: row.fullName,
     email: row.email,
     username: row.username,
+    registrationCode: resolvedRegCode,
     role: (row.role as UserRole) || 'student',
     examTarget: row.examTarget,
     whatsappNumber: row.whatsappNumber ?? null,

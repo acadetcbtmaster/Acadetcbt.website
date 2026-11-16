@@ -17,6 +17,8 @@ import type {
   DifficultyLevel,
   FounderProfileData,
   GradedExamQuestion,
+  Gst111ActivationHistoryItem,
+  Gst111StudentsResponse,
   NotificationType,
   OptionLetter,
   PaymentBackupSummary,
@@ -847,5 +849,64 @@ export const api = {
         method: 'POST',
         body: JSON.stringify(toEmail ? { toEmail } : {}),
       }),
+
+    gst111: {
+      listStudents: (filters?: {
+        search?: string;
+        status?: 'all' | 'active' | 'locked' | 'admin_manual';
+      }) => {
+        const search = new URLSearchParams();
+        if (filters?.search) search.set('search', filters.search);
+        if (filters?.status && filters.status !== 'all') search.set('status', filters.status);
+        const qs = search.toString();
+        return request<Gst111StudentsResponse>(
+          `/api/admin/gst111/students${qs ? `?${qs}` : ''}`
+        );
+      },
+
+      getStudentHistory: (studentId: string) =>
+        request<{ history: Gst111ActivationHistoryItem[] }>(
+          `/api/admin/gst111/students/${encodeURIComponent(studentId)}/history`
+        ),
+
+      activate: (payload: {
+        studentId: string;
+        courseId?: string;
+        courseCode?: string;
+        note?: string;
+      }) =>
+        request<{
+          registrationId: string;
+          studentId: string;
+          studentRegistrationCode: string;
+          courseId: string;
+          courseCode: string;
+          activationSource: 'admin_manual';
+          historyEntry: Gst111ActivationHistoryItem;
+          message: string;
+        }>('/api/admin/gst111/activate', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }),
+
+      deactivate: (payload: {
+        studentId: string;
+        courseId?: string;
+        courseCode?: string;
+        reason?: string;
+      }) =>
+        request<{
+          registrationId: string;
+          studentId: string;
+          studentRegistrationCode: string;
+          courseId: string;
+          courseCode: string;
+          historyEntry: Gst111ActivationHistoryItem;
+          message: string;
+        }>('/api/admin/gst111/deactivate', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }),
+    },
   },
 };

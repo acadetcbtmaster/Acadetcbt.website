@@ -31,6 +31,13 @@ import {
   sendAdminTestEmail,
   verifyEmailServiceConnection,
 } from '../lib/email.js';
+import {
+  activateGst111Manual,
+  deactivateGst111Manual,
+  getStudentGst111History,
+  Gst111RestrictionError,
+  listGst111StudentStatuses,
+} from '../lib/gst111.js';
 import { sanitizeUser } from '../lib/jwt.js';
 import {
   createStudentNotification,
@@ -1246,7 +1253,7 @@ async function queryAdminRegistrations(filters: {
     values.push(`%${filters.search.toLowerCase()}%`);
     const idx = values.length;
     clauses.push(
-      `(LOWER(u.full_name) LIKE $${idx} OR LOWER(u.email) LIKE $${idx} OR LOWER(COALESCE(cr.whatsapp_number, p.whatsapp_number, u.whatsapp_number, '')) LIKE $${idx})`
+      `(LOWER(u.full_name) LIKE $${idx} OR LOWER(u.email) LIKE $${idx} OR LOWER(COALESCE(u.registration_code, '')) LIKE $${idx} OR LOWER(COALESCE(cr.whatsapp_number, p.whatsapp_number, u.whatsapp_number, '')) LIKE $${idx})`
     );
   }
   if (filters.courseId) {
@@ -1256,7 +1263,7 @@ async function queryAdminRegistrations(filters: {
   if (filters.paymentStatus) {
     values.push(filters.paymentStatus);
     clauses.push(
-      `COALESCE(p.payment_status, CASE WHEN cr.preserved_payment_ref IS NOT NULL THEN 'successful' ELSE 'pending' END) = $${values.length}`
+      `COALESCE(p.payment_status, CASE WHEN cr.preserved_payment_ref IS NOT NULL OR cr.activation_source = 'admin_manual' THEN 'successful' ELSE 'pending' END) = $${values.length}`
     );
   }
   if (filters.dateFrom) {
@@ -1274,12 +1281,14 @@ async function queryAdminRegistrations(filters: {
     studentId: string;
     studentName: string;
     studentEmail: string;
+    studentRegistrationCode: string | null;
     whatsappNumber: string | null;
     courseId: string;
     courseCode: string;
     courseTitle: string;
     paymentId: string;
     paymentReference: string;
+    activationSource: 'paystack' | 'admin_manual';
     courseValue: string;
     totalAmountCharged: string;
     amount: string;
@@ -1301,26 +1310,40 @@ async function queryAdminRegistrations(filters: {
        u.id AS "studentId",
        u.full_name AS "studentName",
        u.email AS "studentEmail",
+       u.registration_code AS "studentRegistrationCode",
        COALESCE(cr.whatsapp_number, p.whatsapp_number, u.whatsapp_number) AS "whatsappNumber",
        c.id AS "courseId",
        c.code AS "courseCode",
        c.title AS "courseTitle",
        COALESCE(p.id::text, cr.id::text) AS "paymentId",
-       COALESCE(p.payment_reference, cr.preserved_payment_ref, 'PRESERVED-REG') AS "paymentReference",
+       CASE
+         WHEN cr.activation_source = 'admin_manual' AND cr.payment_id IS NULL THEN 'ADMIN-ACTIVATED'
+         ELSE COALESCE(p.payment_reference, cr.preserved_payment_ref, 'PRESERVED-REG')
+       END AS "paymentReference",
+       cr.activation_source AS "activationSource",
        COALESCE(p.course_value, c.course_value, 2300.00)::text AS "courseValue",
-       COALESCE(p.total_amount_charged, cr.preserved_amount_paid, c.registration_fee, 2350.00)::text AS "totalAmountCharged",
-       COALESCE(p.amount, cr.preserved_amount_paid, c.registration_fee, 2350.00)::text AS "amount",
+       CASE
+         WHEN cr.activation_source = 'admin_manual' AND cr.payment_id IS NULL THEN '0.00'
+         ELSE COALESCE(p.total_amount_charged, cr.preserved_amount_paid, c.registration_fee, 2350.00)::text
+       END AS "totalAmountCharged",
+       CASE
+         WHEN cr.activation_source = 'admin_manual' AND cr.payment_id IS NULL THEN '0.00'
+         ELSE COALESCE(p.amount, cr.preserved_amount_paid, c.registration_fee, 2350.00)::text
+       END AS "amount",
        COALESCE(p.currency, c.currency, 'NGN') AS currency,
        p.gateway_fee::text AS "gatewayFee",
        p.net_settlement_amount::text AS "netSettlementAmount",
        p.settlement_variance::text AS "settlementVariance",
-       COALESCE(p.reconciliation_status, 'reconciled') AS "reconciliationStatus",
+       COALESCE(p.reconciliation_status, CASE WHEN cr.activation_source = 'admin_manual' THEN 'not_applicable' ELSE 'reconciled' END) AS "reconciliationStatus",
        p.payment_channel AS "paymentChannel",
-       COALESCE(p.payment_status, CASE WHEN cr.preserved_payment_ref IS NOT NULL THEN 'successful' ELSE 'pending' END) AS "paymentStatus",
+       COALESCE(p.payment_status, CASE WHEN cr.preserved_payment_ref IS NOT NULL OR cr.activation_source = 'admin_manual' THEN 'successful' ELSE 'pending' END) AS "paymentStatus",
        cr.registration_status AS "registrationStatus",
-       COALESCE(p.gateway, 'paystack') AS gateway,
+       CASE
+         WHEN cr.activation_source = 'admin_manual' AND cr.payment_id IS NULL THEN 'admin_manual'
+         ELSE COALESCE(p.gateway, 'paystack')
+       END AS gateway,
        p.gateway_transaction_id AS "gatewayTransactionId",
-       p.paid_at AS "paidAt",
+       COALESCE(p.paid_at, cr.activated_at) AS "paidAt",
        cr.registered_at AS "registeredAt"
      FROM course_registrations cr
      INNER JOIN users u ON u.id = cr.student_id
@@ -1334,6 +1357,7 @@ async function queryAdminRegistrations(filters: {
 
   return res.rows.map((r) => ({
     ...r,
+    activationSource: r.activationSource === 'admin_manual' ? 'admin_manual' : 'paystack',
     courseValue: Number(r.courseValue),
     totalAmountCharged: Number(r.totalAmountCharged),
     amount: Number(r.amount),
@@ -1683,7 +1707,7 @@ router.get('/users', async (req, res) => {
       values.push(`%${search}%`);
       const idx = values.length;
       clauses.push(
-        `(LOWER(u.full_name) LIKE $${idx} OR LOWER(u.email) LIKE $${idx} OR LOWER(u.username) LIKE $${idx} OR LOWER(COALESCE(u.whatsapp_number, '')) LIKE $${idx})`
+        `(LOWER(u.full_name) LIKE $${idx} OR LOWER(u.email) LIKE $${idx} OR LOWER(u.username) LIKE $${idx} OR LOWER(COALESCE(u.registration_code, '')) LIKE $${idx} OR LOWER(COALESCE(u.whatsapp_number, '')) LIKE $${idx})`
       );
     }
 
@@ -1699,6 +1723,7 @@ router.get('/users', async (req, res) => {
       fullName: string;
       email: string;
       username: string;
+      registrationCode: string | null;
       role: string;
       examTarget: string;
       whatsappNumber: string | null;
@@ -1716,6 +1741,7 @@ router.get('/users', async (req, res) => {
          u.full_name AS "fullName",
          u.email,
          u.username,
+         u.registration_code AS "registrationCode",
          u.role,
          u.exam_target AS "examTarget",
          u.whatsapp_number AS "whatsappNumber",
@@ -1747,6 +1773,7 @@ router.get('/users', async (req, res) => {
           fullName: r.fullName,
           email: r.email,
           username: r.username,
+          registrationCode: r.registrationCode,
           role: r.role,
           examTarget: r.examTarget,
           whatsappNumber: r.whatsappNumber,
@@ -1792,6 +1819,7 @@ router.get('/users/:id/profile', async (req, res) => {
       registrationFee: string;
       currency: string;
       registrationStatus: string | null;
+      activationSource: string | null;
       registeredAt: Date | null;
       whatsappNumber: string | null;
       paymentId: string | null;
@@ -1809,13 +1837,26 @@ router.get('/users/:id/profile', async (req, res) => {
          c.registration_fee::text AS "registrationFee",
          c.currency,
          cr.registration_status AS "registrationStatus",
+         cr.activation_source AS "activationSource",
          cr.registered_at AS "registeredAt",
          COALESCE(cr.whatsapp_number, p.whatsapp_number) AS "whatsappNumber",
          cr.payment_id AS "paymentId",
          cr.preserved_payment_ref AS "preservedPaymentRef",
-         COALESCE(p.payment_status, CASE WHEN cr.preserved_payment_ref IS NOT NULL THEN 'successful' ELSE NULL END) AS "paymentStatus",
-         COALESCE(p.payment_reference, cr.preserved_payment_ref) AS "paymentReference",
-         COALESCE(p.total_amount_charged, cr.preserved_amount_paid)::text AS "amountPaid"
+         COALESCE(
+           p.payment_status,
+           CASE
+             WHEN cr.preserved_payment_ref IS NOT NULL OR cr.activation_source = 'admin_manual' THEN 'successful'
+             ELSE NULL
+           END
+         ) AS "paymentStatus",
+         CASE
+           WHEN cr.activation_source = 'admin_manual' AND cr.payment_id IS NULL THEN 'ADMIN-ACTIVATED'
+           ELSE COALESCE(p.payment_reference, cr.preserved_payment_ref)
+         END AS "paymentReference",
+         CASE
+           WHEN cr.activation_source = 'admin_manual' AND cr.payment_id IS NULL THEN '0.00'
+           ELSE COALESCE(p.total_amount_charged, cr.preserved_amount_paid)::text
+         END AS "amountPaid"
        FROM courses c
        LEFT JOIN course_registrations cr
          ON cr.course_id = c.id AND cr.student_id = $1 AND cr.registration_status = 'active'
@@ -1918,24 +1959,36 @@ router.get('/users/:id/profile', async (req, res) => {
       [studentId]
     );
 
-    const coursesStatus = coursesStatusRes.rows.map((r) => ({
-      courseId: r.courseId,
-      code: r.code,
-      title: r.title,
-      level: r.level,
-      courseValue: Number(r.courseValue ?? COURSE_VALUE_NAIRA),
-      registrationFee: Number(r.registrationFee ?? TOTAL_STUDENT_PAYABLE_NAIRA),
-      currency: r.currency || STANDARD_CURRENCY,
-      isRegistered:
-        r.registrationStatus === 'active' &&
-        (r.paymentStatus === 'successful' ||
-          (r.paymentId === null && Boolean(r.preservedPaymentRef))),
-      registeredAt: r.registeredAt,
-      whatsappNumber: r.whatsappNumber,
-      paymentStatus: r.paymentStatus,
-      paymentReference: r.paymentReference,
-      amountPaid: r.amountPaid ? Number(r.amountPaid) : null,
-    }));
+    const coursesStatus = coursesStatusRes.rows.map((r) => {
+      const isGst111Manual =
+        r.activationSource === 'admin_manual' &&
+        r.code.replace(/\s+/g, '').toUpperCase() === 'GST111';
+      return {
+        courseId: r.courseId,
+        code: r.code,
+        title: r.title,
+        level: r.level,
+        courseValue: Number(r.courseValue ?? COURSE_VALUE_NAIRA),
+        registrationFee: Number(r.registrationFee ?? TOTAL_STUDENT_PAYABLE_NAIRA),
+        currency: r.currency || STANDARD_CURRENCY,
+        isRegistered:
+          r.registrationStatus === 'active' &&
+          (isGst111Manual ||
+            r.paymentStatus === 'successful' ||
+            (r.paymentId === null && Boolean(r.preservedPaymentRef))),
+        activationSource:
+          r.registrationStatus === 'active'
+            ? r.activationSource === 'admin_manual'
+              ? 'admin_manual'
+              : 'paystack'
+            : null,
+        registeredAt: r.registeredAt,
+        whatsappNumber: r.whatsappNumber,
+        paymentStatus: r.paymentStatus,
+        paymentReference: r.paymentReference,
+        amountPaid: r.amountPaid !== null ? Number(r.amountPaid) : null,
+      };
+    });
 
     const studentPayments = paymentsRes.rows.map((p) => ({
       ...p,
@@ -3537,6 +3590,101 @@ router.post('/email/send-test', async (req, res) => {
     });
   } catch (err) {
     handleApiError(res, err, 'sending test email');
+  }
+});
+
+// GST 111 ONLY: Admin-Controlled Manual Subscription Activation & Deactivation
+router.get('/gst111/students', async (req, res) => {
+  try {
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : undefined;
+    const rawStatus = typeof req.query.status === 'string' ? req.query.status.trim() : 'all';
+    const statusFilter = (
+      ['all', 'active', 'locked', 'admin_manual'].includes(rawStatus) ? rawStatus : 'all'
+    ) as 'all' | 'active' | 'locked' | 'admin_manual';
+
+    const payload = await listGst111StudentStatuses({
+      search,
+      statusFilter,
+    });
+    res.json(payload);
+  } catch (err) {
+    handleApiError(res, err, 'listing GST 111 manual subscription statuses');
+  }
+});
+
+router.get('/gst111/students/:studentId/history', async (req, res) => {
+  try {
+    const studentId = z.string().uuid('Valid studentId is required').parse(req.params.studentId);
+    const history = await getStudentGst111History(studentId);
+    res.json({ history });
+  } catch (err) {
+    handleApiError(res, err, 'fetching GST 111 student activation history');
+  }
+});
+
+router.post('/gst111/activate', async (req, res) => {
+  try {
+    const schema = z.object({
+      studentId: z.string().uuid('Valid studentId is required'),
+      courseId: z.string().uuid().optional(),
+      courseCode: z.string().trim().max(40).optional(),
+      note: z.string().trim().max(500).optional(),
+    });
+    const parsed = schema.parse(req.body ?? {});
+
+    const outcome = await activateGst111Manual({
+      studentId: parsed.studentId,
+      requestedCourseId: parsed.courseId,
+      requestedCourseCode: parsed.courseCode,
+      note: parsed.note,
+      admin: {
+        id: req.user!.id,
+        fullName: req.user!.fullName,
+        email: req.user!.email,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.status(201).json(outcome);
+  } catch (err) {
+    if (err instanceof Gst111RestrictionError) {
+      res.status(err.statusCode).json({ error: err.message, code: err.code });
+      return;
+    }
+    handleApiError(res, err, 'manually activating GST 111 subscription');
+  }
+});
+
+router.post('/gst111/deactivate', async (req, res) => {
+  try {
+    const schema = z.object({
+      studentId: z.string().uuid('Valid studentId is required'),
+      courseId: z.string().uuid().optional(),
+      courseCode: z.string().trim().max(40).optional(),
+      reason: z.string().trim().max(500).optional(),
+    });
+    const parsed = schema.parse(req.body ?? {});
+
+    const outcome = await deactivateGst111Manual({
+      studentId: parsed.studentId,
+      requestedCourseId: parsed.courseId,
+      requestedCourseCode: parsed.courseCode,
+      reason: parsed.reason,
+      admin: {
+        id: req.user!.id,
+        fullName: req.user!.fullName,
+        email: req.user!.email,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.json(outcome);
+  } catch (err) {
+    if (err instanceof Gst111RestrictionError) {
+      res.status(err.statusCode).json({ error: err.message, code: err.code });
+      return;
+    }
+    handleApiError(res, err, 'manually deactivating GST 111 subscription');
   }
 });
 

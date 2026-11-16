@@ -17,6 +17,7 @@ export type PaymentVerificationResult =
   | 'unauthorized_or_mismatch';
 export type ReconciliationStatus = 'pending' | 'reconciled' | 'shortfall' | 'not_applicable';
 export type CourseRegistrationState = 'registered' | 'pending' | 'failed' | 'not_registered';
+export type ActivationSource = 'paystack' | 'admin_manual';
 
 export interface UserPreferences {
   theme: 'light' | 'dark';
@@ -34,6 +35,7 @@ export interface SafeUser {
   fullName: string;
   email: string;
   username: string;
+  registrationCode?: string | null;
   role: UserRole;
   examTarget: string;
   whatsappNumber?: string | null;
@@ -64,6 +66,7 @@ export interface CourseCatalogueItem {
   defaultDurationMinutes: number;
   questionCount: number;
   isRegistered: boolean;
+  activationSource?: ActivationSource | null;
   registrationState: CourseRegistrationState;
   registeredAt: string | null;
   latestPaymentStatus: PaymentStatus | null;
@@ -81,9 +84,11 @@ export interface RegisteredCourseItem {
   defaultDurationMinutes: number;
   whatsappGroupLink?: string | null;
   registrationStatus: string;
+  activationSource?: ActivationSource;
+  activatedAt?: string | null;
   registeredAt: string;
   whatsappNumber?: string | null;
-  paymentId: string;
+  paymentId: string | null;
   paymentReference: string;
   paymentStatus: PaymentStatus;
   courseValue?: number;
@@ -436,12 +441,14 @@ export interface AdminRegistrationItem {
   studentId: string;
   studentName: string;
   studentEmail: string;
+  studentRegistrationCode?: string | null;
   whatsappNumber?: string | null;
   courseId: string;
   courseCode: string;
   courseTitle: string;
   paymentId: string;
   paymentReference: string;
+  activationSource?: ActivationSource;
   courseValue?: number;
   totalAmountCharged?: number;
   amount: number;
@@ -552,6 +559,7 @@ export interface AdminStudentProfile {
     registrationFee: number;
     currency: string;
     isRegistered: boolean;
+    activationSource?: ActivationSource | null;
     registeredAt: string | null;
     whatsappNumber?: string | null;
     paymentStatus: PaymentStatus | null;
@@ -742,5 +750,72 @@ export interface AdminEmailStatusOverview {
     completedResetsTotal: number;
     activePendingTokens: number;
     expiredOrInvalidatedTokens: number;
+  };
+}
+
+export interface Gst111CourseInfo {
+  id: string;
+  code: string;
+  title: string;
+  level: string;
+  registrationFee: number;
+  currency: string;
+  publicationStatus: string;
+  isActive: boolean;
+}
+
+export interface Gst111StudentStatusItem {
+  studentId: string;
+  registrationCode: string;
+  fullName: string;
+  email: string;
+  username: string;
+  whatsappNumber: string | null;
+  accountStatus: AccountStatus;
+  isActive: boolean;
+  joinedAt: string;
+  gst111Status: 'active' | 'locked';
+  activationSource: 'admin_manual' | 'paystack' | 'none';
+  subscriptionLabel: string;
+  paymentStatusLabel: string;
+  registrationId: string | null;
+  activatedAt: string | null;
+  deactivatedAt: string | null;
+  lastActionByName: string | null;
+  lastActionByEmail: string | null;
+  lastActionAt: string | null;
+  lastActionNote: string | null;
+  historyCount: number;
+}
+
+export interface Gst111ActivationHistoryItem {
+  id: string;
+  studentId: string;
+  studentName: string;
+  studentEmail: string;
+  studentRegistrationCode: string | null;
+  courseId: string;
+  courseCode: string;
+  registrationId: string | null;
+  action: 'activated' | 'deactivated';
+  previousStatus: string;
+  nextStatus: string;
+  adminUserId: string | null;
+  adminName: string;
+  adminEmail: string;
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface Gst111StudentsResponse {
+  gst111Course: Gst111CourseInfo | null;
+  students: Gst111StudentStatusItem[];
+  recentHistory: Gst111ActivationHistoryItem[];
+  stats: {
+    totalStudents: number;
+    activeSubscriptions: number;
+    adminActivatedCount: number;
+    paystackActivatedCount: number;
+    lockedCount: number;
   };
 }

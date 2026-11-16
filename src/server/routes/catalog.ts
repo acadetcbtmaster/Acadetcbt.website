@@ -53,7 +53,12 @@ router.get('/courses', requireDb, optionalAuth, async (req, res) => {
 
     const activeRegMap = new Map<
       string,
-      { registrationId: string; registeredAt: Date; paymentReference: string }
+      {
+        registrationId: string;
+        registeredAt: Date;
+        paymentReference: string;
+        activationSource: 'paystack' | 'admin_manual';
+      }
     >();
     const latestPaymentMap = new Map<
       string,
@@ -66,9 +71,11 @@ router.get('/courses', requireDb, optionalAuth, async (req, res) => {
           id: courseRegistrations.id,
           courseId: courseRegistrations.courseId,
           registeredAt: courseRegistrations.registeredAt,
-          paymentReference: sql<string>`COALESCE(${payments.paymentReference}, ${courseRegistrations.preservedPaymentRef}, 'PRESERVED-REG')`,
+          activationSource: courseRegistrations.activationSource,
+          paymentReference: sql<string>`CASE WHEN ${courseRegistrations.activationSource} = 'admin_manual' AND ${courseRegistrations.paymentId} IS NULL THEN 'ADMIN-ACTIVATED' ELSE COALESCE(${payments.paymentReference}, ${courseRegistrations.preservedPaymentRef}, 'PRESERVED-REG') END`,
         })
         .from(courseRegistrations)
+        .innerJoin(courses, eq(courseRegistrations.courseId, courses.id))
         .leftJoin(payments, eq(courseRegistrations.paymentId, payments.id))
         .where(
           and(
@@ -79,6 +86,10 @@ router.get('/courses', requireDb, optionalAuth, async (req, res) => {
               and(
                 isNull(courseRegistrations.paymentId),
                 isNotNull(courseRegistrations.preservedPaymentRef)
+              ),
+              and(
+                eq(courseRegistrations.activationSource, 'admin_manual'),
+                sql`UPPER(REGEXP_REPLACE(${courses.code}, '\\s+', '', 'g')) = 'GST111'`
               )
             )
           )
@@ -88,6 +99,8 @@ router.get('/courses', requireDb, optionalAuth, async (req, res) => {
         activeRegMap.set(r.courseId, {
           registrationId: r.id,
           registeredAt: r.registeredAt,
+          activationSource:
+            r.activationSource === 'admin_manual' ? 'admin_manual' : 'paystack',
           paymentReference: r.paymentReference,
         });
       }
@@ -124,23 +137,24 @@ router.get('/courses', requireDb, optionalAuth, async (req, res) => {
         registrationState = 'failed';
       }
 
+      const effectivePaymentStatus = activeReg
+        ? 'successful'
+        : latestPay?.paymentStatus === 'pending' || latestPay?.paymentStatus === 'failed'
+          ? (latestPay.paymentStatus as 'pending' | 'failed')
+          : null;
+
       return {
         ...c,
         courseValue: Number(c.courseValue ?? 2300),
         registrationFee: Number(c.registrationFee ?? 2350),
         isRegistered: Boolean(activeReg),
+        activationSource: activeReg ? activeReg.activationSource : null,
         registrationState,
         registeredAt: activeReg?.registeredAt ?? null,
-        latestPaymentStatus: activeReg
-          ? 'successful'
-          : (latestPay?.paymentStatus as
-              | 'pending'
-              | 'successful'
-              | 'failed'
-              | 'refunded'
-              | undefined) ?? null,
+        latestPaymentStatus: effectivePaymentStatus,
         latestPaymentReference:
-          activeReg?.paymentReference ?? latestPay?.paymentReference ?? null,
+          activeReg?.paymentReference ??
+          (effectivePaymentStatus ? latestPay?.paymentReference ?? null : null),
       };
     });
 
@@ -168,15 +182,17 @@ router.get('/my-courses', requireAuth, async (req, res) => {
         defaultDurationMinutes: courses.defaultDurationMinutes,
         whatsappGroupLink: courses.whatsappGroupLink,
         registrationStatus: courseRegistrations.registrationStatus,
+        activationSource: courseRegistrations.activationSource,
+        activatedAt: courseRegistrations.activatedAt,
         registeredAt: courseRegistrations.registeredAt,
         whatsappNumber: sql<string | null>`COALESCE(${courseRegistrations.whatsappNumber}, ${payments.whatsappNumber})`,
         paymentId: courseRegistrations.paymentId,
-        paymentReference: sql<string>`COALESCE(${payments.paymentReference}, ${courseRegistrations.preservedPaymentRef}, 'PRESERVED-REG')`,
+        paymentReference: sql<string>`CASE WHEN ${courseRegistrations.activationSource} = 'admin_manual' AND ${courseRegistrations.paymentId} IS NULL THEN 'ADMIN-ACTIVATED' ELSE COALESCE(${payments.paymentReference}, ${courseRegistrations.preservedPaymentRef}, 'PRESERVED-REG') END`,
         paymentStatus: sql<string>`COALESCE(${payments.paymentStatus}, 'successful')`,
         courseValue: sql<string>`COALESCE(${payments.courseValue}, ${courses.courseValue}, '2300.00')`,
-        amountPaid: sql<string>`COALESCE(${payments.totalAmountCharged}, ${courseRegistrations.preservedAmountPaid}, ${courses.registrationFee}, '2350.00')`,
+        amountPaid: sql<string>`CASE WHEN ${courseRegistrations.activationSource} = 'admin_manual' AND ${courseRegistrations.paymentId} IS NULL THEN '0.00' ELSE COALESCE(${payments.totalAmountCharged}, ${courseRegistrations.preservedAmountPaid}, ${courses.registrationFee}, '2350.00') END`,
         currency: sql<string>`COALESCE(${payments.currency}, ${courses.currency}, 'NGN')`,
-        paidAt: sql<Date | null>`COALESCE(${payments.paidAt}, ${courseRegistrations.registeredAt})`,
+        paidAt: sql<Date | null>`COALESCE(${payments.paidAt}, ${courseRegistrations.activatedAt}, ${courseRegistrations.registeredAt})`,
         questionCount: sql<number>`(
           SELECT COUNT(*)::int FROM questions q
           WHERE (
@@ -198,6 +214,10 @@ router.get('/my-courses', requireAuth, async (req, res) => {
             and(
               isNull(courseRegistrations.paymentId),
               isNotNull(courseRegistrations.preservedPaymentRef)
+            ),
+            and(
+              eq(courseRegistrations.activationSource, 'admin_manual'),
+              sql`UPPER(REGEXP_REPLACE(${courses.code}, '\\s+', '', 'g')) = 'GST111'`
             )
           ),
           eq(courses.isActive, true)
@@ -208,8 +228,10 @@ router.get('/my-courses', requireAuth, async (req, res) => {
     res.json({
       registeredCourses: rows.map((r) => ({
         ...r,
+        activationSource:
+          r.activationSource === 'admin_manual' ? 'admin_manual' : 'paystack',
         courseValue: Number(r.courseValue ?? 2300),
-        amountPaid: Number(r.amountPaid ?? 2350),
+        amountPaid: Number(r.amountPaid ?? 0),
       })),
     });
   } catch (err) {

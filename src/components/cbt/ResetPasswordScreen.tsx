@@ -106,14 +106,13 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
 
     setSubmitting(true);
     try {
-      const res = await api.auth.resetPassword({
+      await api.auth.resetPassword({
         token: rawToken,
         newPassword,
         confirmPassword,
       });
       setSubmitSuccess(
-        res.message ||
-          'Your password has been reset successfully. Redirecting you to sign in...'
+        'Your password has been updated successfully. You can now log in using your new password.'
       );
       onPasswordResetSuccess?.();
       window.setTimeout(() => {
@@ -176,10 +175,12 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
             <AcadetCrest className="w-9 h-9" />
             <div className="min-w-0">
               <h1 className="text-lg sm:text-xl font-extrabold tracking-tight">
-                Create a New Password
+                {submitSuccess ? 'Password Reset Successful!' : 'Create New Password'}
               </h1>
               <p className="text-xs text-blue-100 mt-0.5">
-                Choose a strong password for your {branding.siteName} account.
+                {submitSuccess
+                  ? 'Your password has been updated successfully. You can now log in using your new password.'
+                  : `Choose a strong password for your ${branding.siteName} account.`}
               </p>
             </div>
           </div>
@@ -197,7 +198,7 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
                 <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 p-4 text-emerald-800 dark:text-emerald-200 text-sm flex items-start gap-2.5">
                   <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
                   <div>
-                    <div className="font-extrabold">Password Updated</div>
+                    <div className="font-extrabold">Password Reset Successful!</div>
                     <p className="mt-1 leading-relaxed">{submitSuccess}</p>
                   </div>
                 </div>
@@ -206,7 +207,7 @@ export const ResetPasswordScreen: React.FC<ResetPasswordScreenProps> = ({
                   onClick={() => onNavigate('/login?reset=success')}
                   className="w-full py-2.5 px-4 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white font-extrabold text-sm shadow-sm transition-colors"
                 >
-                  Continue to Sign In
+                  Login to Your Account
                 </button>
               </div>
             ) : !tokenValid ? (
