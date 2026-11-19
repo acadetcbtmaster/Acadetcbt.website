@@ -45,6 +45,7 @@ router.get('/courses', requireDb, optionalAuth, async (req, res) => {
             OR (q.course_id IS NULL AND ${courses.subjectId} IS NOT NULL AND q.subject_id = ${courses.subjectId})
           )
           AND q.is_active = TRUE
+          AND COALESCE(q.publication_status, 'published') = 'published'
         )`,
       })
       .from(courses)
@@ -200,6 +201,7 @@ router.get('/my-courses', requireAuth, async (req, res) => {
             OR (q.course_id IS NULL AND ${courses.subjectId} IS NOT NULL AND q.subject_id = ${courses.subjectId})
           )
           AND q.is_active = TRUE
+          AND COALESCE(q.publication_status, 'published') = 'published'
         )`,
       })
       .from(courseRegistrations)

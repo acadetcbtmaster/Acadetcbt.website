@@ -62,7 +62,7 @@ export const PracticeExamsView: React.FC<PracticeExamsViewProps> = ({
           >
             {(['All Levels', 'Easy', 'Medium', 'Hard'] as const).map((lvl) => (
               <option key={lvl} value={lvl} className="text-slate-900">
-                Difficulty: {lvl}
+                Difficulty: {lvl === 'Hard' ? 'Difficult' : lvl}
               </option>
             ))}
           </select>

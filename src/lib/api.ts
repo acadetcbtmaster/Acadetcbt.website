@@ -12,6 +12,7 @@ import type {
   AdminQuestionItem,
   AdminRegistrationItem,
   AdminStudentProfile,
+  AiSettingsSummary,
   AnnouncementItem,
   CourseCatalogueItem,
   DifficultyLevel,
@@ -31,6 +32,8 @@ import type {
   PublicSiteDataResponse,
   PublicationStatus,
   QuestionDifficulty,
+  QuestionImageItem,
+  QuestionPublicationStatus,
   QuestionStatsResponse,
   RegisteredCourseItem,
   ResultsOverview,
@@ -458,6 +461,8 @@ export const api = {
             difficulty?: QuestionDifficulty | '';
             search?: string;
             status?: 'all' | 'active' | 'inactive';
+            publicationStatus?: 'all' | 'draft' | 'published';
+            aiBatchId?: string;
             limit?: number;
           }
     ) => {
@@ -469,6 +474,10 @@ export const api = {
         if (courseIdOrFilters.difficulty) searchParams.set('difficulty', courseIdOrFilters.difficulty);
         if (courseIdOrFilters.search) searchParams.set('search', courseIdOrFilters.search);
         if (courseIdOrFilters.status) searchParams.set('status', courseIdOrFilters.status);
+        if (courseIdOrFilters.publicationStatus) {
+          searchParams.set('publicationStatus', courseIdOrFilters.publicationStatus);
+        }
+        if (courseIdOrFilters.aiBatchId) searchParams.set('aiBatchId', courseIdOrFilters.aiBatchId);
         if (courseIdOrFilters.limit) searchParams.set('limit', String(courseIdOrFilters.limit));
       }
       const qs = searchParams.toString();
@@ -476,22 +485,28 @@ export const api = {
         `/api/admin/questions${qs ? `?${qs}` : ''}`
       );
     },
-    createQuestion: (payload: {
-      courseId: string;
-      questionText: string;
-      optionA: string;
-      optionB: string;
-      optionC: string;
-      optionD: string;
-      correctOption: OptionLetter;
-      explanation?: string;
-      difficulty: 'Easy' | 'Medium' | 'Hard';
-      topic?: string;
-      examYear?: number | null;
-    }) =>
+    createQuestion: (
+      payload:
+        | FormData
+        | {
+            courseId: string;
+            questionText: string;
+            optionA: string;
+            optionB: string;
+            optionC: string;
+            optionD: string;
+            correctOption: OptionLetter;
+            explanation?: string;
+            difficulty: 'Easy' | 'Medium' | 'Hard';
+            topic?: string;
+            examYear?: number | null;
+            publicationStatus?: QuestionPublicationStatus;
+            isActive?: boolean;
+          }
+    ) =>
       request<{ question: AdminQuestionItem }>('/api/admin/questions', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: payload instanceof FormData ? payload : JSON.stringify(payload),
       }),
     updateQuestion: (
       id: string,
@@ -508,24 +523,117 @@ export const api = {
         topic: string;
         examYear: number | null;
         isActive: boolean;
+        publicationStatus: QuestionPublicationStatus;
       }>
     ) =>
       request<{ question: AdminQuestionItem }>(`/api/admin/questions/${id}`, {
         method: 'PATCH',
         body: JSON.stringify(payload),
       }),
+    publishQuestion: (id: string) =>
+      request<{ question: AdminQuestionItem; message: string }>(
+        `/api/admin/questions/${encodeURIComponent(id)}/publish`,
+        { method: 'POST' }
+      ),
+    publishQuestionsBatch: (questionIds: string[]) =>
+      request<{ publishedCount: number; publishedIds: string[]; message: string }>(
+        '/api/admin/questions/publish-batch',
+        {
+          method: 'POST',
+          body: JSON.stringify({ questionIds }),
+        }
+      ),
+    uploadQuestionImages: (questionId: string, files: File[], caption?: string) => {
+      const fd = new FormData();
+      for (const file of files) {
+        fd.append('images', file);
+      }
+      if (caption?.trim()) fd.append('caption', caption.trim());
+      return request<{ images: QuestionImageItem[]; message: string }>(
+        `/api/admin/questions/${encodeURIComponent(questionId)}/images`,
+        {
+          method: 'POST',
+          body: fd,
+        }
+      );
+    },
+    replaceQuestionImage: (questionId: string, imageId: string, file: File) => {
+      const fd = new FormData();
+      fd.append('image', file);
+      return request<{ images: QuestionImageItem[]; message: string }>(
+        `/api/admin/questions/${encodeURIComponent(questionId)}/images/${encodeURIComponent(imageId)}/replace`,
+        {
+          method: 'POST',
+          body: fd,
+        }
+      );
+    },
+    deleteQuestionImage: (questionId: string, imageId: string) =>
+      request<{ deletedImageId: string; images: QuestionImageItem[]; message: string }>(
+        `/api/admin/questions/${encodeURIComponent(questionId)}/images/${encodeURIComponent(imageId)}`,
+        { method: 'DELETE' }
+      ),
     generateQuestions: (payload: {
       courseId: string;
       topic: string;
       difficulty: 'Easy' | 'Medium' | 'Hard';
       count: number;
     }) =>
-      request<{ questions: AdminQuestionItem[] }>('/api/admin/questions/generate', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }),
+      request<{ batchId?: string; questions: AdminQuestionItem[] }>(
+        '/api/admin/questions/generate',
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }
+      ),
     deleteQuestion: (id: string) =>
       request<{ deletedId: string }>(`/api/admin/questions/${id}`, { method: 'DELETE' }),
+
+    ai: {
+      getSettings: () =>
+        request<{ settings: AiSettingsSummary }>('/api/admin/ai/settings'),
+      saveSettings: (payload: {
+        apiKey?: string;
+        clearStoredKey?: boolean;
+        modelName?: 'gemini-4-hydrogen' | 'gemini-4-neon';
+      }) =>
+        request<{ settings: AiSettingsSummary; message: string }>('/api/admin/ai/settings', {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        }),
+      testConnection: (payload?: {
+        apiKey?: string;
+        modelName?: 'gemini-4-hydrogen' | 'gemini-4-neon';
+      }) =>
+        request<{ ok: boolean; message: string; settings: AiSettingsSummary }>(
+          '/api/admin/ai/test',
+          {
+            method: 'POST',
+            body: JSON.stringify(payload ?? {}),
+          }
+        ),
+      generateQuestions: (formData: FormData) =>
+        request<{
+          batchId: string;
+          count: number;
+          message: string;
+          questions: AdminQuestionItem[];
+        }>('/api/admin/ai/generate-questions', {
+          method: 'POST',
+          body: formData,
+        }),
+      regenerateQuestion: (
+        questionId: string,
+        payload?: { instruction?: string; sourceExcerpt?: string }
+      ) =>
+        request<{ question: AdminQuestionItem; message: string }>(
+          `/api/admin/ai/regenerate-question/${encodeURIComponent(questionId)}`,
+          {
+            method: 'POST',
+            body: JSON.stringify(payload ?? {}),
+          }
+        ),
+    },
 
     uploadMaterial: (formData: FormData) =>
       request<{ material: StudyMaterialItem }>('/api/admin/materials/upload', {

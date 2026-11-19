@@ -585,7 +585,7 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
                   >
                     {(['All Levels', 'Easy', 'Medium', 'Hard'] as const).map((lvl) => (
                       <option key={lvl} value={lvl}>
-                        {lvl}
+                        {lvl === 'Hard' ? 'Difficult' : lvl}
                       </option>
                     ))}
                   </select>

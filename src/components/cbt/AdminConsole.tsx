@@ -7,6 +7,7 @@ import {
   Bell,
   BookCheck,
   BookOpen,
+  Bot,
   CheckCircle2,
   ClipboardList,
   Clock,
@@ -32,6 +33,7 @@ import {
   Send,
   Shield,
   ShieldCheck,
+  Sliders,
   Sparkles,
   Trash2,
   Upload,
@@ -65,6 +67,8 @@ import type {
   PaymentVerificationResult,
   PublicationStatus,
   QuestionDifficulty,
+  QuestionImageItem,
+  QuestionPublicationStatus,
   QuestionStatsSummary,
   ReconciliationStatus,
   SafeUser,
@@ -79,6 +83,8 @@ import {
   useBranding,
 } from './AcadetLogo';
 import { AdminEmailStatusPanel } from './AdminEmailStatusPanel';
+import { AiQuestionGeneratorPanel } from './AiQuestionGeneratorPanel';
+import { AiSettingsPanel } from './AiSettingsPanel';
 import { CopyReferenceButton } from './CopyReferenceButton';
 import { formatCurrency } from './CourseRegistrationView';
 import { Gst111ManualActivationPanel } from './Gst111ManualActivationPanel';
@@ -100,6 +106,8 @@ type AdminSection =
   | 'payments'
   | 'verifications'
   | 'questions'
+  | 'ai_generator'
+  | 'ai_settings'
   | 'materials'
   | 'announcements'
   | 'notifications'
@@ -307,8 +315,10 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
   const [selectedCourseDetailId, setSelectedCourseDetailId] = useState<string | null>(null);
   const [qFilterDifficulty, setQFilterDifficulty] = useState<QuestionDifficulty | ''>('');
   const [qFilterStatus, setQFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
+  const [qFilterPubStatus, setQFilterPubStatus] = useState<'all' | 'published' | 'draft'>('all');
   const [qFilterSearch, setQFilterSearch] = useState('');
   const questionFormRef = useRef<HTMLFormElement | null>(null);
+  const manualImageInputRef = useRef<HTMLInputElement | null>(null);
 
   // Question form (create / edit)
   const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
@@ -323,10 +333,13 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
   const [qTopic, setQTopic] = useState('General');
   const [qExplanation, setQExplanation] = useState('');
   const [qIsActive, setQIsActive] = useState(true);
-
-  // AI Draft form
-  const [aiTopic, setAiTopic] = useState('');
-  const [aiCount, setAiCount] = useState(3);
+  const [qPublicationStatus, setQPublicationStatus] =
+    useState<QuestionPublicationStatus>('published');
+  const [qNewImageFiles, setQNewImageFiles] = useState<File[]>([]);
+  const [qNewImagePreviews, setQNewImagePreviews] = useState<string[]>([]);
+  const [qExistingImages, setQExistingImages] = useState<QuestionImageItem[]>([]);
+  const [uploadingManualImage, setUploadingManualImage] = useState(false);
+  const [replacingManualImageId, setReplacingManualImageId] = useState<string | null>(null);
 
   // Material upload form
   const [matTitle, setMatTitle] = useState('');
@@ -444,12 +457,14 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     nextCourseId: string = selectedStatsCourseId,
     nextDifficulty: QuestionDifficulty | '' = qFilterDifficulty,
     nextStatus: 'all' | 'active' | 'inactive' = qFilterStatus,
-    nextSearch: string = qFilterSearch
+    nextSearch: string = qFilterSearch,
+    nextPubStatus: 'all' | 'published' | 'draft' = qFilterPubStatus
   ) => {
     const res = await api.admin.listQuestions({
       courseId: nextCourseId || undefined,
       difficulty: nextDifficulty || undefined,
       status: nextStatus,
+      publicationStatus: nextPubStatus,
       search: nextSearch.trim() || undefined,
     });
     setQuestions(res.questions);
@@ -478,6 +493,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
         courseId: selectedStatsCourseId || undefined,
         difficulty: qFilterDifficulty || undefined,
         status: qFilterStatus,
+        publicationStatus: qFilterPubStatus,
         search: qFilterSearch.trim() || undefined,
       }),
       api.admin.getQuestionStats(),
@@ -1049,6 +1065,16 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     setQTopic('General');
     setQExplanation('');
     setQIsActive(true);
+    setQPublicationStatus('published');
+    setQNewImagePreviews((prev) => {
+      prev.forEach((url) => URL.revokeObjectURL(url));
+      return [];
+    });
+    setQNewImageFiles([]);
+    setQExistingImages([]);
+    if (manualImageInputRef.current) {
+      manualImageInputRef.current.value = '';
+    }
   };
 
   const startEditQuestion = (q: AdminQuestionItem) => {
@@ -1064,6 +1090,13 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     setQTopic(q.topic || 'General');
     setQExplanation(q.explanation || '');
     setQIsActive(q.isActive);
+    setQPublicationStatus(q.publicationStatus || 'published');
+    setQExistingImages(q.images || []);
+    setQNewImagePreviews((prev) => {
+      prev.forEach((url) => URL.revokeObjectURL(url));
+      return [];
+    });
+    setQNewImageFiles([]);
     setFeedback(null);
     questionFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
@@ -1080,6 +1113,106 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     setSelectedStatsCourseId(courseId);
     void loadFilteredQuestions(courseId, qFilterDifficulty, qFilterStatus, qFilterSearch);
     questionFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  const handleManualImageSelection = async (fileList: FileList | null) => {
+    if (!fileList || fileList.length === 0) return;
+    const files = Array.from(fileList);
+    if (manualImageInputRef.current) {
+      manualImageInputRef.current.value = '';
+    }
+    const allowed = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
+    const invalid = files.find((f) => !allowed.has(f.type.toLowerCase()));
+    if (invalid) {
+      setFeedback({
+        type: 'err',
+        text: `Unsupported image "${invalid.name}". Only JPG, JPEG, PNG, and WEBP are allowed.`,
+      });
+      return;
+    }
+    const tooLarge = files.find((f) => f.size > 5 * 1024 * 1024);
+    if (tooLarge) {
+      setFeedback({
+        type: 'err',
+        text: `Image "${tooLarge.name}" exceeds the 5 MB limit.`,
+      });
+      return;
+    }
+
+    if (editingQuestionId) {
+      setUploadingManualImage(true);
+      setFeedback(null);
+      try {
+        const res = await api.admin.uploadQuestionImages(editingQuestionId, files);
+        setQExistingImages(res.images);
+        setFeedback({ type: 'ok', text: res.message });
+        await loadFilteredQuestions();
+      } catch (err) {
+        setFeedback({
+          type: 'err',
+          text: err instanceof Error ? err.message : 'Failed to attach image(s).',
+        });
+      } finally {
+        setUploadingManualImage(false);
+      }
+      return;
+    }
+
+    const nextFiles = [...qNewImageFiles, ...files].slice(0, 5);
+    const nextUrls = nextFiles.map((f) => URL.createObjectURL(f));
+    setQNewImagePreviews((prev) => {
+      prev.forEach((u) => URL.revokeObjectURL(u));
+      return nextUrls;
+    });
+    setQNewImageFiles(nextFiles);
+  };
+
+  const handleRemoveQueuedManualImage = (index: number) => {
+    const nextFiles = qNewImageFiles.filter((_, idx) => idx !== index);
+    const nextUrls = nextFiles.map((f) => URL.createObjectURL(f));
+    setQNewImagePreviews((prev) => {
+      prev.forEach((u) => URL.revokeObjectURL(u));
+      return nextUrls;
+    });
+    setQNewImageFiles(nextFiles);
+  };
+
+  const handleReplaceExistingQuestionImage = async (imageId: string, file: File) => {
+    if (!editingQuestionId) return;
+    setReplacingManualImageId(imageId);
+    setFeedback(null);
+    try {
+      const res = await api.admin.replaceQuestionImage(editingQuestionId, imageId, file);
+      setQExistingImages(res.images);
+      setFeedback({ type: 'ok', text: res.message });
+      await loadFilteredQuestions();
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Failed to replace question image.',
+      });
+    } finally {
+      setReplacingManualImageId(null);
+    }
+  };
+
+  const handleDeleteExistingQuestionImage = async (imageId: string) => {
+    if (!editingQuestionId) return;
+    setReplacingManualImageId(imageId);
+    setFeedback(null);
+    try {
+      await api.admin.deleteQuestionImage(editingQuestionId, imageId);
+      setQExistingImages((prev) => prev.filter((img) => img.id !== imageId));
+      setFeedback({ type: 'ok', text: 'Question image removed.' });
+      await loadFilteredQuestions();
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Failed to remove question image.',
+      });
+    } finally {
+      setReplacingManualImageId(null);
+    }
   };
 
   const handleSaveQuestion = async (e: React.FormEvent) => {
@@ -1100,12 +1233,36 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
           difficulty: qDiff,
           topic: qTopic,
           explanation: qExplanation,
-          isActive: qIsActive,
+          isActive: qPublicationStatus === 'draft' ? false : qIsActive,
+          publicationStatus: qPublicationStatus,
         });
         resetQuestionForm(true);
         setFeedback({
           type: 'ok',
           text: 'Question updated and difficulty statistics synchronized.',
+        });
+      } else if (qNewImageFiles.length > 0) {
+        const fd = new FormData();
+        fd.append('courseId', qCourseId);
+        fd.append('questionText', qText);
+        fd.append('optionA', qOptA);
+        fd.append('optionB', qOptB);
+        fd.append('optionC', qOptC);
+        fd.append('optionD', qOptD);
+        fd.append('correctOption', qCorrect);
+        fd.append('difficulty', qDiff);
+        fd.append('topic', qTopic || 'General');
+        fd.append('explanation', qExplanation);
+        fd.append('publicationStatus', qPublicationStatus);
+        qNewImageFiles.forEach((f) => fd.append('images', f));
+        await api.admin.createQuestion(fd);
+        resetQuestionForm(true);
+        setFeedback({
+          type: 'ok',
+          text:
+            qPublicationStatus === 'draft'
+              ? 'Question and image(s) saved as draft.'
+              : 'Question and image(s) published to PostgreSQL and statistics updated.',
         });
       } else {
         await api.admin.createQuestion({
@@ -1119,11 +1276,15 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
           difficulty: qDiff,
           topic: qTopic,
           explanation: qExplanation,
+          publicationStatus: qPublicationStatus,
         });
         resetQuestionForm(true);
         setFeedback({
           type: 'ok',
-          text: 'Question saved to PostgreSQL and statistics updated.',
+          text:
+            qPublicationStatus === 'draft'
+              ? 'Question saved as draft in PostgreSQL.'
+              : 'Question published to PostgreSQL and statistics updated.',
         });
       }
       await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
@@ -1131,33 +1292,6 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       setFeedback({
         type: 'err',
         text: err instanceof Error ? err.message : 'Failed to save question.',
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleGenerateQuestions = async () => {
-    if (!qCourseId || !aiTopic.trim()) return;
-    setBusy(true);
-    setFeedback(null);
-    try {
-      const res = await api.admin.generateQuestions({
-        courseId: qCourseId,
-        topic: aiTopic,
-        difficulty: qDiff,
-        count: aiCount,
-      });
-      setAiTopic('');
-      setFeedback({
-        type: 'ok',
-        text: `Generated and saved ${res.questions.length} ${qDiff === 'Hard' ? 'Difficult (Hard)' : qDiff} questions into PostgreSQL.`,
-      });
-      await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
-    } catch (err) {
-      setFeedback({
-        type: 'err',
-        text: err instanceof Error ? err.message : 'AI question generation failed.',
       });
     } finally {
       setBusy(false);
@@ -1429,6 +1563,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       badgeCount: verificationSummary.counts.awaiting_admin_review || 0,
     },
     { id: 'questions', label: 'Questions', icon: FileText },
+    { id: 'ai_generator', label: 'AI Question Generator', icon: Sparkles },
+    { id: 'ai_settings', label: 'AI API Settings', icon: Sliders },
     { id: 'materials', label: 'Materials', icon: Upload },
     { id: 'announcements', label: 'Notices', icon: Megaphone },
     { id: 'notifications', label: 'Notifications', icon: Bell },
@@ -2886,57 +3022,36 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
               refreshing={statsRefreshing}
             />
 
-            <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/70 border border-[#d6e4fa] dark:border-slate-700 p-4 flex flex-col lg:flex-row items-stretch lg:items-center gap-3">
-              <div className="flex items-center gap-2 shrink-0">
-                <Sparkles className="w-5 h-5 text-[#0a58ed]" />
-                <span className="text-xs font-extrabold text-[#082252] dark:text-white whitespace-nowrap">
-                  AI Question Generator
-                </span>
+            <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/70 border border-[#d6e4fa] dark:border-slate-700 p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <Bot className="w-5 h-5 text-[#0a58ed] shrink-0 mt-0.5" />
+                <div>
+                  <div className="text-sm font-extrabold text-[#082252] dark:text-white">
+                    AI Question Generator &amp; Draft Review Workspace
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Upload PDFs, Word documents (.docx), diagram/OCR images, or paste lecture notes to generate reviewable CBT drafts before publishing.
+                  </p>
+                </div>
               </div>
-              <select
-                value={qCourseId}
-                onChange={(e) => setQCourseId(e.target.value)}
-                className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-semibold min-h-[40px]"
-              >
-                {courses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code} — {c.title}
-                  </option>
-                ))}
-              </select>
-              <select
-                aria-label="AI question difficulty"
-                value={qDiff}
-                onChange={(e) => setQDiff(e.target.value as QuestionDifficulty)}
-                className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm font-semibold min-h-[40px]"
-              >
-                <option value="Easy">Difficulty: Easy</option>
-                <option value="Medium">Difficulty: Medium</option>
-                <option value="Hard">Difficulty: Difficult (Hard)</option>
-              </select>
-              <input
-                type="text"
-                placeholder="Topic for AI generation (e.g. Algorithms)"
-                value={aiTopic}
-                onChange={(e) => setAiTopic(e.target.value)}
-                className="flex-1 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm min-h-[40px]"
-              />
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={aiCount}
-                onChange={(e) => setAiCount(Number(e.target.value))}
-                className="w-20 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm tabular-nums min-h-[40px]"
-              />
-              <button
-                type="button"
-                disabled={busy || !aiTopic.trim() || !qCourseId}
-                onClick={handleGenerateQuestions}
-                className="px-4 py-2 rounded-lg bg-[#0b337a] hover:bg-[#072459] text-white text-xs font-bold whitespace-nowrap disabled:opacity-50 min-h-[40px]"
-              >
-                Generate via AI
-              </button>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setSection('ai_settings')}
+                  className="px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold hover:bg-slate-50 dark:hover:bg-slate-800 inline-flex items-center gap-1.5"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>AI API Settings</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSection('ai_generator')}
+                  className="px-3.5 py-2 rounded-lg bg-[#0b337a] hover:bg-[#072459] text-white text-xs font-extrabold inline-flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Open AI Generator</span>
+                </button>
+              </div>
             </div>
 
             <form
@@ -2946,7 +3061,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h3 className="text-sm font-extrabold text-[#082252] dark:text-white">
-                  {editingQuestionId ? 'Edit CBT Question' : 'Upload New CBT Question'}
+                  {editingQuestionId ? 'Edit CBT Question' : 'Manual CBT Question Upload'}
                 </h3>
                 {editingQuestionId && (
                   <button
@@ -2960,11 +3075,11 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <select
                   value={qCourseId}
                   onChange={(e) => setQCourseId(e.target.value)}
-                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm min-h-[40px]"
+                  className="sm:col-span-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm min-h-[40px]"
                 >
                   {courses.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -2979,7 +3094,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 >
                   <option value="Easy">Difficulty: Easy</option>
                   <option value="Medium">Difficulty: Medium</option>
-                  <option value="Hard">Difficulty: Difficult (Hard)</option>
+                  <option value="Hard">Difficulty: Difficult</option>
                 </select>
                 <input
                   type="text"
@@ -2998,6 +3113,105 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 onChange={(e) => setQText(e.target.value)}
                 className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
               />
+
+              {/* Optional Question Image Attachments */}
+              <div className="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-800/40 p-3 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300">
+                    <ImageIcon className="w-4 h-4 text-[#0a58ed]" />
+                    <span>Optional Diagram / Specimen / Graph Attachment (JPG, PNG, WEBP · Max 5 MB)</span>
+                  </div>
+                  <label className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold cursor-pointer inline-flex items-center gap-1.5">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{uploadingManualImage ? 'Uploading...' : 'Attach Image(s)'}</span>
+                    <input
+                      ref={manualImageInputRef}
+                      type="file"
+                      multiple
+                      accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                      disabled={uploadingManualImage}
+                      onChange={(e) => void handleManualImageSelection(e.target.files)}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {editingQuestionId && qExistingImages.length > 0 && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                    {qExistingImages.map((img, idx) => (
+                      <div
+                        key={img.id}
+                        className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 space-y-2"
+                      >
+                        <img
+                          src={img.url}
+                          alt={img.caption || `Attachment ${idx + 1}`}
+                          className="w-full h-28 object-contain rounded bg-slate-50 dark:bg-slate-800"
+                        />
+                        <div className="flex items-center justify-between gap-1 text-[11px]">
+                          <span className="truncate font-semibold text-slate-600 dark:text-slate-300">
+                            {img.fileName}
+                          </span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <label className="px-2 py-1 rounded border border-slate-300 dark:border-slate-700 font-bold cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
+                              {replacingManualImageId === img.id ? '...' : 'Replace'}
+                              <input
+                                type="file"
+                                accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0];
+                                  if (f) void handleReplaceExistingQuestionImage(img.id, f);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              disabled={replacingManualImageId === img.id}
+                              onClick={() => void handleDeleteExistingQuestionImage(img.id)}
+                              className="px-2 py-1 rounded border border-red-200 dark:border-red-900 text-red-600 font-bold hover:bg-red-50 dark:hover:bg-red-950/30"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {!editingQuestionId && qNewImageFiles.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    {qNewImageFiles.map((file, idx) => (
+                      <div
+                        key={`${file.name}-${idx}`}
+                        className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 space-y-1.5"
+                      >
+                        {qNewImagePreviews[idx] && (
+                          <img
+                            src={qNewImagePreviews[idx]}
+                            alt={file.name}
+                            className="w-full h-24 object-contain rounded bg-slate-50 dark:bg-slate-800"
+                          />
+                        )}
+                        <div className="flex items-center justify-between gap-1 text-[11px]">
+                          <span className="truncate font-medium text-slate-600 dark:text-slate-300">
+                            {file.name}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveQueuedManualImage(idx)}
+                            className="text-red-600 hover:underline font-bold shrink-0"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 <input
@@ -3030,7 +3244,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-center">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-center">
                 <select
                   value={qCorrect}
                   onChange={(e) => setQCorrect(e.target.value as OptionLetter)}
@@ -3041,6 +3255,17 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                       Correct Answer: {letter}
                     </option>
                   ))}
+                </select>
+                <select
+                  aria-label="Question publication status"
+                  value={qPublicationStatus}
+                  onChange={(e) =>
+                    setQPublicationStatus(e.target.value as QuestionPublicationStatus)
+                  }
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-bold min-h-[40px]"
+                >
+                  <option value="published">Publish Immediately</option>
+                  <option value="draft">Save as Draft</option>
                 </select>
                 <input
                   placeholder="Explanation (shown only after submission)"
@@ -3055,7 +3280,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                   <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-700 dark:text-slate-300 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={qIsActive}
+                      checked={qIsActive && qPublicationStatus === 'published'}
+                      disabled={qPublicationStatus === 'draft'}
                       onChange={(e) => setQIsActive(e.target.checked)}
                       className="rounded border-slate-300 text-[#0a58ed] focus:ring-[#0a58ed]"
                     />
@@ -3063,7 +3289,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                   </label>
                 ) : (
                   <span className="text-xs text-slate-500 dark:text-slate-400">
-                    New questions are automatically categorized and synced to course statistics.
+                    Questions are saved under the selected course, difficulty category, and optional diagram attachments.
                   </span>
                 )}
 
@@ -3080,7 +3306,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                   ) : (
                     <>
                       <Plus className="w-4 h-4" />
-                      <span>Save Question</span>
+                      <span>{qPublicationStatus === 'draft' ? 'Save Draft' : 'Save Question'}</span>
                     </>
                   )}
                 </button>
@@ -3107,7 +3333,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                       const val = e.target.value;
                       setSelectedStatsCourseId(val);
                       if (val) setQCourseId(val);
-                      void loadFilteredQuestions(val, qFilterDifficulty, qFilterStatus, qFilterSearch);
+                      void loadFilteredQuestions(val, qFilterDifficulty, qFilterStatus, qFilterSearch, qFilterPubStatus);
                     }}
                     className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-bold min-h-[38px]"
                   >
@@ -3125,14 +3351,29 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                     onChange={(e) => {
                       const val = e.target.value as QuestionDifficulty | '';
                       setQFilterDifficulty(val);
-                      void loadFilteredQuestions(selectedStatsCourseId, val, qFilterStatus, qFilterSearch);
+                      void loadFilteredQuestions(selectedStatsCourseId, val, qFilterStatus, qFilterSearch, qFilterPubStatus);
                     }}
                     className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-bold min-h-[38px]"
                   >
                     <option value="">All Difficulties</option>
                     <option value="Easy">Easy</option>
                     <option value="Medium">Medium</option>
-                    <option value="Hard">Difficult (Hard)</option>
+                    <option value="Hard">Difficult</option>
+                  </select>
+
+                  <select
+                    aria-label="Filter questions by publication state"
+                    value={qFilterPubStatus}
+                    onChange={(e) => {
+                      const val = e.target.value as 'all' | 'published' | 'draft';
+                      setQFilterPubStatus(val);
+                      void loadFilteredQuestions(selectedStatsCourseId, qFilterDifficulty, qFilterStatus, qFilterSearch, val);
+                    }}
+                    className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-bold min-h-[38px]"
+                  >
+                    <option value="all">Published &amp; Drafts</option>
+                    <option value="published">Published Only</option>
+                    <option value="draft">Drafts Only</option>
                   </select>
 
                   <select
@@ -3141,7 +3382,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                     onChange={(e) => {
                       const val = e.target.value as 'all' | 'active' | 'inactive';
                       setQFilterStatus(val);
-                      void loadFilteredQuestions(selectedStatsCourseId, qFilterDifficulty, val, qFilterSearch);
+                      void loadFilteredQuestions(selectedStatsCourseId, qFilterDifficulty, val, qFilterSearch, qFilterPubStatus);
                     }}
                     className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-bold min-h-[38px]"
                   >
@@ -3162,7 +3403,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                             selectedStatsCourseId,
                             qFilterDifficulty,
                             qFilterStatus,
-                            qFilterSearch
+                            qFilterSearch,
+                            qFilterPubStatus
                           );
                         }
                       }}
@@ -3176,7 +3418,8 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                           selectedStatsCourseId,
                           qFilterDifficulty,
                           qFilterStatus,
-                          qFilterSearch
+                          qFilterSearch,
+                          qFilterPubStatus
                         )
                       }
                       className="px-3 py-1.5 rounded-lg bg-[#0b337a] hover:bg-[#072459] text-white text-xs font-bold min-h-[38px]"
@@ -3194,13 +3437,15 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                   </div>
                 ) : (
                   questions.map((q) => {
-                    const diffLabel = q.difficulty === 'Hard' ? 'Difficult (Hard)' : q.difficulty;
+                    const diffLabel = q.difficulty === 'Hard' ? 'Difficult' : q.difficulty;
                     const diffTextCls =
                       q.difficulty === 'Easy'
                         ? 'text-emerald-700 dark:text-emerald-400'
                         : q.difficulty === 'Medium'
                           ? 'text-amber-700 dark:text-amber-400'
                           : 'text-rose-700 dark:text-rose-400';
+                    const isDraft = q.publicationStatus === 'draft';
+                    const imgCount = q.images?.length ?? 0;
                     return (
                       <div
                         key={q.id}
@@ -3208,14 +3453,30 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                           editingQuestionId === q.id ? 'bg-[#eff5ff]/70 dark:bg-blue-950/30' : ''
                         }`}
                       >
-                        <div className="min-w-0 space-y-1">
+                        <div className="min-w-0 space-y-1 flex-1">
                           <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold">
                             <span className="text-[#0b337a] dark:text-blue-300">{q.courseCode}</span>
                             <span aria-hidden="true">·</span>
                             <span className={diffTextCls}>{diffLabel}</span>
                             <span aria-hidden="true">·</span>
                             <span className="text-slate-500 dark:text-slate-400">{q.topic}</span>
-                            {!q.isActive && (
+                            {isDraft && (
+                              <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 text-[10px] font-extrabold uppercase">
+                                Draft
+                              </span>
+                            )}
+                            {q.aiGenerated && (
+                              <span className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950/60 text-[#0b337a] dark:text-blue-300 text-[10px] font-extrabold uppercase">
+                                AI
+                              </span>
+                            )}
+                            {imgCount > 0 && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-[10px] font-extrabold">
+                                <ImageIcon className="w-3 h-3" />
+                                {imgCount} {imgCount === 1 ? 'Image' : 'Images'}
+                              </span>
+                            )}
+                            {!isDraft && !q.isActive && (
                               <>
                                 <span aria-hidden="true">·</span>
                                 <span className="text-slate-500">Inactive</span>
@@ -3225,12 +3486,55 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                           <div className="font-bold text-slate-900 dark:text-white">
                             {q.questionText}
                           </div>
+                          {imgCount > 0 && q.images && (
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              {q.images.slice(0, 3).map((img) => (
+                                <img
+                                  key={img.id}
+                                  src={img.url}
+                                  alt={img.fileName}
+                                  className="h-12 w-16 object-contain rounded border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                                />
+                              ))}
+                            </div>
+                          )}
                           <div className="text-xs text-slate-500 dark:text-slate-400">
                             {q.courseTitle} · Correct: {q.correctOption}
                           </div>
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
+                          {isDraft && (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={async () => {
+                                setBusy(true);
+                                setFeedback(null);
+                                try {
+                                  await api.admin.publishQuestion(q.id);
+                                  setFeedback({
+                                    type: 'ok',
+                                    text: 'Draft question published to live CBT exam bank.',
+                                  });
+                                  await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+                                } catch (err) {
+                                  setFeedback({
+                                    type: 'err',
+                                    text:
+                                      err instanceof Error
+                                        ? err.message
+                                        : 'Failed to publish draft.',
+                                  });
+                                } finally {
+                                  setBusy(false);
+                                }
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-extrabold disabled:opacity-50"
+                            >
+                              Publish
+                            </button>
+                          )}
                           <button
                             type="button"
                             disabled={busy}
@@ -3282,6 +3586,20 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
             </div>
           </div>
         )}
+
+        {/* AI QUESTION GENERATOR & DRAFT APPROVAL WORKSPACE */}
+        {section === 'ai_generator' && (
+          <AiQuestionGeneratorPanel
+            courses={courses}
+            onPublishedOrChanged={async () => {
+              await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+            }}
+            onOpenAiSettings={() => setSection('ai_settings')}
+          />
+        )}
+
+        {/* AI API SETTINGS */}
+        {section === 'ai_settings' && <AiSettingsPanel />}
 
         {/* MATERIALS */}
         {section === 'materials' && (

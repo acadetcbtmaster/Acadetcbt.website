@@ -1,7 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { GoogleGenAI, Type } from '@google/genai';
-import { desc, eq, sql } from 'drizzle-orm';
+import { desc, eq, inArray, sql } from 'drizzle-orm';
 import { Router, type RequestHandler } from 'express';
 import multer from 'multer';
 import { z } from 'zod';
@@ -19,13 +18,24 @@ import {
   studyMaterials,
   users,
 } from '../../db/schema.js';
+import {
+  AiGenerationError,
+  generateCbtQuestionsWithAi,
+  normalizeDifficultyForDb,
+  regenerateSingleQuestionWithAi,
+} from '../lib/aiQuestionGenerator.js';
+import {
+  getAiSettingsSummary,
+  saveGeminiApiSettings,
+  testGeminiConnection,
+} from '../lib/aiSettings.js';
 import { writeAuditLog } from '../lib/audit.js';
 import {
   getPublicBrandingAndFounder,
+  resolveBaseUrl,
   sanitizePublicUrl,
   sanitizeSocialLinks,
 } from '../lib/branding.js';
-import { resolveBaseUrl } from '../lib/branding.js';
 import {
   getAdminEmailStatusOverview,
   sendAdminTestEmail,
@@ -68,6 +78,14 @@ import {
   TOTAL_STUDENT_PAYABLE_NAIRA,
 } from '../lib/pricing.js';
 import {
+  attachImagesToQuestion,
+  cleanupS3ObjectsForQuestion,
+  deleteQuestionImage,
+  getQuestionImagesMap,
+  MAX_QUESTION_IMAGE_BYTES,
+  QuestionImageValidationError,
+} from '../lib/questionImages.js';
+import {
   CBT_RECOMMENDED_MIN_QUESTIONS,
   getCourseCbtReadiness,
 } from '../lib/questionStats.js';
@@ -82,6 +100,37 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
 });
+
+const questionImageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_QUESTION_IMAGE_BYTES, files: 8 },
+});
+
+const questionAiSourceUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024, files: 12 },
+});
+
+const optionalMultipartImages: RequestHandler = (req, res, next) => {
+  if (req.is('multipart/form-data')) {
+    (questionImageUpload.array('images', 8) as unknown as RequestHandler)(req, res, next);
+    return;
+  }
+  next();
+};
+
+const optionalMultipartAiSources: RequestHandler = (req, res, next) => {
+  if (req.is('multipart/form-data')) {
+    (
+      questionAiSourceUpload.fields([
+        { name: 'document', maxCount: 1 },
+        { name: 'images', maxCount: 10 },
+      ]) as unknown as RequestHandler
+    )(req, res, next);
+    return;
+  }
+  next();
+};
 
 router.use(requireAuth, requireRole('admin', 'super_admin'));
 
@@ -128,6 +177,15 @@ const courseCreateSchema = z.object({
 
 const courseUpdateSchema = courseCreateSchema.partial();
 
+const coerceBooleanField = z.preprocess((val) => {
+  if (typeof val === 'string') {
+    const trimmed = val.trim().toLowerCase();
+    if (trimmed === 'true' || trimmed === '1') return true;
+    if (trimmed === 'false' || trimmed === '0') return false;
+  }
+  return val;
+}, z.boolean());
+
 const questionSchema = z.object({
   courseId: z.string().uuid('Valid courseId is required'),
   questionText: z.string().trim().min(5).max(3000),
@@ -137,10 +195,14 @@ const questionSchema = z.object({
   optionD: z.string().trim().min(1).max(1000),
   correctOption: z.enum(['A', 'B', 'C', 'D']),
   explanation: z.string().trim().max(2000).default(''),
-  difficulty: z.enum(['Easy', 'Medium', 'Hard']).default('Medium'),
+  difficulty: z
+    .enum(['Easy', 'Medium', 'Hard', 'Difficult'])
+    .default('Medium')
+    .transform((v) => normalizeDifficultyForDb(v)),
   topic: z.string().trim().min(1).max(120).default('General'),
-  examYear: z.number().int().min(1980).max(2100).nullable().optional(),
-  isActive: z.boolean().default(true),
+  examYear: z.coerce.number().int().min(1980).max(2100).nullable().optional(),
+  isActive: coerceBooleanField.default(true),
+  publicationStatus: z.enum(['draft', 'published']).default('published'),
 });
 
 const announcementSchema = z.object({
@@ -186,18 +248,19 @@ router.get('/overview', async (_req, res) => {
         (SELECT COUNT(*)::int FROM users) AS "totalUsers",
         (SELECT COUNT(*)::int FROM courses) AS "totalCourses",
         (SELECT COUNT(*)::int FROM questions) AS "totalQuestions",
-        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE) AS "totalActiveQuestions",
-        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE AND LOWER(TRIM(COALESCE(difficulty, ''))) = 'easy') AS "totalEasyQuestions",
-        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE AND LOWER(TRIM(COALESCE(difficulty, ''))) = 'medium') AS "totalMediumQuestions",
-        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE AND LOWER(TRIM(COALESCE(difficulty, ''))) IN ('hard', 'difficult')) AS "totalHardQuestions",
-        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE AND LOWER(TRIM(COALESCE(difficulty, ''))) NOT IN ('easy', 'medium', 'hard', 'difficult')) AS "totalUncategorizedQuestions",
-        (SELECT COUNT(*)::int FROM questions WHERE is_active = FALSE) AS "totalInactiveQuestions",
+        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE AND COALESCE(publication_status, 'published') = 'published') AS "totalActiveQuestions",
+        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE AND COALESCE(publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(difficulty, ''))) = 'easy') AS "totalEasyQuestions",
+        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE AND COALESCE(publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(difficulty, ''))) = 'medium') AS "totalMediumQuestions",
+        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE AND COALESCE(publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(difficulty, ''))) IN ('hard', 'difficult')) AS "totalHardQuestions",
+        (SELECT COUNT(*)::int FROM questions WHERE is_active = TRUE AND COALESCE(publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(difficulty, ''))) NOT IN ('easy', 'medium', 'hard', 'difficult')) AS "totalUncategorizedQuestions",
+        (SELECT COUNT(*)::int FROM questions WHERE is_active = FALSE OR COALESCE(publication_status, 'published') = 'draft') AS "totalInactiveQuestions",
         (
           SELECT COUNT(*)::int FROM courses c
           WHERE (
             SELECT COUNT(*) FROM questions q
             WHERE (q.course_id = c.id OR (q.course_id IS NULL AND c.subject_id IS NOT NULL AND q.subject_id = c.subject_id))
               AND q.is_active = TRUE
+              AND COALESCE(q.publication_status, 'published') = 'published'
           ) >= $1
         ) AS "coursesReadyForCbt",
         (SELECT COUNT(*)::int FROM study_materials) AS "totalMaterials",
@@ -306,12 +369,12 @@ router.get('/courses', async (_req, res) => {
       FROM courses c
       LEFT JOIN LATERAL (
         SELECT
-          COUNT(*) FILTER (WHERE q.is_active = TRUE)::int AS "questionCount",
-          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'easy')::int AS "easyCount",
-          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'medium')::int AS "mediumCount",
-          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) IN ('hard', 'difficult'))::int AS "hardCount",
-          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) NOT IN ('easy', 'medium', 'hard', 'difficult'))::int AS "uncategorizedCount",
-          COUNT(*) FILTER (WHERE q.is_active = FALSE)::int AS "inactiveCount"
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published')::int AS "questionCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'easy')::int AS "easyCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'medium')::int AS "mediumCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(q.difficulty, ''))) IN ('hard', 'difficult'))::int AS "hardCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(q.difficulty, ''))) NOT IN ('easy', 'medium', 'hard', 'difficult'))::int AS "uncategorizedCount",
+          COUNT(*) FILTER (WHERE q.is_active = FALSE OR COALESCE(q.publication_status, 'published') = 'draft')::int AS "inactiveCount"
         FROM questions q
         WHERE q.course_id = c.id
           OR (q.course_id IS NULL AND c.subject_id IS NOT NULL AND q.subject_id = c.subject_id)
@@ -612,12 +675,12 @@ router.get('/questions/stats', async (_req, res) => {
       FROM courses c
       LEFT JOIN LATERAL (
         SELECT
-          COUNT(*) FILTER (WHERE q.is_active = TRUE)::int AS "questionCount",
-          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'easy')::int AS "easyCount",
-          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'medium')::int AS "mediumCount",
-          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) IN ('hard', 'difficult'))::int AS "hardCount",
-          COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) NOT IN ('easy', 'medium', 'hard', 'difficult'))::int AS "uncategorizedCount",
-          COUNT(*) FILTER (WHERE q.is_active = FALSE)::int AS "inactiveCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published')::int AS "questionCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'easy')::int AS "easyCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'medium')::int AS "mediumCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(q.difficulty, ''))) IN ('hard', 'difficult'))::int AS "hardCount",
+          COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(q.difficulty, ''))) NOT IN ('easy', 'medium', 'hard', 'difficult'))::int AS "uncategorizedCount",
+          COUNT(*) FILTER (WHERE q.is_active = FALSE OR COALESCE(q.publication_status, 'published') = 'draft')::int AS "inactiveCount",
           MAX(q.updated_at) AS "lastQuestionUpdatedAt"
         FROM questions q
         WHERE q.course_id = c.id
@@ -636,14 +699,15 @@ router.get('/questions/stats', async (_req, res) => {
       unassignedActiveQuestions: number;
     }>(`
       SELECT
-        COUNT(*) FILTER (WHERE q.is_active = TRUE)::int AS "totalActiveQuestions",
-        COUNT(*) FILTER (WHERE q.is_active = FALSE)::int AS "totalInactiveQuestions",
-        COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'easy')::int AS "easyCount",
-        COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'medium')::int AS "mediumCount",
-        COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) IN ('hard', 'difficult'))::int AS "hardCount",
-        COUNT(*) FILTER (WHERE q.is_active = TRUE AND LOWER(TRIM(COALESCE(q.difficulty, ''))) NOT IN ('easy', 'medium', 'hard', 'difficult'))::int AS "uncategorizedCount",
+        COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published')::int AS "totalActiveQuestions",
+        COUNT(*) FILTER (WHERE q.is_active = FALSE OR COALESCE(q.publication_status, 'published') = 'draft')::int AS "totalInactiveQuestions",
+        COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'easy')::int AS "easyCount",
+        COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(q.difficulty, ''))) = 'medium')::int AS "mediumCount",
+        COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(q.difficulty, ''))) IN ('hard', 'difficult'))::int AS "hardCount",
+        COUNT(*) FILTER (WHERE q.is_active = TRUE AND COALESCE(q.publication_status, 'published') = 'published' AND LOWER(TRIM(COALESCE(q.difficulty, ''))) NOT IN ('easy', 'medium', 'hard', 'difficult'))::int AS "uncategorizedCount",
         COUNT(*) FILTER (
           WHERE q.is_active = TRUE
+            AND COALESCE(q.publication_status, 'published') = 'published'
             AND NOT EXISTS (
               SELECT 1 FROM courses c
               WHERE q.course_id = c.id
@@ -688,7 +752,7 @@ router.get('/questions/stats', async (_req, res) => {
   }
 });
 
-// Questions CRUD (Course-based — answers visible only to admins)
+// Questions CRUD + Drafts/Publishing + Multi-Image Attachments
 router.get('/questions', async (req, res) => {
   try {
     const pool = getPool();
@@ -696,10 +760,11 @@ router.get('/questions', async (req, res) => {
       typeof req.query.courseId === 'string' && req.query.courseId.trim()
         ? req.query.courseId.trim()
         : null;
+    const rawDiff =
+      typeof req.query.difficulty === 'string' ? req.query.difficulty.trim() : '';
     const difficultyFilter =
-      typeof req.query.difficulty === 'string' &&
-      ['Easy', 'Medium', 'Hard'].includes(req.query.difficulty.trim())
-        ? req.query.difficulty.trim()
+      rawDiff && ['Easy', 'Medium', 'Hard', 'Difficult'].includes(rawDiff)
+        ? normalizeDifficultyForDb(rawDiff)
         : null;
     const searchFilter =
       typeof req.query.search === 'string' && req.query.search.trim()
@@ -710,12 +775,24 @@ router.get('/questions', async (req, res) => {
       ['active', 'inactive', 'all'].includes(req.query.status.trim())
         ? req.query.status.trim()
         : 'all';
+    const publicationFilter =
+      typeof req.query.publicationStatus === 'string' &&
+      ['draft', 'published', 'all'].includes(req.query.publicationStatus.trim())
+        ? req.query.publicationStatus.trim()
+        : 'all';
+    const aiBatchId =
+      typeof req.query.aiBatchId === 'string' &&
+      z.string().uuid().safeParse(req.query.aiBatchId.trim()).success
+        ? req.query.aiBatchId.trim()
+        : null;
+
     const rawLimit = Number(req.query.limit);
-    const limitVal = Number.isFinite(rawLimit) && rawLimit > 0
-      ? Math.min(Math.floor(rawLimit), 1000)
-      : courseId
-        ? 500
-        : 300;
+    const limitVal =
+      Number.isFinite(rawLimit) && rawLimit > 0
+        ? Math.min(Math.floor(rawLimit), 1000)
+        : courseId
+          ? 500
+          : 300;
 
     const whereParts: string[] = [];
     const params: unknown[] = [];
@@ -750,10 +827,23 @@ router.get('/questions', async (req, res) => {
       whereParts.push('q.is_active = FALSE');
     }
 
+    if (publicationFilter === 'draft') {
+      whereParts.push(`COALESCE(q.publication_status, 'published') = 'draft'`);
+    } else if (publicationFilter === 'published') {
+      whereParts.push(`COALESCE(q.publication_status, 'published') = 'published'`);
+    }
+
+    if (aiBatchId) {
+      params.push(aiBatchId);
+      whereParts.push(`q.ai_batch_id = $${params.length}`);
+    }
+
     if (searchFilter) {
       params.push(searchFilter);
       const sIdx = params.length;
-      whereParts.push(`(q.question_text ILIKE $${sIdx} OR q.topic ILIKE $${sIdx} OR COALESCE(c.code, '') ILIKE $${sIdx})`);
+      whereParts.push(
+        `(q.question_text ILIKE $${sIdx} OR q.topic ILIKE $${sIdx} OR COALESCE(c.code, '') ILIKE $${sIdx})`
+      );
     }
 
     params.push(limitVal);
@@ -776,6 +866,11 @@ router.get('/questions', async (req, res) => {
       topic: string;
       examYear: number | null;
       isActive: boolean;
+      publicationStatus: 'draft' | 'published';
+      aiGenerated: boolean;
+      aiRequiresImage: boolean;
+      aiImageNote: string | null;
+      aiBatchId: string | null;
       createdAt: Date;
     }>(
       `
@@ -795,6 +890,11 @@ router.get('/questions', async (req, res) => {
         q.topic,
         q.exam_year AS "examYear",
         q.is_active AS "isActive",
+        COALESCE(q.publication_status, 'published') AS "publicationStatus",
+        COALESCE(q.ai_generated, FALSE) AS "aiGenerated",
+        COALESCE(q.ai_requires_image, FALSE) AS "aiRequiresImage",
+        q.ai_image_note AS "aiImageNote",
+        q.ai_batch_id AS "aiBatchId",
         q.created_at AS "createdAt"
       FROM questions q
       LEFT JOIN courses c ON q.course_id = c.id
@@ -812,9 +912,12 @@ router.get('/questions', async (req, res) => {
       params
     );
 
+    const imagesMap = await getQuestionImagesMap(result.rows.map((r) => r.id));
+
     res.json({
       questions: result.rows.map((r) => ({
         ...r,
+        images: imagesMap.get(r.id) || [],
         createdAt: r.createdAt instanceof Date ? r.createdAt.toISOString() : String(r.createdAt),
       })),
     });
@@ -823,9 +926,9 @@ router.get('/questions', async (req, res) => {
   }
 });
 
-router.post('/questions', async (req, res) => {
+router.post('/questions', optionalMultipartImages, async (req, res) => {
   try {
-    const parsed = questionSchema.parse(req.body);
+    const parsed = questionSchema.parse(req.body ?? {});
     const db = getDb();
 
     const [course] = await db
@@ -838,6 +941,13 @@ router.post('/questions', async (req, res) => {
       res.status(404).json({ error: 'Selected course not found.' });
       return;
     }
+
+    const uploadedFiles = Array.isArray(req.files)
+      ? (req.files as Express.Multer.File[])
+      : [];
+
+    const effectiveActive =
+      parsed.publicationStatus === 'draft' ? false : parsed.isActive;
 
     const [created] = await db
       .insert(questions)
@@ -854,17 +964,42 @@ router.post('/questions', async (req, res) => {
         difficulty: parsed.difficulty,
         topic: parsed.topic,
         examYear: parsed.examYear ?? null,
-        isActive: parsed.isActive,
+        isActive: effectiveActive,
+        publicationStatus: parsed.publicationStatus,
         createdBy: req.user!.id,
       })
       .returning();
+
+    let attachedImages: Awaited<ReturnType<typeof attachImagesToQuestion>> = [];
+    if (uploadedFiles.length > 0) {
+      try {
+        attachedImages = await attachImagesToQuestion({
+          questionId: created.id,
+          files: uploadedFiles.map((f) => ({
+            buffer: f.buffer,
+            mimeType: f.mimetype,
+            fileName: f.originalname,
+          })),
+          createdBy: req.user!.id,
+        });
+      } catch (imgErr) {
+        // Roll back created question if an uploaded image fails validation
+        await db.delete(questions).where(eq(questions.id, created.id));
+        throw imgErr;
+      }
+    }
 
     await writeAuditLog({
       actorUserId: req.user!.id,
       action: 'admin.question.create',
       entityType: 'question',
       entityId: created.id,
-      metadata: { courseId: course.id, courseCode: course.code },
+      metadata: {
+        courseId: course.id,
+        courseCode: course.code,
+        publicationStatus: created.publicationStatus,
+        imageCount: attachedImages.length,
+      },
       ipAddress: req.ip,
     });
 
@@ -873,16 +1008,21 @@ router.post('/questions', async (req, res) => {
         ...created,
         courseCode: course.code,
         courseTitle: course.title,
+        images: attachedImages,
       },
     });
   } catch (err) {
+    if (err instanceof QuestionImageValidationError) {
+      res.status(err.statusCode).json({ error: err.message });
+      return;
+    }
     handleApiError(res, err, 'creating question');
   }
 });
 
 router.patch('/questions/:id', async (req, res) => {
   try {
-    const parsed = questionSchema.partial().parse(req.body);
+    const parsed = questionSchema.partial().parse(req.body ?? {});
     const db = getDb();
 
     let resolvedCourse: { id: string; code: string; title: string; subjectId: string | null } | null = null;
@@ -909,6 +1049,11 @@ router.patch('/questions/:id', async (req, res) => {
       ...parsed,
       updatedAt: new Date(),
     };
+    if (parsed.publicationStatus === 'published' && parsed.isActive === undefined) {
+      updateValues.isActive = true;
+    } else if (parsed.publicationStatus === 'draft' && parsed.isActive === undefined) {
+      updateValues.isActive = false;
+    }
     if (resolvedCourse) {
       updateValues.courseId = resolvedCourse.id;
       updateValues.subjectId = resolvedCourse.subjectId ?? null;
@@ -939,6 +1084,8 @@ router.patch('/questions/:id', async (req, res) => {
       if (courseRow) resolvedCourse = courseRow;
     }
 
+    const imagesMap = await getQuestionImagesMap([updated.id]);
+
     await writeAuditLog({
       actorUserId: req.user!.id,
       action: 'admin.question.update',
@@ -948,6 +1095,7 @@ router.patch('/questions/:id', async (req, res) => {
         courseId: updated.courseId,
         difficulty: updated.difficulty,
         isActive: updated.isActive,
+        publicationStatus: updated.publicationStatus,
       },
       ipAddress: req.ip,
     });
@@ -957,6 +1105,7 @@ router.patch('/questions/:id', async (req, res) => {
         ...updated,
         courseCode: resolvedCourse?.code || 'COURSE',
         courseTitle: resolvedCourse?.title || 'Unassigned Course',
+        images: imagesMap.get(updated.id) || [],
       },
     });
   } catch (err) {
@@ -964,8 +1113,226 @@ router.patch('/questions/:id', async (req, res) => {
   }
 });
 
+router.post('/questions/:id/publish', async (req, res) => {
+  try {
+    const questionId = z.string().uuid('Valid questionId is required').parse(req.params.id);
+    const db = getDb();
+    const [updated] = await db
+      .update(questions)
+      .set({
+        publicationStatus: 'published',
+        isActive: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(questions.id, questionId))
+      .returning();
+
+    if (!updated) {
+      res.status(404).json({ error: 'Question not found.' });
+      return;
+    }
+
+    const [courseRow] = updated.courseId
+      ? await db
+          .select({ code: courses.code, title: courses.title })
+          .from(courses)
+          .where(eq(courses.id, updated.courseId))
+          .limit(1)
+      : [];
+    const imagesMap = await getQuestionImagesMap([updated.id]);
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.question.publish',
+      entityType: 'question',
+      entityId: updated.id,
+      metadata: { courseId: updated.courseId, difficulty: updated.difficulty },
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      question: {
+        ...updated,
+        courseCode: courseRow?.code || 'COURSE',
+        courseTitle: courseRow?.title || 'Unassigned Course',
+        images: imagesMap.get(updated.id) || [],
+      },
+      message: 'Question approved and published to the live CBT question bank.',
+    });
+  } catch (err) {
+    handleApiError(res, err, 'publishing question');
+  }
+});
+
+router.post('/questions/publish-batch', async (req, res) => {
+  try {
+    const schema = z.object({
+      questionIds: z.array(z.string().uuid()).min(1, 'Select at least one draft question to publish.'),
+    });
+    const parsed = schema.parse(req.body ?? {});
+    const db = getDb();
+
+    const updatedRows = await db
+      .update(questions)
+      .set({
+        publicationStatus: 'published',
+        isActive: true,
+        updatedAt: new Date(),
+      })
+      .where(inArray(questions.id, parsed.questionIds))
+      .returning({ id: questions.id });
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.question.publish_batch',
+      entityType: 'question',
+      entityId: updatedRows[0]?.id ?? null,
+      metadata: { publishedCount: updatedRows.length, questionIds: updatedRows.map((r) => r.id) },
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      publishedCount: updatedRows.length,
+      publishedIds: updatedRows.map((r) => r.id),
+      message: `${updatedRows.length} question(s) approved and published to the live CBT bank.`,
+    });
+  } catch (err) {
+    handleApiError(res, err, 'publishing draft questions');
+  }
+});
+
+router.post(
+  '/questions/:id/images',
+  questionImageUpload.array('images', 8) as unknown as RequestHandler,
+  async (req, res) => {
+    try {
+      const questionId = z.string().uuid('Valid questionId is required').parse(req.params.id);
+      const db = getDb();
+      const [existing] = await db
+        .select({ id: questions.id })
+        .from(questions)
+        .where(eq(questions.id, questionId))
+        .limit(1);
+
+      if (!existing) {
+        res.status(404).json({ error: 'Question not found.' });
+        return;
+      }
+
+      const files = Array.isArray(req.files) ? (req.files as Express.Multer.File[]) : [];
+      if (files.length === 0) {
+        res.status(400).json({ error: 'Select at least one JPG, JPEG, PNG, or WEBP image.' });
+        return;
+      }
+
+      const caption =
+        typeof req.body?.caption === 'string' && req.body.caption.trim()
+          ? req.body.caption.trim()
+          : null;
+
+      await attachImagesToQuestion({
+        questionId,
+        files: files.map((f) => ({
+          buffer: f.buffer,
+          mimeType: f.mimetype,
+          fileName: f.originalname,
+          caption,
+        })),
+        createdBy: req.user!.id,
+      });
+
+      const imagesMap = await getQuestionImagesMap([questionId]);
+      res.status(201).json({
+        images: imagesMap.get(questionId) || [],
+        message: `${files.length} image(s) attached to question.`,
+      });
+    } catch (err) {
+      if (err instanceof QuestionImageValidationError) {
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+      }
+      handleApiError(res, err, 'attaching question images');
+    }
+  }
+);
+
+router.post(
+  '/questions/:id/images/:imageId/replace',
+  questionImageUpload.single('image') as unknown as RequestHandler,
+  async (req, res) => {
+    try {
+      const questionId = z.string().uuid().parse(req.params.id);
+      const imageId = z.string().uuid().parse(req.params.imageId);
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ error: 'Select a replacement JPG, JPEG, PNG, or WEBP image.' });
+        return;
+      }
+
+      const db = getDb();
+      const [existing] = await db
+        .select({ id: questions.id })
+        .from(questions)
+        .where(eq(questions.id, questionId))
+        .limit(1);
+      if (!existing) {
+        res.status(404).json({ error: 'Question not found.' });
+        return;
+      }
+
+      await attachImagesToQuestion({
+        questionId,
+        files: [
+          {
+            buffer: file.buffer,
+            mimeType: file.mimetype,
+            fileName: file.originalname,
+          },
+        ],
+        createdBy: req.user!.id,
+      });
+      await deleteQuestionImage(questionId, imageId);
+
+      const imagesMap = await getQuestionImagesMap([questionId]);
+      res.json({
+        images: imagesMap.get(questionId) || [],
+        message: 'Question image replaced.',
+      });
+    } catch (err) {
+      if (err instanceof QuestionImageValidationError) {
+        res.status(err.statusCode).json({ error: err.message });
+        return;
+      }
+      handleApiError(res, err, 'replacing question image');
+    }
+  }
+);
+
+router.delete('/questions/:id/images/:imageId', async (req, res) => {
+  try {
+    const questionId = z.string().uuid().parse(req.params.id);
+    const imageId = z.string().uuid().parse(req.params.imageId);
+
+    const deleted = await deleteQuestionImage(questionId, imageId);
+    if (!deleted) {
+      res.status(404).json({ error: 'Question image not found.' });
+      return;
+    }
+
+    const imagesMap = await getQuestionImagesMap([questionId]);
+    res.json({
+      deletedImageId: imageId,
+      images: imagesMap.get(questionId) || [],
+      message: 'Image removed from question.',
+    });
+  } catch (err) {
+    handleApiError(res, err, 'deleting question image');
+  }
+});
+
 router.delete('/questions/:id', async (req, res) => {
   try {
+    await cleanupS3ObjectsForQuestion(req.params.id);
     const db = getDb();
     const [deleted] = await db
       .delete(questions)
@@ -998,24 +1365,330 @@ router.delete('/questions/:id', async (req, res) => {
   }
 });
 
-router.post('/questions/generate', async (req, res) => {
+// Secure Admin AI API Key Configuration & Connection Testing
+router.get('/ai/settings', async (_req, res) => {
   try {
-    const apiKey = process.env.GEMINI_API_KEY?.trim();
-    if (!apiKey) {
-      res.status(503).json({
-        error: 'GEMINI_API_KEY is not configured on the server.',
-      });
+    const settings = await getAiSettingsSummary();
+    res.json({ settings });
+  } catch (err) {
+    handleApiError(res, err, 'fetching AI settings');
+  }
+});
+
+router.put('/ai/settings', async (req, res) => {
+  try {
+    const schema = z.object({
+      apiKey: z.string().trim().min(15).max(300).optional(),
+      clearStoredKey: z.boolean().optional(),
+      modelName: z.enum(['gemini-4-hydrogen', 'gemini-4-neon']).optional(),
+    });
+    const parsed = schema.parse(req.body ?? {});
+
+    const settings = await saveGeminiApiSettings({
+      apiKey: parsed.apiKey,
+      clearStoredKey: parsed.clearStoredKey,
+      modelName: parsed.modelName,
+      adminUserId: req.user!.id,
+    });
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: parsed.clearStoredKey ? 'admin.ai.key_cleared' : 'admin.ai.settings_updated',
+      entityType: 'system',
+      entityId: 'gemini_ai',
+      metadata: {
+        source: settings.source,
+        modelName: settings.modelName,
+        maskedKey: settings.maskedKey,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      settings,
+      message: parsed.clearStoredKey
+        ? 'Stored Gemini API key removed.'
+        : 'Gemini API settings saved securely on the backend.',
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('Invalid Gemini API key')) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    handleApiError(res, err, 'updating AI settings');
+  }
+});
+
+router.post('/ai/test', async (req, res) => {
+  try {
+    const schema = z.object({
+      apiKey: z.string().trim().min(10).max(300).optional(),
+      modelName: z.enum(['gemini-4-hydrogen', 'gemini-4-neon']).optional(),
+    });
+    const parsed = schema.parse(req.body ?? {});
+
+    const outcome = await testGeminiConnection({
+      candidateApiKey: parsed.apiKey,
+      modelName: parsed.modelName,
+      adminUserId: req.user!.id,
+    });
+
+    res.status(outcome.ok ? 200 : 400).json({
+      ok: outcome.ok,
+      message: outcome.message,
+      settings: outcome.summary,
+    });
+  } catch (err) {
+    handleApiError(res, err, 'testing Gemini API connection');
+  }
+});
+
+// Multimodal AI Question Generator (PDF/DOC/DOCX/TXT, Image OCR/Diagrams, Direct Text -> Draft Queue)
+router.post('/ai/generate-questions', optionalMultipartAiSources, async (req, res) => {
+  try {
+    const schema = z.object({
+      courseId: z.string().uuid('Please select a valid course from the database.'),
+      count: z.coerce.number().int().min(1).max(50).default(5),
+      difficulty: z.enum(['Easy', 'Medium', 'Hard', 'Difficult']).default('Medium'),
+      topicHint: z.string().trim().max(160).optional(),
+      textContent: z.string().max(130_000).optional(),
+    });
+    const parsed = schema.parse(req.body ?? {});
+
+    const db = getDb();
+    const [course] = await db
+      .select()
+      .from(courses)
+      .where(eq(courses.id, parsed.courseId))
+      .limit(1);
+
+    if (!course) {
+      res.status(404).json({ error: 'Selected course was not found.' });
       return;
     }
 
+    const fileMap = (req.files && !Array.isArray(req.files) ? req.files : {}) as Record<
+      string,
+      Express.Multer.File[]
+    >;
+    const docFile = fileMap.document?.[0] ?? null;
+    const uploadedImageFiles = fileMap.images ?? [];
+
+    const drafts = await generateCbtQuestionsWithAi({
+      course: {
+        id: course.id,
+        code: course.code,
+        title: course.title,
+        level: course.level,
+      },
+      count: parsed.count,
+      difficulty: parsed.difficulty,
+      topicHint: parsed.topicHint,
+      textContent: parsed.textContent,
+      documentFile: docFile
+        ? {
+            buffer: docFile.buffer,
+            mimeType: docFile.mimetype,
+            originalname: docFile.originalname,
+          }
+        : null,
+      uploadedImages: uploadedImageFiles.map((img) => ({
+        buffer: img.buffer,
+        mimeType: img.mimetype,
+        originalname: img.originalname,
+      })),
+    });
+
+    const batchId = crypto.randomUUID();
+    const insertedQuestions = await db
+      .insert(questions)
+      .values(
+        drafts.map((d) => ({
+          courseId: course.id,
+          subjectId: course.subjectId ?? null,
+          questionText: d.questionText,
+          optionA: d.optionA,
+          optionB: d.optionB,
+          optionC: d.optionC,
+          optionD: d.optionD,
+          correctOption: d.correctOption,
+          explanation: d.explanation,
+          difficulty: d.difficulty,
+          topic: d.topic,
+          isActive: false,
+          publicationStatus: 'draft',
+          aiGenerated: true,
+          aiRequiresImage: d.requiresImage,
+          aiImageNote: d.imageNote,
+          aiBatchId: batchId,
+          createdBy: req.user!.id,
+        }))
+      )
+      .returning();
+
+    const attachedMap = new Map<string, Awaited<ReturnType<typeof attachImagesToQuestion>>>();
+    for (let idx = 0; idx < insertedQuestions.length; idx += 1) {
+      const qRow = insertedQuestions[idx];
+      const matchedIndices = drafts[idx]?.matchedImageIndices || [];
+      if (matchedIndices.length > 0 && uploadedImageFiles.length > 0) {
+        const filesToAttach = matchedIndices
+          .map((imgIdx) => uploadedImageFiles[imgIdx])
+          .filter((f): f is Express.Multer.File => Boolean(f));
+        if (filesToAttach.length > 0) {
+          const savedImgs = await attachImagesToQuestion({
+            questionId: qRow.id,
+            files: filesToAttach.map((f) => ({
+              buffer: f.buffer,
+              mimeType: f.mimetype,
+              fileName: f.originalname,
+              caption: drafts[idx]?.imageNote || null,
+            })),
+            createdBy: req.user!.id,
+          });
+          attachedMap.set(qRow.id, savedImgs);
+        }
+      }
+    }
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.ai.generate_questions',
+      entityType: 'course',
+      entityId: course.id,
+      metadata: {
+        batchId,
+        courseCode: course.code,
+        difficulty: normalizeDifficultyForDb(parsed.difficulty),
+        count: insertedQuestions.length,
+        hasDocument: Boolean(docFile),
+        uploadedImagesCount: uploadedImageFiles.length,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.status(201).json({
+      batchId,
+      count: insertedQuestions.length,
+      message: `Generated ${insertedQuestions.length} draft question(s) for ${course.code}. Review and approve before publishing.`,
+      questions: insertedQuestions.map((row) => ({
+        ...row,
+        courseCode: course.code,
+        courseTitle: course.title,
+        images: attachedMap.get(row.id) || [],
+        createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
+      })),
+    });
+  } catch (err) {
+    if (err instanceof AiGenerationError || err instanceof QuestionImageValidationError) {
+      res.status(err.statusCode).json({ error: err.message });
+      return;
+    }
+    handleApiError(res, err, 'generating AI questions');
+  }
+});
+
+router.post('/ai/regenerate-question/:id', async (req, res) => {
+  try {
+    const questionId = z.string().uuid().parse(req.params.id);
+    const schema = z.object({
+      instruction: z.string().trim().max(500).optional(),
+      sourceExcerpt: z.string().max(15_000).optional(),
+    });
+    const parsed = schema.parse(req.body ?? {});
+
+    const db = getDb();
+    const [existing] = await db
+      .select()
+      .from(questions)
+      .where(eq(questions.id, questionId))
+      .limit(1);
+
+    if (!existing) {
+      res.status(404).json({ error: 'Question draft not found.' });
+      return;
+    }
+
+    if (!existing.courseId) {
+      res.status(400).json({ error: 'Question must be assigned to a course before regenerating.' });
+      return;
+    }
+
+    const [course] = await db
+      .select()
+      .from(courses)
+      .where(eq(courses.id, existing.courseId))
+      .limit(1);
+
+    if (!course) {
+      res.status(404).json({ error: 'Course not found.' });
+      return;
+    }
+
+    const regenerated = await regenerateSingleQuestionWithAi({
+      course: {
+        id: course.id,
+        code: course.code,
+        title: course.title,
+        level: course.level,
+      },
+      existingQuestion: existing,
+      instruction: parsed.instruction,
+      sourceExcerpt: parsed.sourceExcerpt,
+    });
+
+    const [updated] = await db
+      .update(questions)
+      .set({
+        questionText: regenerated.questionText,
+        optionA: regenerated.optionA,
+        optionB: regenerated.optionB,
+        optionC: regenerated.optionC,
+        optionD: regenerated.optionD,
+        correctOption: regenerated.correctOption,
+        explanation: regenerated.explanation,
+        topic: regenerated.topic,
+        aiRequiresImage: regenerated.requiresImage,
+        aiImageNote: regenerated.imageNote,
+        updatedAt: new Date(),
+      })
+      .where(eq(questions.id, existing.id))
+      .returning();
+
+    const imagesMap = await getQuestionImagesMap([updated.id]);
+
+    res.json({
+      question: {
+        ...updated,
+        courseCode: course.code,
+        courseTitle: course.title,
+        images: imagesMap.get(updated.id) || [],
+        createdAt:
+          updated.createdAt instanceof Date
+            ? updated.createdAt.toISOString()
+            : String(updated.createdAt),
+      },
+      message: 'Question regenerated successfully.',
+    });
+  } catch (err) {
+    if (err instanceof AiGenerationError) {
+      res.status(err.statusCode).json({ error: err.message });
+      return;
+    }
+    handleApiError(res, err, 'regenerating question');
+  }
+});
+
+// Compatibility endpoint updated to save as drafts via centralized AI service & Gemini 4
+router.post('/questions/generate', async (req, res) => {
+  try {
     const genSchema = z.object({
       courseId: z.string().uuid(),
       topic: z.string().trim().min(2).max(160),
-      difficulty: z.enum(['Easy', 'Medium', 'Hard']).default('Medium'),
-      count: z.number().int().min(1).max(10).default(5),
+      difficulty: z.enum(['Easy', 'Medium', 'Hard', 'Difficult']).default('Medium'),
+      count: z.number().int().min(1).max(50).default(5),
     });
 
-    const parsed = genSchema.parse(req.body);
+    const parsed = genSchema.parse(req.body ?? {});
     const db = getDb();
     const [course] = await db
       .select()
@@ -1028,63 +1701,15 @@ router.post('/questions/generate', async (req, res) => {
       return;
     }
 
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: `Generate ${parsed.count} accurate ${parsed.difficulty}-difficulty CBT multiple-choice questions for course "${course.code}: ${course.title}" focusing on topic "${parsed.topic}". Each question must have 4 distinct options A, B, C, D, one unambiguous correctOption letter, and a clear concise explanation.`,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              questionText: { type: Type.STRING },
-              optionA: { type: Type.STRING },
-              optionB: { type: Type.STRING },
-              optionC: { type: Type.STRING },
-              optionD: { type: Type.STRING },
-              correctOption: { type: Type.STRING, enum: ['A', 'B', 'C', 'D'] },
-              explanation: { type: Type.STRING },
-            },
-            required: [
-              'questionText',
-              'optionA',
-              'optionB',
-              'optionC',
-              'optionD',
-              'correctOption',
-              'explanation',
-            ],
-          },
-        },
-      },
+    const drafts = await generateCbtQuestionsWithAi({
+      course: { id: course.id, code: course.code, title: course.title, level: course.level },
+      count: parsed.count,
+      difficulty: parsed.difficulty,
+      topicHint: parsed.topic,
+      textContent: `Focus topic: ${parsed.topic}`,
     });
 
-    let drafts: Array<{
-      questionText: string;
-      optionA: string;
-      optionB: string;
-      optionC: string;
-      optionD: string;
-      correctOption: 'A' | 'B' | 'C' | 'D';
-      explanation: string;
-    }> = [];
-    try {
-      const parsedJson = JSON.parse(response.text || '[]');
-      if (Array.isArray(parsedJson)) {
-        drafts = parsedJson;
-      }
-    } catch {
-      res.status(502).json({ error: 'AI returned an invalid question payload. Please retry.' });
-      return;
-    }
-
-    if (drafts.length === 0) {
-      res.status(502).json({ error: 'AI did not generate any questions. Please try a different topic.' });
-      return;
-    }
-
+    const batchId = crypto.randomUUID();
     const inserted = await db
       .insert(questions)
       .values(
@@ -1098,9 +1723,14 @@ router.post('/questions/generate', async (req, res) => {
           optionD: d.optionD,
           correctOption: d.correctOption,
           explanation: d.explanation,
-          difficulty: parsed.difficulty,
+          difficulty: d.difficulty,
           topic: parsed.topic,
-          isActive: true,
+          isActive: false,
+          publicationStatus: 'draft',
+          aiGenerated: true,
+          aiRequiresImage: d.requiresImage,
+          aiImageNote: d.imageNote,
+          aiBatchId: batchId,
           createdBy: req.user!.id,
         }))
       )
@@ -1112,22 +1742,29 @@ router.post('/questions/generate', async (req, res) => {
       entityType: 'course',
       entityId: course.id,
       metadata: {
+        batchId,
         courseCode: course.code,
         topic: parsed.topic,
-        difficulty: parsed.difficulty,
+        difficulty: normalizeDifficultyForDb(parsed.difficulty),
         count: inserted.length,
       },
       ipAddress: req.ip,
     });
 
     res.status(201).json({
+      batchId,
       questions: inserted.map((row) => ({
         ...row,
         courseCode: course.code,
         courseTitle: course.title,
+        images: [],
       })),
     });
   } catch (err) {
+    if (err instanceof AiGenerationError) {
+      res.status(err.statusCode).json({ error: err.message });
+      return;
+    }
     handleApiError(res, err, 'generating questions');
   }
 });

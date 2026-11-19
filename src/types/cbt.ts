@@ -6,6 +6,32 @@ export type QuestionDifficulty = 'Easy' | 'Medium' | 'Hard';
 export type OptionLetter = 'A' | 'B' | 'C' | 'D';
 export type MaterialCategory = 'Tutorials' | 'Notes' | 'Past Questions' | 'Guides';
 export type PublicationStatus = 'draft' | 'published' | 'archived';
+export type QuestionPublicationStatus = 'draft' | 'published';
+export type AiConnectionStatus = 'connected' | 'failed' | 'unconfigured' | 'unknown';
+export type AiKeySource = 'database' | 'environment' | 'none';
+
+export interface AiSettingsSummary {
+  configured: boolean;
+  source: AiKeySource;
+  maskedKey: string | null;
+  modelName: string;
+  connectionStatus: AiConnectionStatus;
+  lastTestedAt: string | null;
+  lastTestMessage: string | null;
+  updatedAt: string | null;
+}
+
+export interface QuestionImageItem {
+  id: string;
+  questionId: string;
+  sortOrder: number;
+  caption: string | null;
+  mimeType: string;
+  fileName: string;
+  fileSizeBytes: number;
+  url: string;
+  createdAt: string;
+}
 export type PaymentStatus = 'pending' | 'successful' | 'failed' | 'refunded';
 export type PaymentVerificationResult =
   | 'successful'
@@ -152,6 +178,7 @@ export interface ActiveExamQuestion {
   optionD: string;
   difficulty: QuestionDifficulty;
   topic: string;
+  images?: QuestionImageItem[];
   selectedOption: OptionLetter | null;
   isMarkedForReview: boolean;
 }
@@ -433,6 +460,12 @@ export interface AdminQuestionItem {
   topic: string;
   examYear: number | null;
   isActive: boolean;
+  publicationStatus?: QuestionPublicationStatus;
+  aiGenerated?: boolean;
+  aiRequiresImage?: boolean;
+  aiImageNote?: string | null;
+  aiBatchId?: string | null;
+  images?: QuestionImageItem[];
   createdAt: string;
 }
 

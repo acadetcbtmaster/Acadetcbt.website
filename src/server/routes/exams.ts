@@ -11,19 +11,23 @@ import {
   questions,
 } from '../../db/schema.js';
 import { writeAuditLog } from '../lib/audit.js';
+import { normalizeDifficultyForDb } from '../lib/aiQuestionGenerator.js';
 import { gradeExamAnswers, type OptionLetter } from '../lib/examGrader.js';
 import {
   COURSE_VALUE_NAIRA,
   STANDARD_CURRENCY,
   TOTAL_STUDENT_PAYABLE_NAIRA,
 } from '../lib/pricing.js';
+import { getQuestionImagesMap } from '../lib/questionImages.js';
 import { handleApiError, requireAuth } from '../middleware/auth.js';
 
 const router = Router();
 
 const startExamSchema = z.object({
   courseId: z.string().uuid('Valid courseId is required'),
-  difficulty: z.enum(['All Levels', 'Easy', 'Medium', 'Hard']).default('All Levels'),
+  difficulty: z
+    .enum(['All Levels', 'Easy', 'Medium', 'Hard', 'Difficult'])
+    .default('All Levels'),
   questionCount: z.number().int().min(1).max(60).default(20),
   timeLimitMinutes: z.number().int().min(1).max(240).optional(),
 });
@@ -130,10 +134,19 @@ router.post('/start', requireAuth, async (req, res) => {
         )
       : eq(questions.courseId, course.id);
 
-    const conditions = [courseMatchCondition!, eq(questions.isActive, true)];
+    const normalizedDifficultyFilter =
+      parsed.difficulty === 'All Levels'
+        ? 'All Levels'
+        : normalizeDifficultyForDb(parsed.difficulty);
 
-    if (parsed.difficulty !== 'All Levels') {
-      conditions.push(eq(questions.difficulty, parsed.difficulty));
+    const conditions = [
+      courseMatchCondition!,
+      eq(questions.isActive, true),
+      eq(questions.publicationStatus, 'published'),
+    ];
+
+    if (normalizedDifficultyFilter !== 'All Levels') {
+      conditions.push(eq(questions.difficulty, normalizedDifficultyFilter));
     }
 
     // Explicitly project ONLY non-answer fields so correctOption is never exposed before submission
@@ -154,11 +167,15 @@ router.post('/start', requireAuth, async (req, res) => {
       .limit(parsed.questionCount);
 
     if (pickedQuestions.length === 0) {
+      const displayDiff =
+        normalizedDifficultyFilter === 'Hard' ? 'Difficult' : parsed.difficulty;
       res.status(404).json({
-        error: `No active questions found for ${course.code} — ${course.title} (${parsed.difficulty}).`,
+        error: `No published active questions found for ${course.code} — ${course.title} (${displayDiff}).`,
       });
       return;
     }
+
+    const imagesMap = await getQuestionImagesMap(pickedQuestions.map((q) => q.id));
 
     const durationMinutes =
       parsed.timeLimitMinutes ?? course.defaultDurationMinutes ?? 60;
@@ -172,7 +189,7 @@ router.post('/start', requireAuth, async (req, res) => {
           subjectId: course.subjectId ?? null,
           courseId: course.id,
           examTitle: course.examCategory || 'Acadet CBT Examination',
-          difficultyFilter: parsed.difficulty,
+          difficultyFilter: normalizedDifficultyFilter,
           totalQuestions: pickedQuestions.length,
           timeLimitSeconds,
           timeSpentSeconds: 0,
@@ -208,6 +225,7 @@ router.post('/start', requireAuth, async (req, res) => {
           optionD: q.optionD,
           difficulty: q.difficulty,
           topic: q.topic,
+          images: imagesMap.get(q.id) || [],
           selectedOption: null as OptionLetter | null,
           isMarkedForReview: false,
         })),
@@ -310,7 +328,14 @@ router.get('/:sessionId', requireAuth, async (req, res) => {
         .where(eq(examSessionQuestions.sessionId, sessionId))
         .orderBy(asc(examSessionQuestions.questionOrder));
 
-      res.json({ session: sessionRow, questions: items });
+      const imagesMap = await getQuestionImagesMap(items.map((q) => q.questionId));
+      res.json({
+        session: sessionRow,
+        questions: items.map((item) => ({
+          ...item,
+          images: imagesMap.get(item.questionId) || [],
+        })),
+      });
       return;
     }
 
@@ -336,7 +361,14 @@ router.get('/:sessionId', requireAuth, async (req, res) => {
       .where(eq(examSessionQuestions.sessionId, sessionId))
       .orderBy(asc(examSessionQuestions.questionOrder));
 
-    res.json({ session: sessionRow, questions: gradedItems });
+    const gradedImagesMap = await getQuestionImagesMap(gradedItems.map((q) => q.questionId));
+    res.json({
+      session: sessionRow,
+      questions: gradedItems.map((item) => ({
+        ...item,
+        images: gradedImagesMap.get(item.questionId) || [],
+      })),
+    });
   } catch (err) {
     handleApiError(res, err, 'fetching exam session');
   }
@@ -464,13 +496,20 @@ router.post('/:sessionId/submit', requireAuth, async (req, res) => {
         .where(eq(examSessionQuestions.sessionId, sessionId))
         .orderBy(asc(examSessionQuestions.questionOrder));
 
+      const alreadySubmittedImagesMap = await getQuestionImagesMap(
+        gradedQuestions.map((q) => q.questionId)
+      );
+
       res.json({
         session: {
           ...session,
           courseTitle: courseRow?.title || '',
           courseCode: courseRow?.code || '',
         },
-        questions: gradedQuestions,
+        questions: gradedQuestions.map((item) => ({
+          ...item,
+          images: alreadySubmittedImagesMap.get(item.questionId) || [],
+        })),
       });
       return;
     }
@@ -578,13 +617,20 @@ router.post('/:sessionId/submit', requireAuth, async (req, res) => {
         .where(eq(examSessionQuestions.sessionId, sessionId))
         .orderBy(asc(examSessionQuestions.questionOrder));
 
+      const gradedImagesMap = await getQuestionImagesMap(
+        gradedQuestions.map((q) => q.questionId)
+      );
+
       return {
         session: {
           ...updatedSession,
           courseTitle: courseRow?.title || '',
           courseCode: courseRow?.code || '',
         },
-        questions: gradedQuestions,
+        questions: gradedQuestions.map((item) => ({
+          ...item,
+          images: gradedImagesMap.get(item.questionId) || [],
+        })),
       };
     });
 

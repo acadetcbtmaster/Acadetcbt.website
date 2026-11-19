@@ -18,6 +18,7 @@ import type {
 } from '../../types/cbt';
 import { AcadetCrest } from './AcadetLogo';
 import { CalculatorModal } from './CalculatorModal';
+import { QuestionImageGallery } from './QuestionImageGallery';
 
 interface ExamHallProps {
   session: ActiveExamSession;
@@ -267,7 +268,9 @@ export const ExamHall: React.FC<ExamHallProps> = ({
             <span
               className={`px-3.5 py-1 rounded-lg text-xs font-extrabold ${difficultyBadgeClass}`}
             >
-              {currentQuestion.difficulty}
+              {currentQuestion.difficulty === 'Hard'
+                ? 'Difficult'
+                : currentQuestion.difficulty}
             </span>
           </div>
 
@@ -276,6 +279,8 @@ export const ExamHall: React.FC<ExamHallProps> = ({
               <div className="text-base sm:text-xl font-bold text-slate-900 dark:text-slate-100 leading-relaxed">
                 {currentQuestion.questionText}
               </div>
+
+              <QuestionImageGallery images={currentQuestion.images} />
 
               <div className="space-y-3">
                 {options.map((opt) => {

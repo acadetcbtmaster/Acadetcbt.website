@@ -18,6 +18,7 @@ import type {
   ResultsOverview,
 } from '../../types/cbt';
 import { AcadetCrest } from './AcadetLogo';
+import { QuestionImageGallery } from './QuestionImageGallery';
 
 interface ResultsViewProps {
   courses: CourseCatalogueItem[];
@@ -335,6 +336,8 @@ export const ResultsView: React.FC<ResultsViewProps> = ({
                         </span>
                       )}
                     </div>
+
+                    <QuestionImageGallery images={q.images} compact />
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs sm:text-sm">
                       {options.map((opt) => {

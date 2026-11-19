@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { z } from 'zod';
 import {
   getPublicBrandingAndFounder,
   getPublicPublishedCourses,
@@ -9,6 +10,7 @@ import {
   getObjectBuffer,
   ObjectStorageNotConfiguredError,
 } from '../lib/objectStorage.js';
+import { getQuestionImageBinary } from '../lib/questionImages.js';
 import { handleApiError } from '../middleware/auth.js';
 
 const router = Router();
@@ -29,6 +31,31 @@ router.get('/site-data', async (_req, res) => {
     });
   } catch (err) {
     handleApiError(res, err, 'fetching public site data');
+  }
+});
+
+// Serves binary question images by unguessable UUID for both Student CBT Hall and Admin Draft Review
+router.get('/question-images/:imageId', async (req, res) => {
+  const parsedId = z.string().uuid().safeParse(req.params.imageId);
+  if (!parsedId.success) {
+    res.status(404).json({ error: 'Question image not found.' });
+    return;
+  }
+
+  try {
+    const img = await getQuestionImageBinary(parsedId.data);
+    if (!img) {
+      res.status(404).json({ error: 'Question image not found.' });
+      return;
+    }
+
+    res.setHeader('Content-Type', img.mimeType);
+    res.setHeader('Content-Length', String(img.buffer.length));
+    res.setHeader('Content-Disposition', `inline; filename="${img.fileName}"`);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.send(img.buffer);
+  } catch (err) {
+    handleApiError(res, err, 'serving question image');
   }
 });
 

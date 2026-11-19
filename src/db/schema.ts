@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  customType,
   index,
   integer,
   jsonb,
@@ -12,6 +13,12 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() {
+    return 'bytea';
+  },
+});
 
 export interface UserPreferences {
   theme: 'light' | 'dark';
@@ -150,6 +157,11 @@ export const questions = pgTable(
     topic: text('topic').notNull().default('General'),
     examYear: integer('exam_year'),
     isActive: boolean('is_active').notNull().default(true),
+    publicationStatus: text('publication_status').notNull().default('published'),
+    aiGenerated: boolean('ai_generated').notNull().default(false),
+    aiRequiresImage: boolean('ai_requires_image').notNull().default(false),
+    aiImageNote: text('ai_image_note'),
+    aiBatchId: uuid('ai_batch_id'),
     createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -157,8 +169,76 @@ export const questions = pgTable(
   (table) => [
     index('questions_subject_difficulty_idx').on(table.subjectId, table.difficulty, table.isActive),
     index('questions_course_idx').on(table.courseId),
+    index('questions_course_pub_diff_active_idx').on(
+      table.courseId,
+      table.publicationStatus,
+      table.difficulty,
+      table.isActive
+    ),
     check('questions_correct_option_check', sql`${table.correctOption} IN ('A', 'B', 'C', 'D')`),
     check('questions_difficulty_check', sql`${table.difficulty} IN ('Easy', 'Medium', 'Hard')`),
+    check(
+      'questions_publication_status_check',
+      sql`${table.publicationStatus} IN ('draft', 'published')`
+    ),
+  ]
+);
+
+export const questionImages = pgTable(
+  'question_images',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    questionId: uuid('question_id')
+      .notNull()
+      .references(() => questions.id, { onDelete: 'cascade' }),
+    sortOrder: integer('sort_order').notNull().default(0),
+    caption: text('caption'),
+    mimeType: text('mime_type').notNull(),
+    fileName: text('file_name').notNull(),
+    fileSizeBytes: integer('file_size_bytes').notNull().default(0),
+    storageBackend: text('storage_backend').notNull().default('postgres'),
+    objectKey: text('object_key'),
+    imageData: bytea('image_data'),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('question_images_question_order_idx').on(
+      table.questionId,
+      table.sortOrder,
+      table.createdAt
+    ),
+    check(
+      'question_images_storage_backend_check',
+      sql`${table.storageBackend} IN ('s3', 'postgres')`
+    ),
+    check(
+      'question_images_mime_check',
+      sql`${table.mimeType} IN ('image/jpeg', 'image/jpg', 'image/png', 'image/webp')`
+    ),
+  ]
+);
+
+export const aiProviderSettings = pgTable(
+  'ai_provider_settings',
+  {
+    id: text('id').primaryKey().default('default'),
+    providerName: text('provider_name').notNull().default('gemini'),
+    encryptedApiKey: text('encrypted_api_key'),
+    keyHint: text('key_hint'),
+    modelName: text('model_name').notNull().default('gemini-4-hydrogen'),
+    lastTestedAt: timestamp('last_tested_at', { withTimezone: true }),
+    lastTestStatus: text('last_test_status').notNull().default('unknown'),
+    lastTestMessage: text('last_test_message'),
+    updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      'ai_provider_settings_test_status_check',
+      sql`${table.lastTestStatus} IN ('unknown', 'connected', 'failed', 'unconfigured')`
+    ),
   ]
 );
 

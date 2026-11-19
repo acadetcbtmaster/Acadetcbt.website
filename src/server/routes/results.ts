@@ -8,6 +8,7 @@ import {
   questions,
   subjects,
 } from '../../db/schema.js';
+import { getQuestionImagesMap } from '../lib/questionImages.js';
 import { handleApiError, requireAuth } from '../middleware/auth.js';
 
 const router = Router();
@@ -185,13 +186,18 @@ router.get('/:sessionId', requireAuth, async (req, res) => {
       .where(eq(examSessionQuestions.sessionId, sessionId))
       .orderBy(asc(examSessionQuestions.questionOrder));
 
+    const imagesMap = await getQuestionImagesMap(items.map((q) => q.questionId));
+
     res.json({
       session: {
         ...sessionRow,
         courseTitle: sessionRow.courseTitle || sessionRow.legacySubjectName || 'Course Exam',
         courseCode: sessionRow.courseCode || sessionRow.legacySubjectCode || '',
       },
-      questions: items,
+      questions: items.map((item) => ({
+        ...item,
+        images: imagesMap.get(item.questionId) || [],
+      })),
     });
   } catch (err) {
     handleApiError(res, err, 'fetching detailed result');

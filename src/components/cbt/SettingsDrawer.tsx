@@ -134,7 +134,7 @@ export const SettingsDrawer: React.FC<SettingsDrawerProps> = ({
               >
                 {difficulties.map((level) => (
                   <option key={level} value={level}>
-                    {level}
+                    {level === 'Hard' ? 'Difficult' : level}
                   </option>
                 ))}
               </select>
