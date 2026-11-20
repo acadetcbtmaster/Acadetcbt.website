@@ -94,6 +94,43 @@ export function verifyAuthToken(token: string): AuthTokenPayload {
   };
 }
 
+export function signMaterialDownloadToken(materialId: string, filename: string): string {
+  return jwt.sign(
+    { purpose: 'material_download', materialId, filename },
+    getJwtSecret(),
+    {
+      expiresIn: '10m',
+      issuer: 'acadet-cbt',
+    }
+  );
+}
+
+export function verifyMaterialDownloadToken(
+  token: string,
+  expectedMaterialId: string
+): { materialId: string; filename: string } | null {
+  try {
+    const decoded = jwt.verify(token, getJwtSecret(), {
+      issuer: 'acadet-cbt',
+    });
+    if (
+      typeof decoded !== 'object' ||
+      decoded === null ||
+      (decoded as { purpose?: unknown }).purpose !== 'material_download' ||
+      (decoded as { materialId?: unknown }).materialId !== expectedMaterialId
+    ) {
+      return null;
+    }
+    const rawFilename = (decoded as { filename?: unknown }).filename;
+    return {
+      materialId: expectedMaterialId,
+      filename: typeof rawFilename === 'string' && rawFilename.trim() ? rawFilename : 'material.pdf',
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function sanitizeUser(row: {
   id: string;
   fullName: string;

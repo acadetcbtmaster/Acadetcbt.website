@@ -17,6 +17,10 @@ import {
   maskApiKey,
 } from '../src/server/lib/aiSettings.js';
 import {
+  signMaterialDownloadToken,
+  verifyMaterialDownloadToken,
+} from '../src/server/lib/jwt.js';
+import {
   MAX_QUESTION_IMAGE_BYTES,
   QuestionImageValidationError,
   validateQuestionImageFile,
@@ -209,8 +213,21 @@ async function run() {
       assert.ok(resp.status === 401 || resp.status === 503);
     }
 
+    assert.ok(adminRoutes.includes("storageBackend"));
+    assert.ok(adminRoutes.includes("brandingAssetBinaries"));
+
+    const dlToken = signMaterialDownloadToken('11111111-1111-4111-8111-111111111111', 'Biology.pdf');
+    const dlDecoded = verifyMaterialDownloadToken(dlToken, '11111111-1111-4111-8111-111111111111');
+    assert.ok(dlDecoded && dlDecoded.filename === 'Biology.pdf');
+    assert.equal(verifyMaterialDownloadToken(dlToken, '22222222-2222-4222-8222-222222222222'), null);
+
     const imgResp = await fetch(`${baseUrl}/api/public/question-images/not-a-uuid`);
     assert.ok(imgResp.status === 400 || imgResp.status === 404);
+
+    const matFileResp = await fetch(
+      `${baseUrl}/api/materials/11111111-1111-4111-8111-111111111111/file?token=invalid`
+    );
+    assert.ok(matFileResp.status === 401 || matFileResp.status === 503);
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));

@@ -8,6 +8,7 @@ import { getDb, getPool } from '../../db/index.js';
 import {
   announcements,
   auditLogs,
+  brandingAssetBinaries,
   courses,
   examSessions,
   founderProfile,
@@ -56,6 +57,7 @@ import {
 import {
   buildMaterialObjectKey,
   deleteObjectKey,
+  isObjectStorageConfigured,
   ObjectStorageNotConfiguredError,
   uploadObjectBuffer,
 } from '../lib/objectStorage.js';
@@ -1769,7 +1771,7 @@ router.post('/questions/generate', async (req, res) => {
   }
 });
 
-// Study Materials Upload & Management (External Object Storage + PostgreSQL metadata)
+// Study Materials Upload & Management (External S3 Object Storage with automatic PostgreSQL BYTEA fallback)
 router.post(
   '/materials/upload',
   upload.single('file') as unknown as RequestHandler,
@@ -1791,11 +1793,27 @@ router.post(
       const parsed = metaSchema.parse(req.body);
       const objectKey = buildMaterialObjectKey(file.originalname, parsed.category);
 
-      await uploadObjectBuffer({
-        objectKey,
-        body: file.buffer,
-        contentType: file.mimetype || 'application/octet-stream',
-      });
+      let storageBackend: 's3' | 'postgres' = 'postgres';
+      let fileData: Buffer | null = file.buffer;
+
+      if (isObjectStorageConfigured()) {
+        try {
+          await uploadObjectBuffer({
+            objectKey,
+            body: file.buffer,
+            contentType: file.mimetype || 'application/octet-stream',
+          });
+          storageBackend = 's3';
+          fileData = null;
+        } catch (storageErr) {
+          console.warn(
+            '[StudyMaterials] S3 upload failed, falling back to PostgreSQL BYTEA:',
+            storageErr
+          );
+          storageBackend = 'postgres';
+          fileData = file.buffer;
+        }
+      }
 
       const lowerName = file.originalname.toLowerCase();
       const fileType =
@@ -1815,31 +1833,39 @@ router.post(
           category: parsed.category,
           fileType,
           fileSizeBytes: file.size,
+          storageBackend,
           objectKey,
+          originalFilename: path.basename(file.originalname || 'material.pdf'),
+          fileData,
           mimeType: file.mimetype || 'application/pdf',
           uploadedBy: req.user!.id,
           isActive: true,
         })
-        .returning();
+        .returning({
+          id: studyMaterials.id,
+          courseId: studyMaterials.courseId,
+          title: studyMaterials.title,
+          description: studyMaterials.description,
+          category: studyMaterials.category,
+          fileType: studyMaterials.fileType,
+          fileSizeBytes: studyMaterials.fileSizeBytes,
+          storageBackend: studyMaterials.storageBackend,
+          mimeType: studyMaterials.mimeType,
+          downloadCount: studyMaterials.downloadCount,
+          createdAt: studyMaterials.createdAt,
+        });
 
       await writeAuditLog({
         actorUserId: req.user!.id,
         action: 'admin.material.upload',
         entityType: 'study_material',
         entityId: created.id,
-        metadata: { title: created.title, objectKey },
+        metadata: { title: created.title, objectKey, storageBackend },
         ipAddress: req.ip,
       });
 
       res.status(201).json({ material: created });
     } catch (err) {
-      if (err instanceof ObjectStorageNotConfiguredError) {
-        res.status(503).json({
-          error: err.message,
-          code: 'OBJECT_STORAGE_NOT_CONFIGURED',
-        });
-        return;
-      }
       handleApiError(res, err, 'uploading study material');
     }
   }
@@ -1849,7 +1875,11 @@ router.delete('/materials/:id', async (req, res) => {
   try {
     const db = getDb();
     const [existing] = await db
-      .select()
+      .select({
+        id: studyMaterials.id,
+        objectKey: studyMaterials.objectKey,
+        storageBackend: studyMaterials.storageBackend,
+      })
       .from(studyMaterials)
       .where(eq(studyMaterials.id, req.params.id))
       .limit(1);
@@ -1859,11 +1889,13 @@ router.delete('/materials/:id', async (req, res) => {
       return;
     }
 
-    try {
-      await deleteObjectKey(existing.objectKey);
-    } catch (storageErr) {
-      if (!(storageErr instanceof ObjectStorageNotConfiguredError)) {
-        console.warn('[ObjectStorage Delete Warning]', storageErr);
+    if (existing.storageBackend === 's3') {
+      try {
+        await deleteObjectKey(existing.objectKey);
+      } catch (storageErr) {
+        if (!(storageErr instanceof ObjectStorageNotConfiguredError)) {
+          console.warn('[ObjectStorage Delete Warning]', storageErr);
+        }
       }
     }
 
@@ -3795,16 +3827,52 @@ router.post(
 
       const ext =
         path.extname(file.originalname || '').toLowerCase().replace(/[^.a-z0-9]/g, '') || '.png';
-      const objectKey = `branding/${slot}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}${ext}`;
+      const candidateObjectKey = `branding/${slot}/${Date.now()}-${crypto.randomUUID().slice(0, 8)}${ext}`;
+      let savedObjectKey: string | null = null;
+      const db = getDb();
 
-      await uploadObjectBuffer({
-        objectKey,
-        body: file.buffer,
-        contentType: file.mimetype || 'image/png',
-      });
+      if (isObjectStorageConfigured()) {
+        try {
+          await uploadObjectBuffer({
+            objectKey: candidateObjectKey,
+            body: file.buffer,
+            contentType: file.mimetype || 'image/png',
+          });
+          savedObjectKey = candidateObjectKey;
+        } catch (storageErr) {
+          console.warn(
+            `[Branding Upload Warning:${slot}] S3 upload failed, falling back to PostgreSQL BYTEA:`,
+            storageErr
+          );
+          savedObjectKey = null;
+        }
+      }
+
+      if (!savedObjectKey) {
+        const cleanName = path.basename(file.originalname || `${slot}${ext}`);
+        await db
+          .insert(brandingAssetBinaries)
+          .values({
+            slot,
+            mimeType: file.mimetype || 'image/png',
+            fileName: cleanName,
+            fileSizeBytes: file.size,
+            fileData: file.buffer,
+            updatedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: brandingAssetBinaries.slot,
+            set: {
+              mimeType: file.mimetype || 'image/png',
+              fileName: cleanName,
+              fileSizeBytes: file.size,
+              fileData: file.buffer,
+              updatedAt: new Date(),
+            },
+          });
+      }
 
       const publicUrl = `/api/public/assets/${slot}?v=${Date.now()}`;
-      const db = getDb();
 
       if (slot === 'founder-photo') {
         await db.insert(founderProfile).values({ id: 'default' }).onConflictDoNothing();
@@ -3812,7 +3880,7 @@ router.post(
           .update(founderProfile)
           .set({
             photoUrl: publicUrl,
-            photoObjectKey: objectKey,
+            photoObjectKey: savedObjectKey,
             updatedBy: req.user!.id,
             updatedAt: new Date(),
           })
@@ -3823,8 +3891,8 @@ router.post(
           .update(siteBranding)
           .set({
             ...(slot === 'logo'
-              ? { logoUrl: publicUrl, logoObjectKey: objectKey }
-              : { faviconUrl: publicUrl, faviconObjectKey: objectKey }),
+              ? { logoUrl: publicUrl, logoObjectKey: savedObjectKey }
+              : { faviconUrl: publicUrl, faviconObjectKey: savedObjectKey }),
             updatedBy: req.user!.id,
             updatedAt: new Date(),
           })
@@ -3836,7 +3904,11 @@ router.post(
         action: 'admin.branding.upload',
         entityType: slot === 'founder-photo' ? 'founder_profile' : 'site_branding',
         entityId: slot,
-        metadata: { objectKey, publicUrl },
+        metadata: {
+          objectKey: savedObjectKey,
+          storageBackend: savedObjectKey ? 's3' : 'postgres',
+          publicUrl,
+        },
         ipAddress: req.ip,
       });
 
@@ -3849,13 +3921,6 @@ router.post(
         message: `Uploaded new ${slot.replace('-', ' ')} asset.`,
       });
     } catch (err) {
-      if (err instanceof ObjectStorageNotConfiguredError) {
-        res.status(503).json({
-          error: err.message,
-          code: 'OBJECT_STORAGE_NOT_CONFIGURED',
-        });
-        return;
-      }
       handleApiError(res, err, 'uploading branding asset');
     }
   }

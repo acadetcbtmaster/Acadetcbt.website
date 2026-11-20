@@ -115,7 +115,7 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
               Access Learning Resources
             </div>
             <div className="text-xs text-slate-600 dark:text-slate-400">
-              Get course materials, tutorials and guides stored in object storage.
+              Download lecture notes, tutorials, past questions, and guides for your courses.
             </div>
           </div>
         </div>

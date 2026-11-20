@@ -1,7 +1,10 @@
+import { eq } from 'drizzle-orm';
 import { Router } from 'express';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
+import { getDb, isDatabaseConfigured } from '../../db/index.js';
+import { brandingAssetBinaries } from '../../db/schema.js';
 import {
   getPublicBrandingAndFounder,
   getPublicPublishedCourses,
@@ -89,6 +92,32 @@ router.get('/assets/:slot', async (req, res) => {
         if (!(storageErr instanceof ObjectStorageNotConfiguredError)) {
           console.warn(`[Public Asset Stream Warning:${slot}]`, storageErr);
         }
+      }
+    }
+
+    if (isDatabaseConfigured()) {
+      try {
+        const db = getDb();
+        const [binRow] = await db
+          .select({
+            mimeType: brandingAssetBinaries.mimeType,
+            fileData: brandingAssetBinaries.fileData,
+          })
+          .from(brandingAssetBinaries)
+          .where(eq(brandingAssetBinaries.slot, slot))
+          .limit(1);
+
+        if (binRow?.fileData && binRow.fileData.length > 0) {
+          const buf = Buffer.isBuffer(binRow.fileData)
+            ? binRow.fileData
+            : Buffer.from(binRow.fileData);
+          res.setHeader('Content-Type', binRow.mimeType || 'image/png');
+          res.setHeader('Cache-Control', 'public, max-age=3600');
+          res.send(buf);
+          return;
+        }
+      } catch {
+        // Fall through to default file fallback if branding_asset_binaries is unavailable
       }
     }
 

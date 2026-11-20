@@ -347,6 +347,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
   const [matCourseId, setMatCourseId] = useState('');
   const [matDesc, setMatDesc] = useState('');
   const [matFile, setMatFile] = useState<File | null>(null);
+  const matFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Announcement form
   const [annTitle, setAnnTitle] = useState('');
@@ -1318,9 +1319,12 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       setMatTitle('');
       setMatDesc('');
       setMatFile(null);
+      if (matFileInputRef.current) {
+        matFileInputRef.current.value = '';
+      }
       setFeedback({
         type: 'ok',
-        text: 'Study material uploaded to object storage and indexed in PostgreSQL.',
+        text: 'Study material uploaded and saved to PostgreSQL.',
       });
       await loadAllAdminData();
     } catch (err) {
@@ -1616,7 +1620,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       <div className="p-3 sm:p-4 space-y-4">
         {feedback && (
           <div
-            className={`rounded-xl px-4 py-3 text-sm font-medium border ${
+            className={`rounded-xl px-4 py-3 text-sm font-medium border break-words [overflow-wrap:anywhere] ${
               feedback.type === 'ok'
                 ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
                 : 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
@@ -3645,6 +3649,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
               />
               <input
+                ref={matFileInputRef}
                 type="file"
                 required
                 accept=".pdf,.doc,.docx,image/*"
@@ -3656,7 +3661,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 disabled={busy}
                 className="sm:col-span-2 px-4 py-2.5 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white font-bold text-sm"
               >
-                Upload to External Object Storage
+                Upload Study Material
               </button>
             </form>
 

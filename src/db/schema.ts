@@ -316,7 +316,10 @@ export const studyMaterials = pgTable(
     category: text('category').notNull().default('Notes'),
     fileType: text('file_type').notNull().default('PDF'),
     fileSizeBytes: integer('file_size_bytes').notNull().default(0),
+    storageBackend: text('storage_backend').notNull().default('postgres'),
     objectKey: text('object_key').notNull(),
+    originalFilename: text('original_filename'),
+    fileData: bytea('file_data'),
     mimeType: text('mime_type').notNull().default('application/pdf'),
     downloadCount: integer('download_count').notNull().default(0),
     isActive: boolean('is_active').notNull().default(true),
@@ -330,6 +333,10 @@ export const studyMaterials = pgTable(
     check(
       'study_materials_category_check',
       sql`${table.category} IN ('Tutorials', 'Notes', 'Past Questions', 'Guides')`
+    ),
+    check(
+      'study_materials_storage_backend_check',
+      sql`${table.storageBackend} IN ('s3', 'postgres')`
     ),
   ]
 );
@@ -814,6 +821,24 @@ export const gst111ActivationHistory = pgTable(
     check(
       'gst111_activation_history_action_check',
       sql`${table.action} IN ('activated', 'deactivated')`
+    ),
+  ]
+);
+
+export const brandingAssetBinaries = pgTable(
+  'branding_asset_binaries',
+  {
+    slot: text('slot').primaryKey(),
+    mimeType: text('mime_type').notNull(),
+    fileName: text('file_name').notNull(),
+    fileSizeBytes: integer('file_size_bytes').notNull().default(0),
+    fileData: bytea('file_data').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    check(
+      'branding_asset_binaries_slot_check',
+      sql`${table.slot} IN ('logo', 'favicon', 'founder-photo')`
     ),
   ]
 );
