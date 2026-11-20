@@ -341,13 +341,20 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
   const [uploadingManualImage, setUploadingManualImage] = useState(false);
   const [replacingManualImageId, setReplacingManualImageId] = useState<string | null>(null);
 
-  // Material upload form
+  // Material upload form & inline editor
   const [matTitle, setMatTitle] = useState('');
   const [matCategory, setMatCategory] = useState<MaterialCategory>('Notes');
   const [matCourseId, setMatCourseId] = useState('');
   const [matDesc, setMatDesc] = useState('');
+  const [matPrice, setMatPrice] = useState('0');
   const [matFile, setMatFile] = useState<File | null>(null);
   const matFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [editingMaterialId, setEditingMaterialId] = useState<string | null>(null);
+  const [editMatTitle, setEditMatTitle] = useState('');
+  const [editMatPrice, setEditMatPrice] = useState('0');
+  const [editMatCourseId, setEditMatCourseId] = useState('');
+  const [editMatCategory, setEditMatCategory] = useState<MaterialCategory>('Notes');
+  const [editMatDesc, setEditMatDesc] = useState('');
 
   // Announcement form
   const [annTitle, setAnnTitle] = useState('');
@@ -498,7 +505,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
         search: qFilterSearch.trim() || undefined,
       }),
       api.admin.getQuestionStats(),
-      api.materials.list(),
+      api.admin.listMaterials(),
       api.admin.listAnnouncements(),
       api.admin.listUsers({
         search: userSearch || undefined,
@@ -1305,6 +1312,14 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       setFeedback({ type: 'err', text: 'Select a PDF, DOC, or image file to upload.' });
       return;
     }
+    const parsedPrice = Number(matPrice.trim() === '' ? '0' : matPrice);
+    if (!Number.isFinite(parsedPrice) || parsedPrice < 0 || (parsedPrice > 0 && parsedPrice < 100)) {
+      setFeedback({
+        type: 'err',
+        text: 'Material price must be ₦0 (Free) or at least ₦100 for Paystack checkout.',
+      });
+      return;
+    }
     setBusy(true);
     setFeedback(null);
     try {
@@ -1313,24 +1328,71 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       fd.append('title', matTitle);
       fd.append('category', matCategory);
       fd.append('description', matDesc);
+      fd.append('price', String(Number(parsedPrice.toFixed(2))));
       if (matCourseId) fd.append('courseId', matCourseId);
 
       await api.admin.uploadMaterial(fd);
       setMatTitle('');
       setMatDesc('');
+      setMatPrice('0');
       setMatFile(null);
       if (matFileInputRef.current) {
         matFileInputRef.current.value = '';
       }
       setFeedback({
         type: 'ok',
-        text: 'Study material uploaded and saved to PostgreSQL.',
+        text:
+          parsedPrice > 0
+            ? `Paid study material (₦${parsedPrice.toLocaleString()}) uploaded and saved.`
+            : 'Free study material uploaded and saved to PostgreSQL.',
       });
-      await loadAllAdminData();
+      await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
     } catch (err) {
       setFeedback({
         type: 'err',
         text: err instanceof Error ? err.message : 'Material upload failed.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startEditMaterial = (mat: StudyMaterialItem) => {
+    setEditingMaterialId(mat.id);
+    setEditMatTitle(mat.title);
+    setEditMatPrice(String(mat.price ?? 0));
+    setEditMatCourseId(mat.courseId || '');
+    setEditMatCategory(mat.category);
+    setEditMatDesc(mat.description || '');
+    setFeedback(null);
+  };
+
+  const handleSaveMaterialEdit = async (materialId: string) => {
+    const parsedPrice = Number(editMatPrice.trim() === '' ? '0' : editMatPrice);
+    if (!Number.isFinite(parsedPrice) || parsedPrice < 0 || (parsedPrice > 0 && parsedPrice < 100)) {
+      setFeedback({
+        type: 'err',
+        text: 'Material price must be ₦0 (Free) or at least ₦100 for Paystack checkout.',
+      });
+      return;
+    }
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.updateMaterial(materialId, {
+        title: editMatTitle.trim(),
+        description: editMatDesc.trim(),
+        category: editMatCategory,
+        courseId: editMatCourseId || null,
+        price: Number(parsedPrice.toFixed(2)),
+      });
+      setEditingMaterialId(null);
+      setFeedback({ type: 'ok', text: res.message });
+      await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Failed to update material.',
       });
     } finally {
       setBusy(false);
@@ -3642,11 +3704,31 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                   </option>
                 ))}
               </select>
+              <div>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-extrabold text-slate-500">
+                    ₦
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={500000}
+                    step="50"
+                    placeholder="Price (0 = Free, or >= 100)"
+                    value={matPrice}
+                    onChange={(e) => setMatPrice(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-7 pr-3 py-2 text-sm font-bold tabular-nums"
+                  />
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  Enter <strong>0</strong> for Free PDF, or <strong>₦100+</strong> for Paystack paid PDF.
+                </p>
+              </div>
               <input
                 placeholder="Short description"
                 value={matDesc}
                 onChange={(e) => setMatDesc(e.target.value)}
-                className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                className="sm:col-span-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
               />
               <input
                 ref={matFileInputRef}
@@ -3659,48 +3741,191 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
               <button
                 type="submit"
                 disabled={busy}
-                className="sm:col-span-2 px-4 py-2.5 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white font-bold text-sm"
+                className="sm:col-span-2 px-4 py-2.5 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white font-bold text-sm disabled:opacity-50"
               >
                 Upload Study Material
               </button>
             </form>
 
             <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
-              {materials.map((m) => (
-                <div key={m.id} className="px-4 py-3 flex items-center justify-between gap-3 text-sm">
-                  <div>
-                    <div className="font-bold">{m.title}</div>
-                    <div className="text-xs text-slate-500">
-                      {m.category}
-                      {m.courseCode ? ` · ${m.courseCode}` : ''} · {m.fileType} · {m.downloadCount} downloads
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={async () => {
-                      setBusy(true);
-                      setFeedback(null);
-                      try {
-                        await api.admin.deleteMaterial(m.id);
-                        setFeedback({ type: 'ok', text: 'Study material deleted.' });
-                        await loadAllAdminData();
-                      } catch (err) {
-                        setFeedback({
-                          type: 'err',
-                          text: err instanceof Error ? err.message : 'Failed to delete material.',
-                        });
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50"
-                    title="Delete material"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+              {materials.length === 0 ? (
+                <div className="px-4 py-8 text-center text-sm text-slate-500">
+                  No study materials uploaded yet.
                 </div>
-              ))}
+              ) : (
+                materials.map((m) => {
+                  const isEditing = editingMaterialId === m.id;
+                  const priceNum = Number(m.price ?? 0);
+                  return (
+                    <div key={m.id} className="px-4 py-3 space-y-3 text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-bold text-slate-900 dark:text-white break-words">
+                              {m.title}
+                            </span>
+                            {priceNum <= 0 ? (
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-xs font-extrabold">
+                                Free
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-950/60 text-[#0b337a] dark:text-blue-300 text-xs font-extrabold tabular-nums">
+                                {formatCurrency(priceNum, m.currency)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                            {m.courseCode ? `${m.courseCode} — ${m.courseTitle}` : 'General (All Courses)'} ·{' '}
+                            {m.category} · {m.fileType} · {m.downloadCount} downloads
+                            {priceNum > 0 && (
+                              <>
+                                {' '}
+                                · {m.purchaseCount ?? 0} purchases (
+                                {formatCurrency(m.totalRevenue ?? 0, m.currency)})
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() =>
+                              isEditing ? setEditingMaterialId(null) : startEditMaterial(m)
+                            }
+                            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-1 disabled:opacity-50"
+                            title="Adjust price or details"
+                          >
+                            {isEditing ? (
+                              <>
+                                <X className="w-3.5 h-3.5" />
+                                <span>Cancel</span>
+                              </>
+                            ) : (
+                              <>
+                                <Edit3 className="w-3.5 h-3.5 text-[#0a58ed]" />
+                                <span>Adjust Price</span>
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={async () => {
+                              setBusy(true);
+                              setFeedback(null);
+                              try {
+                                await api.admin.deleteMaterial(m.id);
+                                setFeedback({ type: 'ok', text: 'Study material deleted.' });
+                                await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+                              } catch (err) {
+                                setFeedback({
+                                  type: 'err',
+                                  text:
+                                    err instanceof Error
+                                      ? err.message
+                                      : 'Failed to delete material.',
+                                });
+                              } finally {
+                                setBusy(false);
+                              }
+                            }}
+                            className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg disabled:opacity-50"
+                            title="Delete material"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {isEditing && (
+                        <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                              Price (₦ NGN, 0 = Free)
+                            </label>
+                            <input
+                              type="number"
+                              min={0}
+                              max={500000}
+                              step="50"
+                              value={editMatPrice}
+                              onChange={(e) => setEditMatPrice(e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-sm font-bold tabular-nums"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                              Course
+                            </label>
+                            <select
+                              value={editMatCourseId}
+                              onChange={(e) => setEditMatCourseId(e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold"
+                            >
+                              <option value="">General (All Courses)</option>
+                              {courses.map((c) => (
+                                <option key={c.id} value={c.id}>
+                                  {c.code} — {c.title}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                              Category
+                            </label>
+                            <select
+                              value={editMatCategory}
+                              onChange={(e) =>
+                                setEditMatCategory(e.target.value as MaterialCategory)
+                              }
+                              className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold"
+                            >
+                              {(['Tutorials', 'Notes', 'Past Questions', 'Guides'] as const).map(
+                                (c) => (
+                                  <option key={c} value={c}>
+                                    {c}
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                              Title
+                            </label>
+                            <input
+                              value={editMatTitle}
+                              onChange={(e) => setEditMatTitle(e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold"
+                            />
+                          </div>
+                          <div className="sm:col-span-2 lg:col-span-3">
+                            <input
+                              placeholder="Short description"
+                              value={editMatDesc}
+                              onChange={(e) => setEditMatDesc(e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs"
+                            />
+                          </div>
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => void handleSaveMaterialEdit(m.id)}
+                              className="w-full sm:w-auto px-3.5 py-1.5 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-extrabold inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+                            >
+                              <Save className="w-3.5 h-3.5" />
+                              <span>Save Changes</span>
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         )}

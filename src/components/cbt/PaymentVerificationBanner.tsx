@@ -20,6 +20,7 @@ interface PaymentVerificationBannerProps {
   error: string | null;
   onRetryVerify: (reference: string) => void;
   onGoToMyCourses: () => void;
+  onGoToMaterials?: () => void;
   onDismiss: () => void;
 }
 
@@ -30,18 +31,21 @@ export const PaymentVerificationBanner: React.FC<PaymentVerificationBannerProps>
   error,
   onRetryVerify,
   onGoToMyCourses,
+  onGoToMaterials,
   onDismiss,
 }) => {
   const [showReceiptModal, setShowReceiptModal] = useState(false);
 
   if (!verifying && !outcome && !error) return null;
 
+  const isMaterialPayment = outcome?.paymentType === 'study_material' || Boolean(outcome?.material);
   const vResult = outcome?.verificationResult;
   const isSuccess = outcome?.paymentStatus === 'successful' && outcome.unlocked;
   const isAwaitingAdmin =
-    vResult === 'awaiting_admin_review' ||
-    (outcome?.paymentStatus === 'successful' &&
-      (!outcome.unlocked || outcome.payment?.reconciliationStatus === 'shortfall'));
+    !isMaterialPayment &&
+    (vResult === 'awaiting_admin_review' ||
+      (outcome?.paymentStatus === 'successful' &&
+        (!outcome.unlocked || outcome.payment?.reconciliationStatus === 'shortfall')));
   const isPending = outcome?.paymentStatus === 'pending' || vResult === 'pending';
   const isNotFound = outcome?.paymentStatus === 'not_found' || vResult === 'not_found';
   const displayedRef = outcome?.payment?.paymentReference || reference;
@@ -53,7 +57,9 @@ export const PaymentVerificationBanner: React.FC<PaymentVerificationBannerProps>
       <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-[1px]">
         <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden">
           <div className="bg-[#0b337a] text-white px-4 py-3.5 flex items-center justify-between">
-            <h2 className="text-base font-extrabold">Course Payment Verification</h2>
+            <h2 className="text-base font-extrabold">
+              {isMaterialPayment ? 'Study Material Payment Verification' : 'Course Payment Verification'}
+            </h2>
             {!verifying && (
               <button
                 type="button"
@@ -76,7 +82,7 @@ export const PaymentVerificationBanner: React.FC<PaymentVerificationBannerProps>
                 {reference && (
                   <div className="flex flex-col items-center gap-1.5">
                     <p className="text-xs text-slate-500 dark:text-slate-400">
-                      Reference: <span className="font-mono font-bold">{reference}</span>
+                      Reference: <span className="font-mono font-bold break-all">{reference}</span>
                     </p>
                     <CopyReferenceButton reference={reference} compact />
                   </div>
@@ -86,14 +92,14 @@ export const PaymentVerificationBanner: React.FC<PaymentVerificationBannerProps>
               <div className="space-y-4">
                 <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 p-4 flex items-start gap-3">
                   <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
-                  <div className="text-sm text-red-800 dark:text-red-200">
+                  <div className="text-sm text-red-800 dark:text-red-200 min-w-0">
                     <div className="font-extrabold">Verification Notice</div>
-                    <p className="mt-1 text-xs">{error}</p>
+                    <p className="mt-1 text-xs break-words [overflow-wrap:anywhere]">{error}</p>
                   </div>
                 </div>
                 {displayedRef && (
                   <div className="rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200 break-all">
                       {displayedRef}
                     </span>
                     <CopyReferenceButton reference={displayedRef} compact />
@@ -124,13 +130,15 @@ export const PaymentVerificationBanner: React.FC<PaymentVerificationBannerProps>
                 {isSuccess ? (
                   <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 p-3.5 flex items-start gap-3">
                     <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                    <div className="text-sm text-emerald-900 dark:text-emerald-100">
+                    <div className="text-sm text-emerald-900 dark:text-emerald-100 min-w-0">
                       <div className="font-extrabold">
-                        {vResult === 'already_registered'
-                          ? 'Already Registered ✓'
-                          : 'Registration Confirmed ✓'}
+                        {isMaterialPayment
+                          ? 'Study Material Unlocked ✓'
+                          : vResult === 'already_registered'
+                            ? 'Already Registered ✓'
+                            : 'Registration Confirmed ✓'}
                       </div>
-                      <p className="mt-1 text-xs">{outcome.message}</p>
+                      <p className="mt-1 text-xs break-words">{outcome.message}</p>
                     </div>
                   </div>
                 ) : isAwaitingAdmin ? (
@@ -162,7 +170,25 @@ export const PaymentVerificationBanner: React.FC<PaymentVerificationBannerProps>
                 )}
 
                 <div className="rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 p-3.5 space-y-2 text-xs">
-                  {outcome.course && (
+                  {outcome.material && (
+                    <>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-500 dark:text-slate-400">Study Material</span>
+                        <span className="font-bold text-slate-900 dark:text-white text-right">
+                          {outcome.material.title}
+                        </span>
+                      </div>
+                      {outcome.material.courseCode && (
+                        <div className="flex justify-between gap-2">
+                          <span className="text-slate-500 dark:text-slate-400">Course</span>
+                          <span className="font-bold text-slate-900 dark:text-white text-right">
+                            {outcome.material.courseCode} — {outcome.material.courseTitle}
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {!outcome.material && outcome.course && (
                     <div className="flex justify-between gap-2">
                       <span className="text-slate-500 dark:text-slate-400">Course</span>
                       <span className="font-bold text-slate-900 dark:text-white text-right">
@@ -174,7 +200,7 @@ export const PaymentVerificationBanner: React.FC<PaymentVerificationBannerProps>
                     <div className="space-y-1">
                       <div className="flex justify-between gap-2">
                         <span className="text-slate-500 dark:text-slate-400">Payment Reference</span>
-                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200 break-all text-right">
                           {displayedRef}
                         </span>
                       </div>
@@ -228,10 +254,12 @@ export const PaymentVerificationBanner: React.FC<PaymentVerificationBannerProps>
                   {isSuccess ? (
                     <button
                       type="button"
-                      onClick={onGoToMyCourses}
+                      onClick={
+                        isMaterialPayment && onGoToMaterials ? onGoToMaterials : onGoToMyCourses
+                      }
                       className="px-4 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-extrabold min-h-[40px]"
                     >
-                      Go to My Courses
+                      {isMaterialPayment ? 'Go to Study Materials' : 'Go to My Courses'}
                     </button>
                   ) : (
                     <button

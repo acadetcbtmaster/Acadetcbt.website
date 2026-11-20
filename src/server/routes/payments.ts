@@ -6,6 +6,10 @@ import { courseRegistrations, courses, payments, users } from '../../db/schema.j
 import { writeAuditLog } from '../lib/audit.js';
 import { normalizeWhatsappGroupLink } from '../lib/notifications.js';
 import {
+  isStudyMaterialReference,
+  verifyAndSettleMaterialReference,
+} from '../lib/materialPayments.js';
+import {
   buildPaymentReceiptById,
   PaymentValidationError,
   verifyAndSettleStudentReference,
@@ -282,6 +286,22 @@ async function handleVerifyRequest(
   res: import('express').Response
 ) {
   try {
+    if (await isStudyMaterialReference(reference)) {
+      const materialOutcome = await verifyAndSettleMaterialReference({
+        reference,
+        requestingUser: {
+          id: req.user!.id,
+          email: req.user!.email,
+          fullName: req.user!.fullName,
+          role: req.user!.role,
+        },
+        source,
+        ipAddress: req.ip,
+      });
+      res.json(materialOutcome);
+      return;
+    }
+
     const outcome = await verifyAndSettleStudentReference({
       reference,
       requestingUser: {

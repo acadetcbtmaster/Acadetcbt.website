@@ -227,14 +227,52 @@ export interface StudyMaterialItem {
   courseId: string | null;
   courseTitle: string | null;
   courseCode: string | null;
+  courseLevel?: string | null;
   title: string;
   description: string;
   category: MaterialCategory;
   fileType: 'PDF' | 'DOC' | 'IMAGE' | 'OTHER';
   fileSizeBytes: number;
   mimeType: string;
+  price: number;
+  currency: string;
+  isFree: boolean;
+  isPurchased: boolean;
   downloadCount: number;
+  purchaseCount?: number;
+  totalRevenue?: number;
   createdAt: string;
+}
+
+export interface StudyMaterialCourseSummary {
+  courseId: string | null;
+  code: string;
+  title: string;
+  level: string;
+  materialCount: number;
+  freeCount: number;
+  paidCount: number;
+  unlockedCount: number;
+}
+
+export interface MaterialPaymentInitResponse {
+  purchaseId: string;
+  reference: string;
+  authorizationUrl: string;
+  accessCode: string;
+  amount: number;
+  currency: string;
+  material: {
+    id: string;
+    title: string;
+    fileType: string;
+    category: string;
+    price: number;
+    currency: string;
+    courseId: string | null;
+    courseCode: string | null;
+    courseTitle: string | null;
+  };
 }
 
 export interface PaymentInitializeResponse {
@@ -276,6 +314,7 @@ export interface PaymentReceiptData {
 }
 
 export interface PaymentVerifyOutcome {
+  paymentType?: 'course' | 'study_material';
   verificationResult?: PaymentVerificationResult;
   paymentStatus: PaymentStatus | 'not_found';
   alreadyProcessed: boolean;
@@ -284,7 +323,8 @@ export interface PaymentVerifyOutcome {
   payment: {
     id: string;
     studentId: string;
-    courseId: string;
+    courseId?: string;
+    materialId?: string;
     paymentReference: string;
     gateway: string;
     whatsappNumber?: string | null;
@@ -304,7 +344,7 @@ export interface PaymentVerifyOutcome {
     paidAt: string | null;
     createdAt: string;
   } | null;
-  registration: {
+  registration?: {
     id: string;
     studentId: string;
     courseId: string;
@@ -313,7 +353,7 @@ export interface PaymentVerifyOutcome {
     registrationStatus: string;
     registeredAt: string;
   } | null;
-  course: {
+  course?: {
     id: string;
     code: string;
     title: string;
@@ -321,6 +361,17 @@ export interface PaymentVerifyOutcome {
     registrationFee: string;
     currency: string;
     whatsappGroupLink?: string | null;
+  } | null;
+  material?: {
+    id: string;
+    title: string;
+    fileType: string;
+    category: string;
+    price: number;
+    currency: string;
+    courseId: string | null;
+    courseCode: string | null;
+    courseTitle: string | null;
   } | null;
   receipt?: PaymentReceiptData | null;
 }

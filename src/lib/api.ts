@@ -20,6 +20,8 @@ import type {
   GradedExamQuestion,
   Gst111ActivationHistoryItem,
   Gst111StudentsResponse,
+  MaterialCategory,
+  MaterialPaymentInitResponse,
   NotificationType,
   OptionLetter,
   PaymentBackupSummary,
@@ -41,6 +43,7 @@ import type {
   SiteBrandingData,
   StudentNotificationItem,
   StudentPaymentRecord,
+  StudyMaterialCourseSummary,
   StudyMaterialItem,
   UserPreferences,
 } from '../types/cbt';
@@ -381,14 +384,29 @@ export const api = {
         search.set('courseId', params.courseId);
       }
       const qs = search.toString();
-      return request<{ materials: StudyMaterialItem[] }>(
-        `/api/materials${qs ? `?${qs}` : ''}`
-      );
+      return request<{
+        materials: StudyMaterialItem[];
+        courseSummaries?: StudyMaterialCourseSummary[];
+      }>(`/api/materials${qs ? `?${qs}` : ''}`);
     },
+
+    initializePayment: (id: string) =>
+      request<MaterialPaymentInitResponse>(`/api/materials/${encodeURIComponent(id)}/pay`, {
+        method: 'POST',
+      }),
+
+    verifyPayment: (
+      reference: string,
+      source: 'student_manual' | 'callback' = 'student_manual'
+    ) =>
+      request<PaymentVerifyOutcome>('/api/materials/verify-payment', {
+        method: 'POST',
+        body: JSON.stringify({ reference, source }),
+      }),
 
     requestDownload: (id: string) =>
       request<{ downloadUrl: string; filename: string }>(
-        `/api/materials/${id}/download`,
+        `/api/materials/${encodeURIComponent(id)}/download`,
         { method: 'POST' }
       ),
   },
@@ -635,11 +653,30 @@ export const api = {
         ),
     },
 
+    listMaterials: () =>
+      request<{ materials: StudyMaterialItem[] }>('/api/admin/materials'),
     uploadMaterial: (formData: FormData) =>
       request<{ material: StudyMaterialItem }>('/api/admin/materials/upload', {
         method: 'POST',
         body: formData,
       }),
+    updateMaterial: (
+      id: string,
+      payload: {
+        title?: string;
+        description?: string;
+        category?: MaterialCategory;
+        courseId?: string | null;
+        price?: number;
+      }
+    ) =>
+      request<{ material: StudyMaterialItem; message: string }>(
+        `/api/admin/materials/${encodeURIComponent(id)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        }
+      ),
     deleteMaterial: (id: string) =>
       request<{ deletedId: string }>(`/api/admin/materials/${id}`, { method: 'DELETE' }),
 

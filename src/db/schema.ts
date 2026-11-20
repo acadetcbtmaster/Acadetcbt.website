@@ -321,6 +321,8 @@ export const studyMaterials = pgTable(
     originalFilename: text('original_filename'),
     fileData: bytea('file_data'),
     mimeType: text('mime_type').notNull().default('application/pdf'),
+    price: numeric('price', { precision: 12, scale: 2 }).notNull().default('0.00'),
+    currency: text('currency').notNull().default('NGN'),
     downloadCount: integer('download_count').notNull().default(0),
     isActive: boolean('is_active').notNull().default(true),
     uploadedBy: uuid('uploaded_by').references(() => users.id, { onDelete: 'set null' }),
@@ -338,6 +340,54 @@ export const studyMaterials = pgTable(
       'study_materials_storage_backend_check',
       sql`${table.storageBackend} IN ('s3', 'postgres')`
     ),
+    check('study_materials_price_check', sql`${table.price} >= 0`),
+  ]
+);
+
+export const studyMaterialPurchases = pgTable(
+  'study_material_purchases',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    materialId: uuid('material_id')
+      .notNull()
+      .references(() => studyMaterials.id, { onDelete: 'cascade' }),
+    paymentReference: text('payment_reference').notNull(),
+    gateway: text('gateway').notNull().default('paystack'),
+    amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+    currency: text('currency').notNull().default('NGN'),
+    paymentStatus: text('payment_status').notNull().default('pending'),
+    gatewayTransactionId: text('gateway_transaction_id'),
+    paymentChannel: text('payment_channel'),
+    gatewayResponse: jsonb('gateway_response')
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+    authorizationUrl: text('authorization_url'),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('study_material_purchases_ref_unique_idx').on(table.paymentReference),
+    uniqueIndex('study_material_purchases_active_student_mat_idx')
+      .on(table.studentId, table.materialId)
+      .where(sql`${table.paymentStatus} = 'successful'`),
+    index('study_material_purchases_student_created_idx').on(table.studentId, table.createdAt),
+    index('study_material_purchases_material_status_idx').on(
+      table.materialId,
+      table.paymentStatus
+    ),
+    index('study_material_purchases_gateway_tx_idx')
+      .on(table.gatewayTransactionId)
+      .where(sql`${table.gatewayTransactionId} IS NOT NULL`),
+    check(
+      'study_material_purchases_status_check',
+      sql`${table.paymentStatus} IN ('pending', 'successful', 'failed', 'refunded')`
+    ),
+    check('study_material_purchases_amount_check', sql`${table.amount} >= 0`),
   ]
 );
 

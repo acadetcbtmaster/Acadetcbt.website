@@ -1035,6 +1035,7 @@ export default function App() {
                       <StudyMaterialsView
                         selectedCourseId={selectedCourseId}
                         compact
+                        refreshTrigger={myCoursesRefreshKey}
                         onExploreMore={() => setActiveTab('materials')}
                       />
                     </div>
@@ -1042,7 +1043,10 @@ export default function App() {
                 )}
 
                 {activeTab === 'materials' && (
-                  <StudyMaterialsView selectedCourseId={selectedCourseId} />
+                  <StudyMaterialsView
+                    selectedCourseId={selectedCourseId}
+                    refreshTrigger={myCoursesRefreshKey}
+                  />
                 )}
 
                 {activeTab === 'practice' && (
@@ -1166,6 +1170,15 @@ export default function App() {
             setPaymentVerifyError(null);
             setVerifyingRef(null);
             setActiveTab('my-courses');
+          }}
+          onGoToMaterials={() => {
+            if (paymentOutcome?.material?.courseId) {
+              setSelectedCourseId(paymentOutcome.material.courseId);
+            }
+            setPaymentOutcome(null);
+            setPaymentVerifyError(null);
+            setVerifyingRef(null);
+            setActiveTab('materials');
           }}
           onDismiss={() => {
             setPaymentOutcome(null);

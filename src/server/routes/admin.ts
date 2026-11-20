@@ -51,6 +51,10 @@ import {
 } from '../lib/gst111.js';
 import { sanitizeUser } from '../lib/jwt.js';
 import {
+  MaterialPaymentError,
+  validateMaterialPriceNaira,
+} from '../lib/materialPayments.js';
+import {
   createStudentNotification,
   normalizeWhatsappGroupLink,
 } from '../lib/notifications.js';
@@ -1772,6 +1776,72 @@ router.post('/questions/generate', async (req, res) => {
 });
 
 // Study Materials Upload & Management (External S3 Object Storage with automatic PostgreSQL BYTEA fallback)
+router.get('/materials', async (_req, res) => {
+  try {
+    const pool = getPool();
+    const rows = await pool.query<{
+      id: string;
+      courseId: string | null;
+      courseTitle: string | null;
+      courseCode: string | null;
+      courseLevel: string | null;
+      title: string;
+      description: string;
+      category: string;
+      fileType: string;
+      fileSizeBytes: number;
+      mimeType: string;
+      price: string;
+      currency: string;
+      downloadCount: number;
+      purchaseCount: number;
+      totalRevenue: string;
+      createdAt: Date;
+    }>(
+      `SELECT
+         sm.id,
+         sm.course_id AS "courseId",
+         c.title AS "courseTitle",
+         c.code AS "courseCode",
+         c.level AS "courseLevel",
+         sm.title,
+         sm.description,
+         sm.category,
+         sm.file_type AS "fileType",
+         sm.file_size_bytes AS "fileSizeBytes",
+         sm.mime_type AS "mimeType",
+         sm.price::text AS price,
+         sm.currency,
+         sm.download_count AS "downloadCount",
+         COALESCE(COUNT(smp.id) FILTER (WHERE smp.payment_status = 'successful'), 0)::int AS "purchaseCount",
+         COALESCE(SUM(smp.amount) FILTER (WHERE smp.payment_status = 'successful'), 0)::text AS "totalRevenue",
+         sm.created_at AS "createdAt"
+       FROM study_materials sm
+       LEFT JOIN courses c ON c.id = sm.course_id
+       LEFT JOIN study_material_purchases smp ON smp.material_id = sm.id
+       WHERE sm.is_active = TRUE
+       GROUP BY sm.id, c.title, c.code, c.level
+       ORDER BY sm.created_at DESC`
+    );
+
+    res.json({
+      materials: rows.rows.map((r) => {
+        const priceNum = Number(r.price ?? 0);
+        return {
+          ...r,
+          price: priceNum,
+          isFree: priceNum <= 0,
+          isPurchased: true,
+          purchaseCount: Number(r.purchaseCount ?? 0),
+          totalRevenue: Number(r.totalRevenue ?? 0),
+        };
+      }),
+    });
+  } catch (err) {
+    handleApiError(res, err, 'listing admin study materials');
+  }
+});
+
 router.post(
   '/materials/upload',
   upload.single('file') as unknown as RequestHandler,
@@ -1788,9 +1858,11 @@ router.post(
         description: z.string().trim().max(500).default(''),
         category: z.enum(['Tutorials', 'Notes', 'Past Questions', 'Guides']).default('Notes'),
         courseId: z.string().uuid().optional().or(z.literal('')),
+        price: z.union([z.string(), z.number()]).optional(),
       });
 
       const parsed = metaSchema.parse(req.body);
+      const priceNaira = validateMaterialPriceNaira(parsed.price);
       const objectKey = buildMaterialObjectKey(file.originalname, parsed.category);
 
       let storageBackend: 's3' | 'postgres' = 'postgres';
@@ -1838,6 +1910,8 @@ router.post(
           originalFilename: path.basename(file.originalname || 'material.pdf'),
           fileData,
           mimeType: file.mimetype || 'application/pdf',
+          price: priceNaira.toFixed(2),
+          currency: 'NGN',
           uploadedBy: req.user!.id,
           isActive: true,
         })
@@ -1851,6 +1925,8 @@ router.post(
           fileSizeBytes: studyMaterials.fileSizeBytes,
           storageBackend: studyMaterials.storageBackend,
           mimeType: studyMaterials.mimeType,
+          price: studyMaterials.price,
+          currency: studyMaterials.currency,
           downloadCount: studyMaterials.downloadCount,
           createdAt: studyMaterials.createdAt,
         });
@@ -1860,16 +1936,132 @@ router.post(
         action: 'admin.material.upload',
         entityType: 'study_material',
         entityId: created.id,
-        metadata: { title: created.title, objectKey, storageBackend },
+        metadata: { title: created.title, objectKey, storageBackend, price: priceNaira },
         ipAddress: req.ip,
       });
 
-      res.status(201).json({ material: created });
+      const createdPrice = Number(created.price ?? 0);
+      res.status(201).json({
+        material: {
+          ...created,
+          price: createdPrice,
+          isFree: createdPrice <= 0,
+          isPurchased: true,
+        },
+      });
     } catch (err) {
+      if (err instanceof MaterialPaymentError) {
+        res.status(err.statusCode).json({ error: err.message, code: err.code });
+        return;
+      }
       handleApiError(res, err, 'uploading study material');
     }
   }
 );
+
+router.patch('/materials/:id', async (req, res) => {
+  try {
+    const id = req.params.id?.trim();
+    if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+      res.status(400).json({ error: 'Valid material ID is required.' });
+      return;
+    }
+
+    const updateSchema = z.object({
+      title: z.string().trim().min(2).max(180).optional(),
+      description: z.string().trim().max(500).optional(),
+      category: z.enum(['Tutorials', 'Notes', 'Past Questions', 'Guides']).optional(),
+      courseId: z.string().uuid().nullable().optional().or(z.literal('')),
+      price: z.union([z.string(), z.number()]).optional(),
+    });
+
+    const parsed = updateSchema.parse(req.body ?? {});
+    const db = getDb();
+
+    const [existing] = await db
+      .select({
+        id: studyMaterials.id,
+        title: studyMaterials.title,
+        price: studyMaterials.price,
+      })
+      .from(studyMaterials)
+      .where(eq(studyMaterials.id, id))
+      .limit(1);
+
+    if (!existing) {
+      res.status(404).json({ error: 'Study material not found.' });
+      return;
+    }
+
+    const updateFields: Partial<typeof studyMaterials.$inferInsert> = {
+      updatedAt: new Date(),
+    };
+    if (parsed.title !== undefined) updateFields.title = parsed.title;
+    if (parsed.description !== undefined) updateFields.description = parsed.description;
+    if (parsed.category !== undefined) updateFields.category = parsed.category;
+    if (parsed.courseId !== undefined) {
+      updateFields.courseId = parsed.courseId ? parsed.courseId : null;
+    }
+
+    let validatedPrice: number | undefined;
+    if (parsed.price !== undefined) {
+      validatedPrice = validateMaterialPriceNaira(parsed.price);
+      updateFields.price = validatedPrice.toFixed(2);
+    }
+
+    const [updated] = await db
+      .update(studyMaterials)
+      .set(updateFields)
+      .where(eq(studyMaterials.id, existing.id))
+      .returning({
+        id: studyMaterials.id,
+        courseId: studyMaterials.courseId,
+        title: studyMaterials.title,
+        description: studyMaterials.description,
+        category: studyMaterials.category,
+        fileType: studyMaterials.fileType,
+        fileSizeBytes: studyMaterials.fileSizeBytes,
+        mimeType: studyMaterials.mimeType,
+        price: studyMaterials.price,
+        currency: studyMaterials.currency,
+        downloadCount: studyMaterials.downloadCount,
+        createdAt: studyMaterials.createdAt,
+      });
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.material.update',
+      entityType: 'study_material',
+      entityId: updated.id,
+      metadata: {
+        title: updated.title,
+        previousPrice: Number(existing.price ?? 0),
+        newPrice: validatedPrice ?? Number(updated.price ?? 0),
+      },
+      ipAddress: req.ip,
+    });
+
+    const updatedPrice = Number(updated.price ?? 0);
+    res.json({
+      material: {
+        ...updated,
+        price: updatedPrice,
+        isFree: updatedPrice <= 0,
+        isPurchased: true,
+      },
+      message:
+        validatedPrice !== undefined
+          ? `Material updated. Price is now ${updatedPrice <= 0 ? 'Free' : `₦${updatedPrice.toLocaleString()}`}.`
+          : 'Study material updated.',
+    });
+  } catch (err) {
+    if (err instanceof MaterialPaymentError) {
+      res.status(err.statusCode).json({ error: err.message, code: err.code });
+      return;
+    }
+    handleApiError(res, err, 'updating study material');
+  }
+});
 
 router.delete('/materials/:id', async (req, res) => {
   try {

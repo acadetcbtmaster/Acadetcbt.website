@@ -55,9 +55,10 @@ export function getPaystackWebhookSecret(): string | null {
   );
 }
 
-export function generatePaymentReference(): string {
+export function generatePaymentReference(prefix = 'ACD'): string {
   const year = new Date().getFullYear();
-  return `ACD-${year}-${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
+  const cleanPrefix = prefix.replace(/[^A-Za-z0-9-]/g, '').toUpperCase() || 'ACD';
+  return `${cleanPrefix}-${year}-${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
 }
 
 export function nairaToKobo(amountNaira: number | string): number {

@@ -1,6 +1,10 @@
 import { Router } from 'express';
 import { getPool, isDatabaseConfigured } from '../../db/index.js';
 import {
+  isStudyMaterialReference,
+  settleStudyMaterialPaystackTransaction,
+} from '../lib/materialPayments.js';
+import {
   PaymentValidationError,
   recordPaymentVerificationLog,
   settlePaystackTransaction,
@@ -90,6 +94,46 @@ router.post('/paystack', async (req, res) => {
         metadata: (data.metadata as Record<string, unknown> | undefined) || undefined,
       };
 
+      const isMaterialPurchase =
+        normalizedData.metadata?.purchase_type === 'study_material' ||
+        (await isStudyMaterialReference(reference));
+
+      if (isMaterialPurchase) {
+        const matOutcome = await settleStudyMaterialPaystackTransaction({
+          paystackData: normalizedData,
+          source: 'webhook',
+          ipAddress: req.ip,
+        });
+
+        await recordPaymentVerificationLog({
+          studentId: matOutcome.payment?.studentId || null,
+          paymentId: null,
+          courseId: matOutcome.material?.courseId || null,
+          paymentReference: reference,
+          verificationSource: 'webhook',
+          verificationResult:
+            matOutcome.verificationResult ??
+            (matOutcome.unlocked
+              ? 'successful'
+              : matOutcome.paymentStatus === 'failed'
+                ? 'failed'
+                : 'pending'),
+          paymentStatus: matOutcome.paymentStatus,
+          registrationStatus: matOutcome.unlocked ? 'active' : 'not_activated',
+          paystackData: normalizedData,
+          reason: matOutcome.message,
+        });
+
+        await pool.query(
+          `UPDATE payment_webhook_events
+           SET processing_status = 'processed', processed_at = NOW()
+           WHERE id = $1`,
+          [webhookEventId]
+        );
+        res.status(200).json({ ok: true, processed: true, purchaseType: 'study_material' });
+        return;
+      }
+
       const outcome = await settlePaystackTransaction({
         paystackData: normalizedData,
         source: 'webhook',
@@ -140,6 +184,15 @@ router.post('/paystack', async (req, res) => {
              SET registration_status = 'revoked', updated_at = NOW()
              WHERE payment_id = $1 AND registration_status = 'active'`,
             [payRes.rows[0].id]
+          );
+        } else {
+          await client.query(
+            `UPDATE study_material_purchases
+             SET payment_status = 'refunded',
+                 gateway_response = $2::jsonb,
+                 updated_at = NOW()
+             WHERE payment_reference = $1`,
+            [reference, JSON.stringify(data)]
           );
         }
         await client.query('COMMIT');
