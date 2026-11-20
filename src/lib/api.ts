@@ -5,6 +5,7 @@ import type {
   ActivitySummary,
   AdminCourseItem,
   AdminEmailStatusOverview,
+  AdminMaterialSalesReport,
   AdminNotificationRecord,
   AdminOverview,
   AdminPaymentRecord,
@@ -22,6 +23,7 @@ import type {
   Gst111StudentsResponse,
   MaterialCategory,
   MaterialPaymentInitResponse,
+  MaterialPublicationStatus,
   NotificationType,
   OptionLetter,
   PaymentBackupSummary,
@@ -41,6 +43,7 @@ import type {
   ResultsOverview,
   SafeUser,
   SiteBrandingData,
+  StudentMaterialPurchaseItem,
   StudentNotificationItem,
   StudentPaymentRecord,
   StudyMaterialCourseSummary,
@@ -385,10 +388,16 @@ export const api = {
       }
       const qs = search.toString();
       return request<{
+        courseLocked?: boolean;
+        courseRegistrationRequired?: boolean;
+        lockedCourse?: StudyMaterialCourseSummary | null;
         materials: StudyMaterialItem[];
         courseSummaries?: StudyMaterialCourseSummary[];
       }>(`/api/materials${qs ? `?${qs}` : ''}`);
     },
+
+    myPurchases: () =>
+      request<{ purchases: StudentMaterialPurchaseItem[] }>('/api/materials/my-purchases'),
 
     initializePayment: (id: string) =>
       request<MaterialPaymentInitResponse>(`/api/materials/${encodeURIComponent(id)}/pay`, {
@@ -435,6 +444,9 @@ export const api = {
       code: string;
       title: string;
       level?: string;
+      faculty?: string;
+      department?: string;
+      semester?: string;
       description?: string;
       registrationFee: number;
       courseValue?: number;
@@ -454,6 +466,9 @@ export const api = {
         code: string;
         title: string;
         level: string;
+        faculty: string;
+        department: string;
+        semester: string;
         description: string;
         registrationFee: number;
         courseValue: number;
@@ -667,6 +682,11 @@ export const api = {
         description?: string;
         category?: MaterialCategory;
         courseId?: string | null;
+        faculty?: string;
+        department?: string;
+        academicLevel?: string;
+        semester?: string;
+        publicationStatus?: MaterialPublicationStatus;
         price?: number;
       }
     ) =>
@@ -677,8 +697,57 @@ export const api = {
           body: JSON.stringify(payload),
         }
       ),
+    replaceMaterialFile: (id: string, file: File) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      return request<{ material: StudyMaterialItem; message: string }>(
+        `/api/admin/materials/${encodeURIComponent(id)}/replace-file`,
+        {
+          method: 'POST',
+          body: fd,
+        }
+      );
+    },
     deleteMaterial: (id: string) =>
       request<{ deletedId: string }>(`/api/admin/materials/${id}`, { method: 'DELETE' }),
+    getMaterialSales: (filters?: {
+      search?: string;
+      courseId?: string;
+      materialId?: string;
+      paymentStatus?: PaymentStatus | '';
+      dateFrom?: string;
+      dateTo?: string;
+    }) => {
+      const search = new URLSearchParams();
+      if (filters?.search) search.set('search', filters.search);
+      if (filters?.courseId) search.set('courseId', filters.courseId);
+      if (filters?.materialId) search.set('materialId', filters.materialId);
+      if (filters?.paymentStatus) search.set('paymentStatus', filters.paymentStatus);
+      if (filters?.dateFrom) search.set('dateFrom', filters.dateFrom);
+      if (filters?.dateTo) search.set('dateTo', filters.dateTo);
+      const qs = search.toString();
+      return request<AdminMaterialSalesReport>(
+        `/api/admin/materials/sales${qs ? `?${qs}` : ''}`
+      );
+    },
+    getMaterialSalesExportUrl: (filters?: {
+      search?: string;
+      courseId?: string;
+      materialId?: string;
+      paymentStatus?: PaymentStatus | '';
+      dateFrom?: string;
+      dateTo?: string;
+    }) => {
+      const search = new URLSearchParams();
+      if (filters?.search) search.set('search', filters.search);
+      if (filters?.courseId) search.set('courseId', filters.courseId);
+      if (filters?.materialId) search.set('materialId', filters.materialId);
+      if (filters?.paymentStatus) search.set('paymentStatus', filters.paymentStatus);
+      if (filters?.dateFrom) search.set('dateFrom', filters.dateFrom);
+      if (filters?.dateTo) search.set('dateTo', filters.dateTo);
+      const qs = search.toString();
+      return `/api/admin/materials/sales/export${qs ? `?${qs}` : ''}`;
+    },
 
     listAnnouncements: () =>
       request<{ announcements: AnnouncementItem[] }>('/api/admin/announcements'),

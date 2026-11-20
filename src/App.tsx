@@ -91,6 +91,11 @@ const StudyMaterialsView = lazy(() =>
     default: m.StudyMaterialsView,
   }))
 );
+const StudentMaterialPurchasesView = lazy(() =>
+  import('./components/cbt/StudentMaterialPurchasesView').then((m) => ({
+    default: m.StudentMaterialPurchasesView,
+  }))
+);
 const TopHeader = lazy(() =>
   import('./components/cbt/TopHeader').then((m) => ({ default: m.TopHeader }))
 );
@@ -442,10 +447,12 @@ export default function App() {
       activeTab === 'home' ||
       activeTab === 'catalogue' ||
       activeTab === 'my-courses' ||
+      activeTab === 'materials' ||
+      activeTab === 'material-purchases' ||
       activeTab === 'practice'
     ) {
       void loadWorkspaceData(user);
-      if (activeTab === 'my-courses') {
+      if (activeTab === 'my-courses' || activeTab === 'materials' || activeTab === 'material-purchases') {
         setMyCoursesRefreshKey((k) => k + 1);
       }
     }
@@ -1037,6 +1044,8 @@ export default function App() {
                         compact
                         refreshTrigger={myCoursesRefreshKey}
                         onExploreMore={() => setActiveTab('materials')}
+                        onRegisterCourse={handleRegisterNowFromModal}
+                        onOpenPurchases={() => setActiveTab('material-purchases')}
                       />
                     </div>
                   </div>
@@ -1046,6 +1055,16 @@ export default function App() {
                   <StudyMaterialsView
                     selectedCourseId={selectedCourseId}
                     refreshTrigger={myCoursesRefreshKey}
+                    onRegisterCourse={handleRegisterNowFromModal}
+                    onOpenPurchases={() => setActiveTab('material-purchases')}
+                  />
+                )}
+
+                {activeTab === 'material-purchases' && (
+                  <StudentMaterialPurchasesView
+                    refreshTrigger={myCoursesRefreshKey}
+                    onBrowseMaterials={() => setActiveTab('materials')}
+                    onRegisterCourse={handleRegisterNowFromModal}
                   />
                 )}
 

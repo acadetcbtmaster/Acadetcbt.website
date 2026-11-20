@@ -94,9 +94,19 @@ export function verifyAuthToken(token: string): AuthTokenPayload {
   };
 }
 
-export function signMaterialDownloadToken(materialId: string, filename: string): string {
+export function signMaterialDownloadToken(
+  materialId: string,
+  filename: string,
+  options?: { isAdmin?: boolean; userId?: string }
+): string {
   return jwt.sign(
-    { purpose: 'material_download', materialId, filename },
+    {
+      purpose: 'material_download',
+      materialId,
+      filename,
+      isAdmin: Boolean(options?.isAdmin),
+      userId: options?.userId ?? null,
+    },
     getJwtSecret(),
     {
       expiresIn: '10m',
@@ -108,7 +118,7 @@ export function signMaterialDownloadToken(materialId: string, filename: string):
 export function verifyMaterialDownloadToken(
   token: string,
   expectedMaterialId: string
-): { materialId: string; filename: string } | null {
+): { materialId: string; filename: string; isAdmin: boolean; userId: string | null } | null {
   try {
     const decoded = jwt.verify(token, getJwtSecret(), {
       issuer: 'acadet-cbt',
@@ -122,9 +132,13 @@ export function verifyMaterialDownloadToken(
       return null;
     }
     const rawFilename = (decoded as { filename?: unknown }).filename;
+    const rawIsAdmin = (decoded as { isAdmin?: unknown }).isAdmin;
+    const rawUserId = (decoded as { userId?: unknown }).userId;
     return {
       materialId: expectedMaterialId,
       filename: typeof rawFilename === 'string' && rawFilename.trim() ? rawFilename : 'material.pdf',
+      isAdmin: Boolean(rawIsAdmin),
+      userId: typeof rawUserId === 'string' ? rawUserId : null,
     };
   } catch {
     return null;

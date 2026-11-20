@@ -26,6 +26,7 @@ import {
   MessageCircle,
   Palette,
   Plus,
+  Receipt,
   RefreshCw,
   RotateCcw,
   Save,
@@ -47,6 +48,7 @@ import type {
   AccountStatus,
   AdminCourseItem,
   AdminEmailStatusOverview,
+  AdminMaterialSalesReport,
   AdminNotificationRecord,
   AdminOverview,
   AdminPaymentRecord,
@@ -58,6 +60,7 @@ import type {
   CourseQuestionStatsItem,
   FounderProfileData,
   MaterialCategory,
+  MaterialPublicationStatus,
   NotificationType,
   OptionLetter,
   PaymentBackupSummary,
@@ -109,11 +112,22 @@ type AdminSection =
   | 'ai_generator'
   | 'ai_settings'
   | 'materials'
+  | 'material_sales'
   | 'announcements'
   | 'notifications'
   | 'users'
   | 'email'
   | 'branding';
+
+const ADMIN_MATERIAL_CATEGORIES: readonly MaterialCategory[] = [
+  'Lecture Notes',
+  'Handouts',
+  'Practical Guides',
+  'Tutorials',
+  'Notes',
+  'Past Questions',
+  'Guides',
+];
 
 function StatusBadge({ status }: { status: PaymentStatus }) {
   if (status === 'successful') {
@@ -247,6 +261,9 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
   const [cCode, setCCode] = useState('');
   const [cTitle, setCTitle] = useState('');
   const [cLevel, setCLevel] = useState('100 Level');
+  const [cFaculty, setCFaculty] = useState('General');
+  const [cDepartment, setCDepartment] = useState('General');
+  const [cSemester, setCSemester] = useState('First Semester');
   const [cFee, setCFee] = useState('2350');
   const [cValue, setCValue] = useState('2300');
   const [cValueCustom, setCValueCustom] = useState(false);
@@ -343,18 +360,42 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
 
   // Material upload form & inline editor
   const [matTitle, setMatTitle] = useState('');
-  const [matCategory, setMatCategory] = useState<MaterialCategory>('Notes');
+  const [matCategory, setMatCategory] = useState<MaterialCategory>('Lecture Notes');
   const [matCourseId, setMatCourseId] = useState('');
+  const [matFaculty, setMatFaculty] = useState('General');
+  const [matDepartment, setMatDepartment] = useState('General');
+  const [matLevel, setMatLevel] = useState('100 Level');
+  const [matSemester, setMatSemester] = useState('First Semester');
+  const [matPubStatus, setMatPubStatus] = useState<MaterialPublicationStatus>('published');
   const [matDesc, setMatDesc] = useState('');
   const [matPrice, setMatPrice] = useState('0');
   const [matFile, setMatFile] = useState<File | null>(null);
   const matFileInputRef = useRef<HTMLInputElement | null>(null);
+  const replaceMatFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [replaceTargetMaterialId, setReplaceTargetMaterialId] = useState<string | null>(null);
   const [editingMaterialId, setEditingMaterialId] = useState<string | null>(null);
   const [editMatTitle, setEditMatTitle] = useState('');
   const [editMatPrice, setEditMatPrice] = useState('0');
   const [editMatCourseId, setEditMatCourseId] = useState('');
-  const [editMatCategory, setEditMatCategory] = useState<MaterialCategory>('Notes');
+  const [editMatCategory, setEditMatCategory] = useState<MaterialCategory>('Lecture Notes');
+  const [editMatFaculty, setEditMatFaculty] = useState('General');
+  const [editMatDepartment, setEditMatDepartment] = useState('General');
+  const [editMatLevel, setEditMatLevel] = useState('100 Level');
+  const [editMatSemester, setEditMatSemester] = useState('First Semester');
+  const [editMatPubStatus, setEditMatPubStatus] = useState<MaterialPublicationStatus>('published');
   const [editMatDesc, setEditMatDesc] = useState('');
+
+  // Material sales report state
+  const [materialSalesReport, setMaterialSalesReport] =
+    useState<AdminMaterialSalesReport | null>(null);
+  const [matSalesSearch, setMatSalesSearch] = useState('');
+  const [matSalesCourseId, setMatSalesCourseId] = useState('');
+  const [matSalesMaterialId, setMatSalesMaterialId] = useState('');
+  const [matSalesStatus, setMatSalesStatus] = useState<PaymentStatus | ''>('');
+  const [matSalesDateFrom, setMatSalesDateFrom] = useState('');
+  const [matSalesDateTo, setMatSalesDateTo] = useState('');
+  const [loadingMatSales, setLoadingMatSales] = useState(false);
+  const [exportingMatSalesCsv, setExportingMatSalesCsv] = useState(false);
 
   // Announcement form
   const [annTitle, setAnnTitle] = useState('');
@@ -478,6 +519,23 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     setQuestions(res.questions);
   };
 
+  const loadMaterialSales = async () => {
+    setLoadingMatSales(true);
+    try {
+      const report = await api.admin.getMaterialSales({
+        search: matSalesSearch.trim() || undefined,
+        courseId: matSalesCourseId || undefined,
+        materialId: matSalesMaterialId || undefined,
+        paymentStatus: matSalesStatus || undefined,
+        dateFrom: matSalesDateFrom || undefined,
+        dateTo: matSalesDateTo || undefined,
+      });
+      setMaterialSalesReport(report);
+    } finally {
+      setLoadingMatSales(false);
+    }
+  };
+
   const loadAllAdminData = async () => {
     const [
       ov,
@@ -494,6 +552,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       brandRes,
       verifRes,
       emailStatusRes,
+      matSalesRes,
     ] = await Promise.allSettled([
       api.admin.getOverview(),
       api.admin.listCourses(),
@@ -525,6 +584,14 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
         search: verifSearch || undefined,
       }),
       api.admin.getEmailStatus(false),
+      api.admin.getMaterialSales({
+        search: matSalesSearch.trim() || undefined,
+        courseId: matSalesCourseId || undefined,
+        materialId: matSalesMaterialId || undefined,
+        paymentStatus: matSalesStatus || undefined,
+        dateFrom: matSalesDateFrom || undefined,
+        dateTo: matSalesDateTo || undefined,
+      }),
     ]);
 
     const errors: string[] = [];
@@ -586,6 +653,10 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       setEmailStatusOverview(emailStatusRes.value);
     }
 
+    if (matSalesRes.status === 'fulfilled') {
+      setMaterialSalesReport(matSalesRes.value);
+    }
+
     if (errors.length > 0) {
       setFeedback({ type: 'err', text: errors[0] });
     }
@@ -634,6 +705,9 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     setCCode('');
     setCTitle('');
     setCLevel('100 Level');
+    setCFaculty('General');
+    setCDepartment('General');
+    setCSemester('First Semester');
     setCFee('2350');
     setCValue('2300');
     setCValueCustom(false);
@@ -651,6 +725,9 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     setCCode(c.code);
     setCTitle(c.title);
     setCLevel(c.level);
+    setCFaculty(c.faculty || 'General');
+    setCDepartment(c.department || 'General');
+    setCSemester(c.semester || 'First Semester');
     setCFee(String(existingFee));
     setCValue(String(existingVal));
     setCValueCustom(Math.abs(existingVal - autoValue) > 0.01);
@@ -690,6 +767,9 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
           code: cCode.trim().toUpperCase(),
           title: cTitle.trim(),
           level: cLevel.trim(),
+          faculty: cFaculty.trim() || 'General',
+          department: cDepartment.trim() || 'General',
+          semester: cSemester.trim() || 'First Semester',
           description: cDesc.trim(),
           registrationFee: Number(feeNum.toFixed(2)),
           courseValue: Number(valNum.toFixed(2)),
@@ -703,6 +783,9 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
           code: cCode.trim().toUpperCase(),
           title: cTitle.trim(),
           level: cLevel.trim() || '100 Level',
+          faculty: cFaculty.trim() || 'General',
+          department: cDepartment.trim() || 'General',
+          semester: cSemester.trim() || 'First Semester',
           description: cDesc.trim(),
           registrationFee: Number(feeNum.toFixed(2)),
           courseValue: Number(valNum.toFixed(2)),
@@ -1306,6 +1389,17 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     }
   };
 
+  const handleMaterialCourseSelect = (courseId: string) => {
+    setMatCourseId(courseId);
+    const selectedCourse = courses.find((c) => c.id === courseId);
+    if (selectedCourse) {
+      setMatFaculty(selectedCourse.faculty || 'General');
+      setMatDepartment(selectedCourse.department || 'General');
+      setMatLevel(selectedCourse.level || '100 Level');
+      setMatSemester(selectedCourse.semester || 'First Semester');
+    }
+  };
+
   const handleUploadMaterial = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!matFile) {
@@ -1328,6 +1422,11 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       fd.append('title', matTitle);
       fd.append('category', matCategory);
       fd.append('description', matDesc);
+      fd.append('faculty', matFaculty.trim() || 'General');
+      fd.append('department', matDepartment.trim() || 'General');
+      fd.append('academicLevel', matLevel.trim() || '100 Level');
+      fd.append('semester', matSemester.trim() || 'First Semester');
+      fd.append('publicationStatus', matPubStatus);
       fd.append('price', String(Number(parsedPrice.toFixed(2))));
       if (matCourseId) fd.append('courseId', matCourseId);
 
@@ -1336,6 +1435,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       setMatDesc('');
       setMatPrice('0');
       setMatFile(null);
+      setMatPubStatus('published');
       if (matFileInputRef.current) {
         matFileInputRef.current.value = '';
       }
@@ -1363,6 +1463,13 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     setEditMatPrice(String(mat.price ?? 0));
     setEditMatCourseId(mat.courseId || '');
     setEditMatCategory(mat.category);
+    setEditMatFaculty(mat.faculty || 'General');
+    setEditMatDepartment(mat.department || 'General');
+    setEditMatLevel(mat.academicLevel || mat.courseLevel || '100 Level');
+    setEditMatSemester(mat.semester || 'First Semester');
+    setEditMatPubStatus(
+      mat.publicationStatus === 'unpublished' ? 'unpublished' : 'published'
+    );
     setEditMatDesc(mat.description || '');
     setFeedback(null);
   };
@@ -1384,6 +1491,11 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
         description: editMatDesc.trim(),
         category: editMatCategory,
         courseId: editMatCourseId || null,
+        faculty: editMatFaculty.trim() || 'General',
+        department: editMatDepartment.trim() || 'General',
+        academicLevel: editMatLevel.trim() || '100 Level',
+        semester: editMatSemester.trim() || 'First Semester',
+        publicationStatus: editMatPubStatus,
         price: Number(parsedPrice.toFixed(2)),
       });
       setEditingMaterialId(null);
@@ -1396,6 +1508,87 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
       });
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleToggleMaterialPublication = async (mat: StudyMaterialItem) => {
+    const nextStatus: MaterialPublicationStatus =
+      mat.publicationStatus === 'unpublished' ? 'published' : 'unpublished';
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.updateMaterial(mat.id, {
+        publicationStatus: nextStatus,
+      });
+      setFeedback({ type: 'ok', text: res.message });
+      await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Unable to update publication status.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReplaceMaterialFile = async (materialId: string, file: File) => {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.replaceMaterialFile(materialId, file);
+      setFeedback({ type: 'ok', text: res.message });
+      await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Failed to replace study material file.',
+      });
+    } finally {
+      setReplaceTargetMaterialId(null);
+      if (replaceMatFileInputRef.current) {
+        replaceMatFileInputRef.current.value = '';
+      }
+      setBusy(false);
+    }
+  };
+
+  const handleExportMaterialSalesCsv = async () => {
+    setExportingMatSalesCsv(true);
+    setFeedback(null);
+    try {
+      const url = api.admin.getMaterialSalesExportUrl({
+        search: matSalesSearch.trim() || undefined,
+        courseId: matSalesCourseId || undefined,
+        materialId: matSalesMaterialId || undefined,
+        paymentStatus: matSalesStatus || undefined,
+        dateFrom: matSalesDateFrom || undefined,
+        dateTo: matSalesDateTo || undefined,
+      });
+      const token = getClientAuthToken();
+      const resp = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
+      });
+      if (!resp.ok) {
+        throw new Error('Failed to export study material sales CSV.');
+      }
+      const blob = await resp.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = `acadet-material-sales-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'CSV export failed.',
+      });
+    } finally {
+      setExportingMatSalesCsv(false);
     }
   };
 
@@ -1632,6 +1825,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     { id: 'ai_generator', label: 'AI Question Generator', icon: Sparkles },
     { id: 'ai_settings', label: 'AI API Settings', icon: Sliders },
     { id: 'materials', label: 'Materials', icon: Upload },
+    { id: 'material_sales', label: 'Material Sales', icon: Receipt },
     { id: 'announcements', label: 'Notices', icon: Megaphone },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'users', label: 'Users', icon: Users },
@@ -1924,6 +2118,47 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 </label>
               </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <label className="space-y-1">
+                  <span className="block text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                    Faculty
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="e.g. Science, Arts, General"
+                    value={cFaculty}
+                    onChange={(e) => setCFaculty(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="block text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                    Department
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="e.g. Biological Sciences, General"
+                    value={cDepartment}
+                    onChange={(e) => setCDepartment(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="block text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                    Semester
+                  </span>
+                  <select
+                    value={cSemester}
+                    onChange={(e) => setCSemester(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-semibold"
+                  >
+                    <option value="First Semester">First Semester</option>
+                    <option value="Second Semester">Second Semester</option>
+                    <option value="Both Semesters">Both Semesters</option>
+                  </select>
+                </label>
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <input
                   type="text"
@@ -2117,7 +2352,10 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                           </button>
                         </td>
                         <td className="px-4 py-3 text-xs font-semibold text-slate-600 dark:text-slate-300">
-                          {c.level}
+                          <div>{c.level}</div>
+                          <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                            {[c.faculty || 'General', c.department || 'General', c.semester || 'First Semester'].join(' · ')}
+                          </div>
                         </td>
                         <td className="px-4 py-3 tabular-nums">
                           <div className="font-extrabold text-[#082252] dark:text-blue-300">
@@ -3670,81 +3908,151 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
         {/* MATERIALS */}
         {section === 'materials' && (
           <div className="space-y-5">
+            <input
+              ref={replaceMatFileInputRef}
+              type="file"
+              accept=".pdf,.doc,.docx,image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file && replaceTargetMaterialId) {
+                  void handleReplaceMaterialFile(replaceTargetMaterialId, file);
+                }
+              }}
+            />
+
             <form
               onSubmit={handleUploadMaterial}
-              className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 grid grid-cols-1 sm:grid-cols-2 gap-3"
+              className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3"
             >
-              <input
-                required
-                placeholder="Material Title"
-                value={matTitle}
-                onChange={(e) => setMatTitle(e.target.value)}
-                className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
-              />
-              <select
-                value={matCategory}
-                onChange={(e) => setMatCategory(e.target.value as MaterialCategory)}
-                className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
-              >
-                {(['Tutorials', 'Notes', 'Past Questions', 'Guides'] as const).map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={matCourseId}
-                onChange={(e) => setMatCourseId(e.target.value)}
-                className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
-              >
-                <option value="">General (All Courses)</option>
-                {courses.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.code} — {c.title}
-                  </option>
-                ))}
-              </select>
-              <div>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-extrabold text-slate-500">
-                    ₦
-                  </span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={500000}
-                    step="50"
-                    placeholder="Price (0 = Free, or >= 100)"
-                    value={matPrice}
-                    onChange={(e) => setMatPrice(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-7 pr-3 py-2 text-sm font-bold tabular-nums"
-                  />
-                </div>
-                <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                  Enter <strong>0</strong> for Free PDF, or <strong>₦100+</strong> for Paystack paid PDF.
-                </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-extrabold text-[#082252] dark:text-white">
+                  Upload Study Material
+                </h3>
+                <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                  Paid PDFs require course registration + Paystack checkout · Private temporary download links
+                </span>
               </div>
-              <input
-                placeholder="Short description"
-                value={matDesc}
-                onChange={(e) => setMatDesc(e.target.value)}
-                className="sm:col-span-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
-              />
-              <input
-                ref={matFileInputRef}
-                type="file"
-                required
-                accept=".pdf,.doc,.docx,image/*"
-                onChange={(e) => setMatFile(e.target.files?.[0] || null)}
-                className="sm:col-span-2 text-sm"
-              />
-              <button
-                type="submit"
-                disabled={busy}
-                className="sm:col-span-2 px-4 py-2.5 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white font-bold text-sm disabled:opacity-50"
-              >
-                Upload Study Material
-              </button>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <input
+                  required
+                  placeholder="Material Title"
+                  value={matTitle}
+                  onChange={(e) => setMatTitle(e.target.value)}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-semibold"
+                />
+                <select
+                  value={matCourseId}
+                  onChange={(e) => handleMaterialCourseSelect(e.target.value)}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-semibold"
+                >
+                  <option value="">General (All Courses)</option>
+                  {courses.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} — {c.title}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={matCategory}
+                  onChange={(e) => setMatCategory(e.target.value as MaterialCategory)}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm font-semibold"
+                >
+                  {ADMIN_MATERIAL_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                <input
+                  placeholder="Faculty (e.g. Science)"
+                  value={matFaculty}
+                  onChange={(e) => setMatFaculty(e.target.value)}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-semibold"
+                />
+                <input
+                  placeholder="Department (e.g. Biology)"
+                  value={matDepartment}
+                  onChange={(e) => setMatDepartment(e.target.value)}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-semibold"
+                />
+                <input
+                  placeholder="Level (e.g. 100 Level)"
+                  value={matLevel}
+                  onChange={(e) => setMatLevel(e.target.value)}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-semibold"
+                />
+                <select
+                  value={matSemester}
+                  onChange={(e) => setMatSemester(e.target.value)}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-semibold"
+                >
+                  <option value="First Semester">First Semester</option>
+                  <option value="Second Semester">Second Semester</option>
+                  <option value="Both Semesters">Both Semesters</option>
+                </select>
+                <select
+                  value={matPubStatus}
+                  onChange={(e) =>
+                    setMatPubStatus(e.target.value as MaterialPublicationStatus)
+                  }
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-semibold"
+                >
+                  <option value="published">Published (Visible)</option>
+                  <option value="unpublished">Unpublished (Hidden)</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start">
+                <div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-extrabold text-slate-500">
+                      ₦
+                    </span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={500000}
+                      step="50"
+                      placeholder="Price (0 = Free, or >= 100)"
+                      value={matPrice}
+                      onChange={(e) => setMatPrice(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-7 pr-3 py-2 text-sm font-bold tabular-nums"
+                    />
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    Enter <strong>0</strong> for Free PDF, or <strong>₦100+</strong> for Paystack paid PDF.
+                  </p>
+                </div>
+                <input
+                  placeholder="Short description"
+                  value={matDesc}
+                  onChange={(e) => setMatDesc(e.target.value)}
+                  className="sm:col-span-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+                <input
+                  ref={matFileInputRef}
+                  type="file"
+                  required
+                  accept=".pdf,.doc,.docx,image/*"
+                  onChange={(e) => setMatFile(e.target.files?.[0] || null)}
+                  className="text-sm"
+                />
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="px-5 py-2.5 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white font-bold text-sm disabled:opacity-50"
+                >
+                  Upload Study Material
+                </button>
+              </div>
             </form>
 
             <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
@@ -3756,6 +4064,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 materials.map((m) => {
                   const isEditing = editingMaterialId === m.id;
                   const priceNum = Number(m.price ?? 0);
+                  const isPublished = m.publicationStatus !== 'unpublished';
                   return (
                     <div key={m.id} className="px-4 py-3 space-y-3 text-sm">
                       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3773,10 +4082,22 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                                 {formatCurrency(priceNum, m.currency)}
                               </span>
                             )}
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[11px] font-extrabold ${
+                                isPublished
+                                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                                  : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800'
+                              }`}
+                            >
+                              {isPublished ? 'Published' : 'Unpublished'}
+                            </span>
                           </div>
                           <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                             {m.courseCode ? `${m.courseCode} — ${m.courseTitle}` : 'General (All Courses)'} ·{' '}
                             {m.category} · {m.fileType} · {m.downloadCount} downloads
+                            {typeof m.freeDownloadCount === 'number' && m.freeDownloadCount > 0 && (
+                              <> ({m.freeDownloadCount} free auths)</>
+                            )}
                             {priceNum > 0 && (
                               <>
                                 {' '}
@@ -3785,8 +4106,47 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                               </>
                             )}
                           </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                            {[
+                              m.faculty || 'General',
+                              m.department || 'General',
+                              m.academicLevel || m.courseLevel || '100 Level',
+                              m.semester || 'First Semester',
+                            ].join(' · ')}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
+                        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void handleToggleMaterialPublication(m)}
+                            className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold inline-flex items-center gap-1 disabled:opacity-50 ${
+                              isPublished
+                                ? 'border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30'
+                                : 'border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30'
+                            }`}
+                            title={
+                              isPublished
+                                ? 'Unpublish material (block student view & downloads)'
+                                : 'Publish material to students'
+                            }
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>{isPublished ? 'Unpublish' : 'Publish'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              setReplaceTargetMaterialId(m.id);
+                              replaceMatFileInputRef.current?.click();
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 inline-flex items-center gap-1 disabled:opacity-50"
+                            title="Replace PDF or document file without losing purchases"
+                          >
+                            <Upload className="w-3.5 h-3.5 text-[#0a58ed]" />
+                            <span>Replace File</span>
+                          </button>
                           <button
                             type="button"
                             disabled={busy}
@@ -3804,7 +4164,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                             ) : (
                               <>
                                 <Edit3 className="w-3.5 h-3.5 text-[#0a58ed]" />
-                                <span>Adjust Price</span>
+                                <span>Edit / Price</span>
                               </>
                             )}
                           </button>
@@ -3882,13 +4242,28 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                               }
                               className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold"
                             >
-                              {(['Tutorials', 'Notes', 'Past Questions', 'Guides'] as const).map(
-                                (c) => (
-                                  <option key={c} value={c}>
-                                    {c}
-                                  </option>
+                              {ADMIN_MATERIAL_CATEGORIES.map((c) => (
+                                <option key={c} value={c}>
+                                  {c}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                              Publication Status
+                            </label>
+                            <select
+                              value={editMatPubStatus}
+                              onChange={(e) =>
+                                setEditMatPubStatus(
+                                  e.target.value as MaterialPublicationStatus
                                 )
-                              )}
+                              }
+                              className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold"
+                            >
+                              <option value="published">Published</option>
+                              <option value="unpublished">Unpublished</option>
                             </select>
                           </div>
                           <div>
@@ -3900,6 +4275,52 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                               onChange={(e) => setEditMatTitle(e.target.value)}
                               className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold"
                             />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                              Faculty
+                            </label>
+                            <input
+                              value={editMatFaculty}
+                              onChange={(e) => setEditMatFaculty(e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                              Department
+                            </label>
+                            <input
+                              value={editMatDepartment}
+                              onChange={(e) => setEditMatDepartment(e.target.value)}
+                              className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                Level
+                              </label>
+                              <input
+                                value={editMatLevel}
+                                onChange={(e) => setEditMatLevel(e.target.value)}
+                                className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1.5 text-xs"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                                Semester
+                              </label>
+                              <select
+                                value={editMatSemester}
+                                onChange={(e) => setEditMatSemester(e.target.value)}
+                                className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2 py-1.5 text-xs"
+                              >
+                                <option value="First Semester">First</option>
+                                <option value="Second Semester">Second</option>
+                                <option value="Both Semesters">Both</option>
+                              </select>
+                            </div>
                           </div>
                           <div className="sm:col-span-2 lg:col-span-3">
                             <input
@@ -3926,6 +4347,313 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                   );
                 })
               )}
+            </div>
+          </div>
+        )}
+
+        {/* STUDY MATERIAL SALES REPORT */}
+        {section === 'material_sales' && (
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                {
+                  label: 'Materials (Pub / Unpub)',
+                  val: `${materialSalesReport?.summary.publishedMaterials ?? 0} / ${materialSalesReport?.summary.unpublishedMaterials ?? 0}`,
+                  sub: `${materialSalesReport?.summary.totalMaterials ?? 0} total`,
+                },
+                {
+                  label: 'Successful Purchases',
+                  val: materialSalesReport?.summary.totalSuccessfulPurchases ?? 0,
+                  sub: 'Verified Paystack unlocks',
+                },
+                {
+                  label: 'Total Material Revenue',
+                  val: formatCurrency(materialSalesReport?.summary.totalRevenue ?? 0, 'NGN'),
+                  sub: 'Gross study material sales',
+                },
+                {
+                  label: 'Free Downloads Logged',
+                  val: materialSalesReport?.summary.totalFreeDownloads ?? 0,
+                  sub: `${materialSalesReport?.summary.totalDownloadEvents ?? 0} total download auths`,
+                },
+              ].map((stat) => (
+                <div
+                  key={stat.label}
+                  className="rounded-xl border border-[#dce6f5] dark:border-slate-800 p-4 text-center"
+                >
+                  <div className="text-xl sm:text-2xl font-extrabold text-[#0b337a] dark:text-blue-400 tabular-nums">
+                    {stat.val}
+                  </div>
+                  <div className="text-xs font-semibold text-slate-600 dark:text-slate-400 mt-1">
+                    {stat.label}
+                  </div>
+                  <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-0.5 tabular-nums">
+                    {stat.sub}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-2.5">
+                <h3 className="text-sm font-extrabold text-[#082252] dark:text-white">
+                  Most Purchased Materials
+                </h3>
+                {!materialSalesReport || materialSalesReport.mostPurchasedMaterials.length === 0 ? (
+                  <p className="text-xs text-slate-500">No material sales data yet.</p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {materialSalesReport.mostPurchasedMaterials.map((item) => (
+                      <div
+                        key={item.materialId}
+                        className="rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 px-3 py-2 text-xs flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-900 dark:text-white truncate">
+                            {item.title}
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {item.courseCode || 'General'} · {item.category}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0 tabular-nums">
+                          <div className="font-extrabold text-[#0b337a] dark:text-blue-300">
+                            {item.purchaseCount} sold
+                          </div>
+                          <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                            {formatCurrency(item.revenue, 'NGN')}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-2.5">
+                <h3 className="text-sm font-extrabold text-[#082252] dark:text-white">
+                  Sales by Course
+                </h3>
+                {!materialSalesReport || materialSalesReport.salesByCourse.length === 0 ? (
+                  <p className="text-xs text-slate-500">No course sales breakdown yet.</p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {materialSalesReport.salesByCourse.map((row) => (
+                      <div
+                        key={row.courseId || row.courseCode}
+                        className="rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 px-3 py-2 text-xs flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-900 dark:text-white truncate">
+                            {row.courseCode} — {row.courseTitle}
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {row.department} · {row.materialCount} materials · {row.freeDownloads} free
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0 tabular-nums">
+                          <div className="font-extrabold text-[#0b337a] dark:text-blue-300">
+                            {row.purchaseCount} paid
+                          </div>
+                          <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                            {formatCurrency(row.revenue, 'NGN')}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-2.5">
+                <h3 className="text-sm font-extrabold text-[#082252] dark:text-white">
+                  Sales by Department
+                </h3>
+                {!materialSalesReport || materialSalesReport.salesByDepartment.length === 0 ? (
+                  <p className="text-xs text-slate-500">No department breakdown yet.</p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {materialSalesReport.salesByDepartment.map((row) => (
+                      <div
+                        key={row.department}
+                        className="rounded-lg bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 px-3 py-2 text-xs flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-900 dark:text-white truncate">
+                            {row.department}
+                          </div>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {row.materialCount} materials · {row.freeDownloads} free downloads
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0 tabular-nums">
+                          <div className="font-extrabold text-[#0b337a] dark:text-blue-300">
+                            {row.purchaseCount} paid
+                          </div>
+                          <div className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                            {formatCurrency(row.revenue, 'NGN')}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-sm font-extrabold text-[#082252] dark:text-white">
+                  Study Material Purchase Transactions
+                </h3>
+                <button
+                  type="button"
+                  disabled={exportingMatSalesCsv}
+                  onClick={() => void handleExportMaterialSalesCsv()}
+                  className="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>{exportingMatSalesCsv ? 'Exporting...' : 'Export CSV'}</span>
+                </button>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
+                <input
+                  placeholder="Search student, ref, material..."
+                  value={matSalesSearch}
+                  onChange={(e) => setMatSalesSearch(e.target.value)}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs"
+                />
+                <select
+                  value={matSalesCourseId}
+                  onChange={(e) => setMatSalesCourseId(e.target.value)}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-semibold"
+                >
+                  <option value="">All Courses</option>
+                  {courses.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.code} — {c.title}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={matSalesMaterialId}
+                  onChange={(e) => setMatSalesMaterialId(e.target.value)}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-semibold"
+                >
+                  <option value="">All Materials</option>
+                  {materials.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.title}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={matSalesStatus}
+                  onChange={(e) =>
+                    setMatSalesStatus(e.target.value as PaymentStatus | '')
+                  }
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-semibold"
+                >
+                  <option value="">All Statuses</option>
+                  <option value="successful">Successful</option>
+                  <option value="pending">Pending</option>
+                  <option value="failed">Failed</option>
+                  <option value="refunded">Refunded</option>
+                </select>
+                <input
+                  type="date"
+                  value={matSalesDateFrom}
+                  onChange={(e) => setMatSalesDateFrom(e.target.value)}
+                  className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs"
+                />
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={matSalesDateTo}
+                    onChange={(e) => setMatSalesDateTo(e.target.value)}
+                    className="flex-1 min-w-0 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-2.5 py-2 text-xs"
+                  />
+                  <button
+                    type="button"
+                    disabled={loadingMatSales}
+                    onClick={() => void loadMaterialSales()}
+                    className="px-3 py-2 rounded-lg bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-extrabold shrink-0 disabled:opacity-50"
+                  >
+                    {loadingMatSales ? '...' : 'Filter'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 dark:bg-slate-800/70 font-extrabold uppercase tracking-wider text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-slate-800">
+                    <tr>
+                      <th className="px-3.5 py-2.5">Student</th>
+                      <th className="px-3.5 py-2.5">Course</th>
+                      <th className="px-3.5 py-2.5">Material</th>
+                      <th className="px-3.5 py-2.5">Amount</th>
+                      <th className="px-3.5 py-2.5">Reference</th>
+                      <th className="px-3.5 py-2.5">Status</th>
+                      <th className="px-3.5 py-2.5">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                    {!materialSalesReport || materialSalesReport.transactions.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={7}
+                          className="px-4 py-8 text-center text-slate-500 dark:text-slate-400"
+                        >
+                          No study material purchase transactions match your filters.
+                        </td>
+                      </tr>
+                    ) : (
+                      materialSalesReport.transactions.map((tx) => (
+                        <tr key={tx.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                          <td className="px-3.5 py-2.5">
+                            <div className="font-bold text-slate-900 dark:text-white">
+                              {tx.studentName}
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                              {tx.studentEmail}
+                              {tx.studentRegistrationCode ? ` · ${tx.studentRegistrationCode}` : ''}
+                            </div>
+                          </td>
+                          <td className="px-3.5 py-2.5 font-semibold text-slate-700 dark:text-slate-300">
+                            {tx.courseCode ? `${tx.courseCode} — ${tx.courseTitle}` : 'General'}
+                          </td>
+                          <td className="px-3.5 py-2.5">
+                            <div className="font-bold text-slate-900 dark:text-white">
+                              {tx.materialTitle}
+                            </div>
+                            <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                              {tx.category}
+                            </div>
+                          </td>
+                          <td className="px-3.5 py-2.5 font-extrabold text-[#082252] dark:text-blue-300 tabular-nums">
+                            {formatCurrency(tx.amount, tx.currency)}
+                          </td>
+                          <td className="px-3.5 py-2.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-[11px] font-bold text-slate-700 dark:text-slate-200">
+                                {tx.paymentReference}
+                              </span>
+                              <CopyReferenceButton reference={tx.paymentReference} compact />
+                            </div>
+                          </td>
+                          <td className="px-3.5 py-2.5">
+                            <StatusBadge status={tx.paymentStatus} />
+                          </td>
+                          <td className="px-3.5 py-2.5 text-slate-600 dark:text-slate-400 whitespace-nowrap tabular-nums">
+                            {new Date(tx.paidAt || tx.createdAt).toLocaleDateString()}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}

@@ -70,6 +70,7 @@ export interface MaterialPurchaseOutcome {
     id: string;
     studentId: string;
     materialId: string;
+    courseId: string | null;
     paymentReference: string;
     gateway: string;
     amount: string;
@@ -97,6 +98,7 @@ interface LockedMaterialPurchaseRow {
   id: string;
   student_id: string;
   material_id: string;
+  course_id: string | null;
   payment_reference: string;
   gateway: string;
   amount: string;
@@ -108,13 +110,14 @@ interface LockedMaterialPurchaseRow {
   created_at: Date;
 }
 
-const PURCHASE_COLS = `id, student_id, material_id, payment_reference, gateway, amount::text, currency, payment_channel, payment_status, gateway_transaction_id, paid_at, created_at`;
+const PURCHASE_COLS = `id, student_id, material_id, course_id, payment_reference, gateway, amount::text, currency, payment_channel, payment_status, gateway_transaction_id, paid_at, created_at`;
 
 function mapPurchase(row: LockedMaterialPurchaseRow): MaterialPurchaseOutcome['payment'] {
   return {
     id: row.id,
     studentId: row.student_id,
     materialId: row.material_id,
+    courseId: row.course_id,
     paymentReference: row.payment_reference,
     gateway: row.gateway,
     amount: row.amount,
@@ -141,10 +144,61 @@ export async function isStudyMaterialReference(reference: string): Promise<boole
   return res.rows.length > 0;
 }
 
-export async function hasPurchasedMaterial(
+export async function isStudentRegisteredForCourse(
+  studentId: string,
+  courseId: string
+): Promise<boolean> {
+  const pool = getPool();
+  const res = await pool.query<{ id: string }>(
+    `SELECT cr.id
+     FROM course_registrations cr
+     INNER JOIN courses c ON c.id = cr.course_id
+     LEFT JOIN payments p ON p.id = cr.payment_id
+     WHERE cr.student_id = $1
+       AND cr.course_id = $2
+       AND cr.registration_status = 'active'
+       AND (
+         p.payment_status = 'successful'
+         OR (cr.payment_id IS NULL AND cr.preserved_payment_ref IS NOT NULL)
+         OR (
+           cr.activation_source = 'admin_manual'
+           AND UPPER(REGEXP_REPLACE(c.code, '\\s+', '', 'g')) = 'GST111'
+         )
+       )
+     LIMIT 1`,
+    [studentId, courseId]
+  );
+  return res.rows.length > 0;
+}
+
+export async function getStudentRegisteredCourseIds(
+  studentId: string
+): Promise<Set<string>> {
+  const pool = getPool();
+  const res = await pool.query<{ course_id: string }>(
+    `SELECT DISTINCT cr.course_id
+     FROM course_registrations cr
+     INNER JOIN courses c ON c.id = cr.course_id
+     LEFT JOIN payments p ON p.id = cr.payment_id
+     WHERE cr.student_id = $1
+       AND cr.registration_status = 'active'
+       AND (
+         p.payment_status = 'successful'
+         OR (cr.payment_id IS NULL AND cr.preserved_payment_ref IS NOT NULL)
+         OR (
+           cr.activation_source = 'admin_manual'
+           AND UPPER(REGEXP_REPLACE(c.code, '\\s+', '', 'g')) = 'GST111'
+         )
+       )`,
+    [studentId]
+  );
+  return new Set(res.rows.map((r) => r.course_id));
+}
+
+export async function getSuccessfulMaterialPurchaseId(
   studentId: string,
   materialId: string
-): Promise<boolean> {
+): Promise<string | null> {
   const pool = getPool();
   const res = await pool.query<{ id: string }>(
     `SELECT id FROM study_material_purchases
@@ -152,7 +206,48 @@ export async function hasPurchasedMaterial(
      LIMIT 1`,
     [studentId, materialId]
   );
-  return res.rows.length > 0;
+  return res.rows[0]?.id ?? null;
+}
+
+export async function hasPurchasedMaterial(
+  studentId: string,
+  materialId: string
+): Promise<boolean> {
+  const id = await getSuccessfulMaterialPurchaseId(studentId, materialId);
+  return Boolean(id);
+}
+
+export async function recordMaterialDownloadAuthorization(params: {
+  studentId: string;
+  materialId: string;
+  courseId: string | null;
+  purchaseId: string | null;
+  isFreeDownload: boolean;
+  paymentStatusSnapshot: string;
+  ipAddress?: string;
+}): Promise<void> {
+  const pool = getPool();
+  await pool.query(
+    `INSERT INTO study_material_download_logs (
+       student_id, material_id, course_id, purchase_id, is_free_download, payment_status_snapshot, ip_address
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      params.studentId,
+      params.materialId,
+      params.courseId,
+      params.purchaseId,
+      params.isFreeDownload,
+      params.paymentStatusSnapshot,
+      params.ipAddress ?? null,
+    ]
+  );
+  await pool.query(
+    `UPDATE study_materials
+     SET download_count = download_count + 1
+     WHERE id = $1`,
+    [params.materialId]
+  );
 }
 
 export async function initializeStudyMaterialPayment(params: {
@@ -196,11 +291,13 @@ export async function initializeStudyMaterialPayment(params: {
     category: string;
     price: string;
     currency: string;
+    publication_status: string;
     course_id: string | null;
     course_code: string | null;
     course_title: string | null;
   }>(
     `SELECT sm.id, sm.title, sm.file_type, sm.category, sm.price::text, sm.currency,
+            COALESCE(sm.publication_status, 'published') AS publication_status,
             sm.course_id, c.code AS course_code, c.title AS course_title
      FROM study_materials sm
      LEFT JOIN courses c ON c.id = sm.course_id
@@ -210,8 +307,23 @@ export async function initializeStudyMaterialPayment(params: {
   );
 
   const mat = matRes.rows[0];
-  if (!mat) {
-    throw new MaterialPaymentError('Study material was not found.', 404, 'MATERIAL_NOT_FOUND');
+  if (!mat || mat.publication_status !== 'published') {
+    throw new MaterialPaymentError(
+      'Study material is unavailable or currently unpublished.',
+      404,
+      'MATERIAL_NOT_FOUND'
+    );
+  }
+
+  if (mat.course_id) {
+    const registered = await isStudentRegisteredForCourse(params.student.id, mat.course_id);
+    if (!registered) {
+      throw new MaterialPaymentError(
+        `You need to register for ${mat.course_code || 'this course'} before accessing or purchasing its study materials.`,
+        403,
+        'COURSE_REGISTRATION_REQUIRED'
+      );
+    }
   }
 
   const priceNaira = Number(mat.price ?? 0);
@@ -245,11 +357,11 @@ export async function initializeStudyMaterialPayment(params: {
 
   const insertedRes = await pool.query<{ id: string }>(
     `INSERT INTO study_material_purchases (
-       student_id, material_id, payment_reference, gateway, amount, currency, payment_status
+       student_id, material_id, course_id, payment_reference, gateway, amount, currency, payment_status
      )
-     VALUES ($1, $2, $3, 'paystack', $4, $5, 'pending')
+     VALUES ($1, $2, $3, $4, 'paystack', $5, $6, 'pending')
      RETURNING id`,
-    [params.student.id, mat.id, reference, priceNaira.toFixed(2), currency]
+    [params.student.id, mat.id, mat.course_id, reference, priceNaira.toFixed(2), currency]
   );
 
   const purchaseId = insertedRes.rows[0].id;

@@ -111,6 +111,9 @@ export const courses = pgTable(
     code: text('code').notNull(),
     title: text('title').notNull(),
     level: text('level').notNull().default('100 Level'),
+    faculty: text('faculty').notNull().default('General'),
+    department: text('department').notNull().default('General'),
+    semester: text('semester').notNull().default('First Semester'),
     description: text('description').notNull().default(''),
     courseValue: numeric('course_value', { precision: 12, scale: 2 })
       .notNull()
@@ -314,6 +317,10 @@ export const studyMaterials = pgTable(
     title: text('title').notNull(),
     description: text('description').notNull().default(''),
     category: text('category').notNull().default('Notes'),
+    faculty: text('faculty'),
+    department: text('department'),
+    academicLevel: text('academic_level'),
+    semester: text('semester'),
     fileType: text('file_type').notNull().default('PDF'),
     fileSizeBytes: integer('file_size_bytes').notNull().default(0),
     storageBackend: text('storage_backend').notNull().default('postgres'),
@@ -323,6 +330,7 @@ export const studyMaterials = pgTable(
     mimeType: text('mime_type').notNull().default('application/pdf'),
     price: numeric('price', { precision: 12, scale: 2 }).notNull().default('0.00'),
     currency: text('currency').notNull().default('NGN'),
+    publicationStatus: text('publication_status').notNull().default('published'),
     downloadCount: integer('download_count').notNull().default(0),
     isActive: boolean('is_active').notNull().default(true),
     uploadedBy: uuid('uploaded_by').references(() => users.id, { onDelete: 'set null' }),
@@ -332,9 +340,18 @@ export const studyMaterials = pgTable(
   (table) => [
     index('study_materials_subject_cat_idx').on(table.subjectId, table.category, table.isActive),
     index('study_materials_course_cat_idx').on(table.courseId, table.category, table.isActive),
+    index('study_materials_pub_course_idx').on(
+      table.courseId,
+      table.publicationStatus,
+      table.isActive
+    ),
     check(
       'study_materials_category_check',
-      sql`${table.category} IN ('Tutorials', 'Notes', 'Past Questions', 'Guides')`
+      sql`${table.category} IN ('Tutorials', 'Notes', 'Past Questions', 'Guides', 'Lecture Notes', 'Handouts', 'Practical Guides')`
+    ),
+    check(
+      'study_materials_publication_status_check',
+      sql`${table.publicationStatus} IN ('published', 'unpublished')`
     ),
     check(
       'study_materials_storage_backend_check',
@@ -354,6 +371,7 @@ export const studyMaterialPurchases = pgTable(
     materialId: uuid('material_id')
       .notNull()
       .references(() => studyMaterials.id, { onDelete: 'cascade' }),
+    courseId: uuid('course_id').references(() => courses.id, { onDelete: 'set null' }),
     paymentReference: text('payment_reference').notNull(),
     gateway: text('gateway').notNull().default('paystack'),
     amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
@@ -380,6 +398,10 @@ export const studyMaterialPurchases = pgTable(
       table.materialId,
       table.paymentStatus
     ),
+    index('study_material_purchases_course_status_idx').on(
+      table.courseId,
+      table.paymentStatus
+    ),
     index('study_material_purchases_gateway_tx_idx')
       .on(table.gatewayTransactionId)
       .where(sql`${table.gatewayTransactionId} IS NOT NULL`),
@@ -388,6 +410,31 @@ export const studyMaterialPurchases = pgTable(
       sql`${table.paymentStatus} IN ('pending', 'successful', 'failed', 'refunded')`
     ),
     check('study_material_purchases_amount_check', sql`${table.amount} >= 0`),
+  ]
+);
+
+export const studyMaterialDownloadLogs = pgTable(
+  'study_material_download_logs',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    materialId: uuid('material_id')
+      .notNull()
+      .references(() => studyMaterials.id, { onDelete: 'cascade' }),
+    courseId: uuid('course_id').references(() => courses.id, { onDelete: 'set null' }),
+    purchaseId: uuid('purchase_id').references(() => studyMaterialPurchases.id, {
+      onDelete: 'set null',
+    }),
+    isFreeDownload: boolean('is_free_download').notNull().default(false),
+    paymentStatusSnapshot: text('payment_status_snapshot'),
+    ipAddress: text('ip_address'),
+    downloadedAt: timestamp('downloaded_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('study_material_download_logs_mat_time_idx').on(table.materialId, table.downloadedAt),
+    index('study_material_download_logs_student_time_idx').on(table.studentId, table.downloadedAt),
   ]
 );
 

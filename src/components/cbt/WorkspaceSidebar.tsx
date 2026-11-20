@@ -9,6 +9,7 @@ import {
   History,
   Home,
   LogOut,
+  Receipt,
   Settings,
   Shield,
   ShieldCheck,
@@ -26,6 +27,7 @@ export type WorkspaceTab =
   | 'notifications'
   | 'results'
   | 'materials'
+  | 'material-purchases'
   | 'practice'
   | 'help'
   | 'admin';
@@ -75,6 +77,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     { id: 'practice', label: 'Course Examinations', icon: FileText },
     { id: 'results', label: 'Course Results', icon: BarChart3 },
     { id: 'materials', label: 'Study Materials', icon: BookOpen },
+    { id: 'material-purchases', label: 'Study Material Purchases', icon: Receipt },
     { id: 'settings', label: 'Settings', icon: Settings },
     { id: 'help', label: 'Help & Support', icon: HelpCircle },
     ...(isAdmin ? [{ id: 'admin' as const, label: 'Admin Console', icon: Shield }] : []),

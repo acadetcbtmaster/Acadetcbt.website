@@ -4,7 +4,15 @@ export type NotificationType = 'admin_direct' | 'payment_success' | 'system';
 export type DifficultyLevel = 'All Levels' | 'Easy' | 'Medium' | 'Hard';
 export type QuestionDifficulty = 'Easy' | 'Medium' | 'Hard';
 export type OptionLetter = 'A' | 'B' | 'C' | 'D';
-export type MaterialCategory = 'Tutorials' | 'Notes' | 'Past Questions' | 'Guides';
+export type MaterialCategory =
+  | 'Tutorials'
+  | 'Notes'
+  | 'Past Questions'
+  | 'Guides'
+  | 'Lecture Notes'
+  | 'Handouts'
+  | 'Practical Guides';
+export type MaterialPublicationStatus = 'published' | 'unpublished';
 export type PublicationStatus = 'draft' | 'published' | 'archived';
 export type QuestionPublicationStatus = 'draft' | 'published';
 export type AiConnectionStatus = 'connected' | 'failed' | 'unconfigured' | 'unknown';
@@ -83,6 +91,9 @@ export interface CourseCatalogueItem {
   code: string;
   title: string;
   level: string;
+  faculty?: string;
+  department?: string;
+  semester?: string;
   description: string;
   courseValue?: number;
   registrationFee: number;
@@ -105,6 +116,9 @@ export interface RegisteredCourseItem {
   code: string;
   title: string;
   level: string;
+  faculty?: string;
+  department?: string;
+  semester?: string;
   description: string;
   examCategory: string;
   defaultDurationMinutes: number;
@@ -228,17 +242,24 @@ export interface StudyMaterialItem {
   courseTitle: string | null;
   courseCode: string | null;
   courseLevel?: string | null;
+  faculty?: string | null;
+  department?: string | null;
+  academicLevel?: string | null;
+  semester?: string | null;
   title: string;
   description: string;
   category: MaterialCategory;
   fileType: 'PDF' | 'DOC' | 'IMAGE' | 'OTHER';
   fileSizeBytes: number;
+  originalFilename?: string | null;
   mimeType: string;
   price: number;
   currency: string;
+  publicationStatus?: MaterialPublicationStatus;
   isFree: boolean;
   isPurchased: boolean;
   downloadCount: number;
+  freeDownloadCount?: number;
   purchaseCount?: number;
   totalRevenue?: number;
   createdAt: string;
@@ -249,10 +270,104 @@ export interface StudyMaterialCourseSummary {
   code: string;
   title: string;
   level: string;
+  faculty?: string;
+  department?: string;
+  semester?: string;
+  registrationFee?: number;
+  currency?: string;
+  isRegistered?: boolean;
+  locked?: boolean;
   materialCount: number;
   freeCount: number;
   paidCount: number;
   unlockedCount: number;
+}
+
+export interface StudentMaterialPurchaseItem {
+  id: string;
+  materialId: string;
+  materialTitle: string;
+  category: MaterialCategory;
+  fileType: 'PDF' | 'DOC' | 'IMAGE' | 'OTHER';
+  fileSizeBytes: number;
+  materialIsActive: boolean;
+  materialPublicationStatus: MaterialPublicationStatus;
+  courseId: string | null;
+  courseCode: string | null;
+  courseTitle: string | null;
+  amount: number;
+  currency: string;
+  paymentReference: string;
+  paymentStatus: PaymentStatus;
+  paymentChannel: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  isCourseRegistered: boolean;
+  isMaterialPublished: boolean;
+  canDownload: boolean;
+}
+
+export interface AdminMaterialSalesReport {
+  summary: {
+    totalMaterials: number;
+    publishedMaterials: number;
+    unpublishedMaterials: number;
+    totalSuccessfulPurchases: number;
+    totalRevenue: number;
+    totalFreeDownloads: number;
+    totalDownloadEvents: number;
+  };
+  mostPurchasedMaterials: Array<{
+    materialId: string;
+    title: string;
+    courseCode: string | null;
+    courseTitle: string | null;
+    category: string;
+    price: number;
+    purchaseCount: number;
+    revenue: number;
+    freeDownloads: number;
+    downloadCount: number;
+  }>;
+  salesByCourse: Array<{
+    courseId: string | null;
+    courseCode: string;
+    courseTitle: string;
+    department: string;
+    materialCount: number;
+    purchaseCount: number;
+    revenue: number;
+    freeDownloads: number;
+  }>;
+  salesByDepartment: Array<{
+    department: string;
+    materialCount: number;
+    purchaseCount: number;
+    revenue: number;
+    freeDownloads: number;
+  }>;
+  transactions: Array<{
+    id: string;
+    studentId: string;
+    studentName: string;
+    studentEmail: string;
+    studentRegistrationCode: string | null;
+    materialId: string;
+    materialTitle: string;
+    category: string;
+    courseId: string | null;
+    courseCode: string | null;
+    courseTitle: string | null;
+    department: string | null;
+    amount: number;
+    currency: string;
+    paymentReference: string;
+    paymentStatus: PaymentStatus;
+    paymentChannel: string | null;
+    gatewayTransactionId: string | null;
+    paidAt: string | null;
+    createdAt: string;
+  }>;
 }
 
 export interface MaterialPaymentInitResponse {
@@ -435,6 +550,9 @@ export interface AdminCourseItem {
   code: string;
   title: string;
   level: string;
+  faculty?: string;
+  department?: string;
+  semester?: string;
   description: string;
   courseValue?: number;
   registrationFee: number;

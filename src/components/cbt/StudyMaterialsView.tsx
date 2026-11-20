@@ -2,6 +2,7 @@ import {
   AlertCircle,
   ArrowLeft,
   BookOpen,
+  Calendar,
   CheckCircle2,
   ChevronRight,
   CreditCard,
@@ -10,8 +11,10 @@ import {
   FileText,
   FolderOpen,
   Lock,
+  Receipt,
   RefreshCw,
   Search,
+  ShieldAlert,
   ShieldCheck,
   Unlock,
   X,
@@ -32,14 +35,19 @@ interface StudyMaterialsViewProps {
   selectedCourseId?: string | null;
   compact?: boolean;
   onExploreMore?: () => void;
+  onRegisterCourse?: (courseId: string) => void;
+  onOpenPurchases?: () => void;
   refreshTrigger?: number;
 }
 
 const SUB_CATEGORIES: Array<'All' | MaterialCategory> = [
   'All',
+  'Lecture Notes',
+  'Handouts',
+  'Past Questions',
+  'Practical Guides',
   'Tutorials',
   'Notes',
-  'Past Questions',
   'Guides',
 ];
 
@@ -51,20 +59,43 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function formatUploadDate(raw: string): string {
+  try {
+    return new Date(raw).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  } catch {
+    return '';
+  }
+}
+
 export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
   selectedCourseId,
   compact = false,
   onExploreMore,
+  onRegisterCourse,
+  onOpenPurchases,
   refreshTrigger = 0,
 }) => {
   // 'GENERAL' represents courseId === null; UUID represents a specific course; null means Course Grid View
   const [openedCourseKey, setOpenedCourseKey] = useState<string | null>(null);
   const [courseSearch, setCourseSearch] = useState('');
+  const [facultyFilter, setFacultyFilter] = useState('All');
+  const [departmentFilter, setDepartmentFilter] = useState('All');
+  const [levelFilter, setLevelFilter] = useState('All');
+  const [semesterFilter, setSemesterFilter] = useState('All');
+
   const [materialSearch, setMaterialSearch] = useState('');
   const [subCategory, setSubCategory] = useState<'All' | MaterialCategory>('All');
 
   const [courseSummaries, setCourseSummaries] = useState<StudyMaterialCourseSummary[]>([]);
   const [materials, setMaterials] = useState<StudyMaterialItem[]>([]);
+  const [courseLocked, setCourseLocked] = useState(false);
+  const [lockedCourseInfo, setLockedCourseInfo] =
+    useState<StudyMaterialCourseSummary | null>(null);
+
   const [loading, setLoading] = useState(true);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -82,51 +113,102 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
     text: string;
   } | null>(null);
 
-  const loadMaterialsData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.materials.list(
-        compact && selectedCourseId ? { courseId: selectedCourseId } : undefined
-      );
-      setMaterials(res.materials);
-      setCourseSummaries(res.courseSummaries || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to fetch study materials.');
-    } finally {
-      setLoading(false);
-    }
-  }, [compact, selectedCourseId]);
+  const loadMaterialsData = useCallback(
+    async (courseKeyToFetch: string | null = openedCourseKey) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const queryCourseId = compact
+          ? selectedCourseId || undefined
+          : courseKeyToFetch === 'GENERAL'
+            ? 'general'
+            : courseKeyToFetch || undefined;
+
+        const res = await api.materials.list(
+          queryCourseId ? { courseId: queryCourseId } : undefined
+        );
+        setCourseSummaries(res.courseSummaries || []);
+        setMaterials(res.materials || []);
+        setCourseLocked(Boolean(res.courseLocked || res.courseRegistrationRequired));
+        setLockedCourseInfo(res.lockedCourse || null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Unable to fetch study materials.');
+      } finally {
+        setLoading(false);
+      }
+    },
+    [compact, selectedCourseId, openedCourseKey]
+  );
 
   useEffect(() => {
-    void loadMaterialsData();
-  }, [loadMaterialsData, refreshTrigger]);
+    void loadMaterialsData(openedCourseKey);
+  }, [loadMaterialsData, openedCourseKey, refreshTrigger]);
+
+  const hierarchyOptions = useMemo(() => {
+    const faculties = new Set<string>();
+    const departments = new Set<string>();
+    const levels = new Set<string>();
+    const semesters = new Set<string>();
+    for (const c of courseSummaries) {
+      if (c.faculty) faculties.add(c.faculty);
+      if (c.department) departments.add(c.department);
+      if (c.level) levels.add(c.level);
+      if (c.semester) semesters.add(c.semester);
+    }
+    return {
+      faculties: ['All', ...Array.from(faculties).sort()],
+      departments: ['All', ...Array.from(departments).sort()],
+      levels: ['All', ...Array.from(levels).sort()],
+      semesters: ['All', ...Array.from(semesters).sort()],
+    };
+  }, [courseSummaries]);
 
   const filteredCourseCards = useMemo(() => {
     const q = courseSearch.trim().toLowerCase();
     return courseSummaries.filter((c) => {
+      if (facultyFilter !== 'All' && (c.faculty || 'General') !== facultyFilter) return false;
+      if (departmentFilter !== 'All' && (c.department || 'General') !== departmentFilter) {
+        return false;
+      }
+      if (levelFilter !== 'All' && c.level !== levelFilter) return false;
+      if (semesterFilter !== 'All' && (c.semester || 'First Semester') !== semesterFilter) {
+        return false;
+      }
       if (!q) return true;
       return (
         c.code.toLowerCase().includes(q) ||
         c.title.toLowerCase().includes(q) ||
-        c.level.toLowerCase().includes(q)
+        c.level.toLowerCase().includes(q) ||
+        (c.department || '').toLowerCase().includes(q) ||
+        (c.faculty || '').toLowerCase().includes(q)
       );
     });
-  }, [courseSummaries, courseSearch]);
+  }, [
+    courseSummaries,
+    courseSearch,
+    facultyFilter,
+    departmentFilter,
+    levelFilter,
+    semesterFilter,
+  ]);
 
   const activeCourseSummary = useMemo(() => {
     if (!openedCourseKey) return null;
     if (openedCourseKey === 'GENERAL') {
       return courseSummaries.find((c) => c.courseId === null) || null;
     }
-    return courseSummaries.find((c) => c.courseId === openedCourseKey) || null;
-  }, [courseSummaries, openedCourseKey]);
+    return (
+      courseSummaries.find((c) => c.courseId === openedCourseKey) ||
+      lockedCourseInfo ||
+      null
+    );
+  }, [courseSummaries, openedCourseKey, lockedCourseInfo]);
 
   const courseMaterials = useMemo(() => {
     if (compact) {
       return materials.slice(0, 5);
     }
-    if (!openedCourseKey) return [];
+    if (!openedCourseKey || courseLocked) return [];
     const q = materialSearch.trim().toLowerCase();
     return materials.filter((item) => {
       const matchesCourse =
@@ -142,10 +224,11 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
         item.category.toLowerCase().includes(q)
       );
     });
-  }, [compact, materials, openedCourseKey, subCategory, materialSearch]);
+  }, [compact, materials, openedCourseKey, courseLocked, subCategory, materialSearch]);
 
-  const openCourseFolder = (courseId: string | null) => {
-    setOpenedCourseKey(courseId === null ? 'GENERAL' : courseId);
+  const openCourseFolder = (course: StudyMaterialCourseSummary) => {
+    const nextKey = course.courseId === null ? 'GENERAL' : course.courseId;
+    setOpenedCourseKey(nextKey);
     setSubCategory('All');
     setMaterialSearch('');
     setError(null);
@@ -174,7 +257,10 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
     } catch (err) {
       if (err instanceof ApiError && err.code === 'MATERIAL_ALREADY_PURCHASED') {
         setModalFeedback({ type: 'ok', text: err.message });
-        await loadMaterialsData();
+        await loadMaterialsData(openedCourseKey);
+      } else if (err instanceof ApiError && err.code === 'COURSE_REGISTRATION_REQUIRED') {
+        setModalFeedback({ type: 'err', text: err.message });
+        await loadMaterialsData(openedCourseKey);
       } else {
         setModalFeedback({
           type: 'err',
@@ -201,7 +287,7 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
       const outcome = await api.materials.verifyPayment(cleanRef, 'student_manual');
       if (outcome.unlocked) {
         setNotice(outcome.message);
-        await loadMaterialsData();
+        await loadMaterialsData(openedCourseKey);
         setPayTarget(null);
         setCheckoutData(null);
         setManualVerifyOpen(false);
@@ -248,8 +334,11 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
       );
     } catch (err) {
       if (err instanceof ApiError && err.code === 'MATERIAL_PAYMENT_REQUIRED') {
-        await loadMaterialsData();
+        await loadMaterialsData(openedCourseKey);
         handleOpenPayModal(item);
+      } else if (err instanceof ApiError && err.code === 'COURSE_REGISTRATION_REQUIRED') {
+        await loadMaterialsData(openedCourseKey);
+        setError(err.message);
       } else {
         setError(err instanceof Error ? err.message : 'Download unavailable.');
       }
@@ -263,6 +352,7 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
     const isImage = item.fileType === 'IMAGE';
     const isUnlocked = item.isFree || item.isPurchased;
     const priceLabel = item.isFree ? 'Free' : formatCurrency(item.price, item.currency);
+    const downloadLabel = item.fileType === 'PDF' ? 'Download PDF' : 'Download';
 
     return (
       <div
@@ -299,11 +389,19 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                 </span>
               )}
             </div>
-            <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 break-words">
-              {item.description ? `${item.description} · ` : ''}
-              {item.category}
-              {compact && item.courseCode ? ` · ${item.courseCode}` : ''} ·{' '}
-              {formatBytes(item.fileSizeBytes)} · {item.downloadCount} downloads
+            {item.description && (
+              <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5 break-words">
+                {item.description}
+              </p>
+            )}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+              <span className="font-bold text-slate-600 dark:text-slate-300">{item.category}</span>
+              {compact && item.courseCode && <span>· {item.courseCode}</span>}
+              <span>· {formatBytes(item.fileSizeBytes)}</span>
+              <span className="inline-flex items-center gap-1">
+                · <Calendar className="w-3 h-3" /> {formatUploadDate(item.createdAt)}
+              </span>
+              <span>· {item.downloadCount} downloads</span>
             </div>
           </div>
         </div>
@@ -317,16 +415,16 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
               className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-extrabold shadow-xs inline-flex items-center justify-center gap-1.5 min-h-[38px] disabled:opacity-60"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>{downloadingId === item.id ? 'Preparing...' : 'Download'}</span>
+              <span>{downloadingId === item.id ? 'Preparing...' : downloadLabel}</span>
             </button>
           ) : (
             <button
               type="button"
               onClick={() => handleOpenPayModal(item)}
-              className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-[#0b337a] hover:bg-[#082252] text-white text-xs font-extrabold shadow-xs inline-flex items-center justify-center gap-1.5 min-h-[38px] tabular-nums"
+              className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#0b337a] hover:bg-[#082252] text-white text-xs font-extrabold shadow-xs inline-flex items-center justify-center gap-1.5 min-h-[38px] tabular-nums"
             >
               <CreditCard className="w-3.5 h-3.5" />
-              <span>Pay {priceLabel} &amp; Download</span>
+              <span>Buy Now · {priceLabel}</span>
             </button>
           )}
         </div>
@@ -350,24 +448,36 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                 <p className="text-[11px] sm:text-xs text-blue-100 truncate">
                   {openedCourseKey && activeCourseSummary
                     ? `${activeCourseSummary.code} — ${activeCourseSummary.title}`
-                    : 'Select a course to view and download its uploaded PDFs'}
+                    : 'Select a registered course folder to view and access study materials'}
                 </p>
               )}
             </div>
           </div>
 
           {!compact && (
-            <button
-              type="button"
-              onClick={() => {
-                setModalFeedback(null);
-                setManualVerifyOpen(true);
-              }}
-              className="px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-bold inline-flex items-center gap-1.5"
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Verify Material Payment</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {onOpenPurchases && (
+                <button
+                  type="button"
+                  onClick={onOpenPurchases}
+                  className="px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-bold inline-flex items-center gap-1.5"
+                >
+                  <Receipt className="w-3.5 h-3.5" />
+                  <span>My Purchases</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setModalFeedback(null);
+                  setManualVerifyOpen(true);
+                }}
+                className="px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-bold inline-flex items-center gap-1.5"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>Verify Material Payment</span>
+              </button>
+            </div>
           )}
         </div>
 
@@ -393,6 +503,25 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                 <div className="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
                   Loading study materials...
                 </div>
+              ) : courseLocked && lockedCourseInfo ? (
+                <div className="py-6 px-3 rounded-xl border border-amber-200 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-950/30 text-center space-y-2.5">
+                  <Lock className="w-7 h-7 mx-auto text-amber-600 dark:text-amber-400" />
+                  <div className="text-sm font-extrabold text-slate-900 dark:text-white">
+                    {lockedCourseInfo.code} Registration Required
+                  </div>
+                  <p className="text-xs text-slate-600 dark:text-slate-300">
+                    You need to register for this course before accessing its study materials.
+                  </p>
+                  {onRegisterCourse && lockedCourseInfo.courseId && (
+                    <button
+                      type="button"
+                      onClick={() => onRegisterCourse(lockedCourseInfo.courseId!)}
+                      className="px-4 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-extrabold inline-flex items-center gap-1.5"
+                    >
+                      <span>Register Now</span>
+                    </button>
+                  )}
+                </div>
               ) : courseMaterials.length === 0 ? (
                 <div className="py-8 text-center space-y-2 text-slate-500 dark:text-slate-400">
                   <FolderOpen className="w-8 h-8 mx-auto opacity-60" />
@@ -414,32 +543,86 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
               )}
             </div>
           ) : !openedCourseKey ? (
-            /* STAGE 1: Available Courses Selection Grid */
+            /* STAGE 1: Available Courses Selection Grid with Faculty/Dept/Level/Semester Organization */
             <div className="space-y-4">
-              <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/80 border border-[#d6e4fa] dark:border-slate-700 px-4 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3.5">
-                  <div className="w-11 h-11 rounded-xl bg-white dark:bg-slate-900 border border-[#d6e4fa] dark:border-slate-700 flex items-center justify-center shrink-0 p-1">
-                    <AcadetCrest className="w-9 h-9" frameOnDark={false} />
+              <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/80 border border-[#d6e4fa] dark:border-slate-700 px-4 py-3.5 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3.5">
+                    <div className="w-11 h-11 rounded-xl bg-white dark:bg-slate-900 border border-[#d6e4fa] dark:border-slate-700 flex items-center justify-center shrink-0 p-1">
+                      <AcadetCrest className="w-9 h-9" frameOnDark={false} />
+                    </div>
+                    <div>
+                      <div className="text-sm sm:text-base font-extrabold text-[#082252] dark:text-white">
+                        Select a Course Folder
+                      </div>
+                      <div className="text-xs text-slate-600 dark:text-slate-400">
+                        Registered courses open immediately. Course registration lets you browse materials; paid PDFs unlock individually via Paystack.
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-sm sm:text-base font-extrabold text-[#082252] dark:text-white">
-                      Select a Course Category
-                    </div>
-                    <div className="text-xs text-slate-600 dark:text-slate-400">
-                      Open any available course below to see uploaded PDFs, notes, and pricing before downloading.
-                    </div>
+
+                  <div className="relative w-full sm:w-64 shrink-0">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={courseSearch}
+                      onChange={(e) => setCourseSearch(e.target.value)}
+                      placeholder="Search course code or title..."
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-[#c6daf7] dark:border-slate-700 bg-white dark:bg-slate-900 text-xs sm:text-sm min-h-[38px] focus:outline-none focus:ring-2 focus:ring-[#0a58ed]"
+                    />
                   </div>
                 </div>
 
-                <div className="relative w-full sm:w-64 shrink-0">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={courseSearch}
-                    onChange={(e) => setCourseSearch(e.target.value)}
-                    placeholder="Search course code or title..."
-                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-[#c6daf7] dark:border-slate-700 bg-white dark:bg-slate-900 text-xs sm:text-sm min-h-[38px] focus:outline-none focus:ring-2 focus:ring-[#0a58ed]"
-                  />
+                {/* Faculty / Department / Level / Semester Filters */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#d6e4fa] dark:border-slate-700">
+                  <select
+                    aria-label="Filter by Faculty"
+                    value={facultyFilter}
+                    onChange={(e) => setFacultyFilter(e.target.value)}
+                    className="rounded-lg border border-[#c6daf7] dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold"
+                  >
+                    {hierarchyOptions.faculties.map((f) => (
+                      <option key={f} value={f}>
+                        {f === 'All' ? 'All Faculties' : f}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Filter by Department"
+                    value={departmentFilter}
+                    onChange={(e) => setDepartmentFilter(e.target.value)}
+                    className="rounded-lg border border-[#c6daf7] dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold"
+                  >
+                    {hierarchyOptions.departments.map((d) => (
+                      <option key={d} value={d}>
+                        {d === 'All' ? 'All Departments' : d}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Filter by Level"
+                    value={levelFilter}
+                    onChange={(e) => setLevelFilter(e.target.value)}
+                    className="rounded-lg border border-[#c6daf7] dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold"
+                  >
+                    {hierarchyOptions.levels.map((l) => (
+                      <option key={l} value={l}>
+                        {l === 'All' ? 'All Levels' : l}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    aria-label="Filter by Semester"
+                    value={semesterFilter}
+                    onChange={(e) => setSemesterFilter(e.target.value)}
+                    className="rounded-lg border border-[#c6daf7] dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold"
+                  >
+                    {hierarchyOptions.semesters.map((s) => (
+                      <option key={s} value={s}>
+                        {s === 'All' ? 'All Semesters' : s}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -456,51 +639,158 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  {filteredCourseCards.map((course) => (
-                    <button
-                      key={course.courseId ?? 'GENERAL'}
-                      type="button"
-                      onClick={() => openCourseFolder(course.courseId)}
-                      className="text-left rounded-2xl border border-[#dce6f5] dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-[#0a58ed] dark:hover:border-blue-500 hover:shadow-md p-4 transition-all flex flex-col justify-between gap-3 group"
-                    >
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="px-2.5 py-1 rounded-lg bg-[#eff5ff] dark:bg-blue-950/60 text-[#0b337a] dark:text-blue-300 text-xs font-extrabold tracking-wide">
-                            {course.code}
-                          </span>
-                          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                            {course.level}
-                          </span>
-                        </div>
-                        <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white leading-snug group-hover:text-[#0a58ed] dark:group-hover:text-blue-400 transition-colors">
-                          {course.title}
-                        </h3>
-                      </div>
-
-                      <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-xs">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-extrabold text-slate-700 dark:text-slate-200 tabular-nums">
-                            {course.materialCount}{' '}
-                            {course.materialCount === 1 ? 'File' : 'Files'}
-                          </span>
-                          {course.materialCount > 0 && (
-                            <span className="text-slate-500 dark:text-slate-400">
-                              ({course.freeCount} Free · {course.paidCount} Paid)
+                  {filteredCourseCards.map((course) => {
+                    const isAvailable = Boolean(course.isRegistered);
+                    return (
+                      <button
+                        key={course.courseId ?? 'GENERAL'}
+                        type="button"
+                        onClick={() => openCourseFolder(course)}
+                        className={`text-left rounded-2xl border bg-white dark:bg-slate-900 hover:shadow-md p-4 transition-all flex flex-col justify-between gap-3 group ${
+                          isAvailable
+                            ? 'border-[#dce6f5] dark:border-slate-800 hover:border-[#0a58ed] dark:hover:border-blue-500'
+                            : 'border-slate-200 dark:border-slate-800 hover:border-amber-400 dark:hover:border-amber-600'
+                        }`}
+                      >
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="px-2.5 py-1 rounded-lg bg-[#eff5ff] dark:bg-blue-950/60 text-[#0b337a] dark:text-blue-300 text-xs font-extrabold tracking-wide">
+                              {course.code}
                             </span>
-                          )}
+                            {isAvailable ? (
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[11px] font-extrabold inline-flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" />
+                                <span>Available</span>
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 text-[11px] font-extrabold inline-flex items-center gap-1">
+                                <Lock className="w-3 h-3" />
+                                <span>Locked</span>
+                              </span>
+                            )}
+                          </div>
+                          <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white leading-snug group-hover:text-[#0a58ed] dark:group-hover:text-blue-400 transition-colors">
+                            {course.title}
+                          </h3>
+                          <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                            {[course.faculty, course.department, course.level, course.semester]
+                              .filter((v) => v && v !== 'General')
+                              .join(' · ') || `${course.level} · ${course.semester || 'First Semester'}`}
+                          </div>
                         </div>
-                        <span className="inline-flex items-center gap-0.5 font-extrabold text-[#0a58ed] dark:text-blue-400 shrink-0">
-                          <span>Open</span>
-                          <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-                        </span>
-                      </div>
-                    </button>
-                  ))}
+
+                        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 text-xs">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-extrabold text-slate-700 dark:text-slate-200 tabular-nums">
+                              {course.materialCount}{' '}
+                              {course.materialCount === 1 ? 'File' : 'Files'}
+                            </span>
+                            {course.materialCount > 0 && (
+                              <span className="text-slate-500 dark:text-slate-400">
+                                ({course.freeCount} Free · {course.paidCount} Paid)
+                              </span>
+                            )}
+                          </div>
+                          <span className="inline-flex items-center gap-0.5 font-extrabold text-[#0a58ed] dark:text-blue-400 shrink-0">
+                            <span>{isAvailable ? 'Open' : 'Unlock'}</span>
+                            <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
+          ) : courseLocked ? (
+            /* STAGE 2A: COURSE REGISTRATION REQUIRED ACCESS RESTRICTION SCREEN */
+            <div className="space-y-4">
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setOpenedCourseKey(null)}
+                  className="px-3 py-1.5 rounded-xl bg-[#eff5ff] dark:bg-slate-800 border border-[#c6daf7] dark:border-slate-700 text-[#0b337a] dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-slate-700 text-xs font-extrabold inline-flex items-center gap-1.5 min-h-[36px]"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>All Courses</span>
+                </button>
+              </div>
+
+              <div className="rounded-2xl border border-amber-200 dark:border-amber-800/60 bg-gradient-to-br from-amber-50 via-white to-[#eff5ff] dark:from-slate-900 dark:via-slate-900 dark:to-slate-800 p-6 sm:p-8 text-center max-w-xl mx-auto space-y-4 shadow-xs">
+                <div className="w-14 h-14 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center justify-center mx-auto">
+                  <ShieldAlert className="w-8 h-8" />
+                </div>
+
+                <div className="space-y-1.5">
+                  <h3 className="text-lg sm:text-xl font-extrabold text-[#082252] dark:text-white">
+                    {activeCourseSummary?.code || 'Course'} Registration Required
+                  </h3>
+                  <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                    You need to register for this course before accessing its study materials.
+                  </p>
+                </div>
+
+                {activeCourseSummary && (
+                  <div className="rounded-xl bg-white dark:bg-slate-800/80 border border-[#dce6f5] dark:border-slate-700 p-3.5 text-left text-xs space-y-1.5">
+                    <div className="flex justify-between gap-2">
+                      <span className="text-slate-500 dark:text-slate-400">Course</span>
+                      <span className="font-extrabold text-slate-900 dark:text-white text-right">
+                        {activeCourseSummary.code} — {activeCourseSummary.title}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-slate-500 dark:text-slate-400">Academic Info</span>
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 text-right">
+                        {activeCourseSummary.level} · {activeCourseSummary.semester || 'First Semester'}
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <span className="text-slate-500 dark:text-slate-400">Uploaded Files</span>
+                      <span className="font-bold text-[#0b337a] dark:text-blue-300">
+                        {activeCourseSummary.materialCount} materials ({activeCourseSummary.freeCount} Free ·{' '}
+                        {activeCourseSummary.paidCount} Paid)
+                      </span>
+                    </div>
+                    {typeof activeCourseSummary.registrationFee === 'number' &&
+                      activeCourseSummary.registrationFee > 0 && (
+                        <div className="pt-1.5 border-t border-slate-100 dark:border-slate-700 flex justify-between gap-2">
+                          <span className="font-bold text-slate-700 dark:text-slate-300">
+                            Course Registration Fee
+                          </span>
+                          <span className="font-extrabold text-[#0a58ed] dark:text-blue-400 tabular-nums">
+                            {formatCurrency(
+                              activeCourseSummary.registrationFee,
+                              activeCourseSummary.currency || 'NGN'
+                            )}
+                          </span>
+                        </div>
+                      )}
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setOpenedCourseKey(null)}
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 min-h-[42px]"
+                  >
+                    Back to Courses
+                  </button>
+                  {activeCourseSummary?.courseId && onRegisterCourse && (
+                    <button
+                      type="button"
+                      onClick={() => onRegisterCourse(activeCourseSummary.courseId!)}
+                      className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold shadow-sm inline-flex items-center justify-center gap-1.5 min-h-[42px]"
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      <span>Register Now</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
           ) : (
-            /* STAGE 2: Selected Course Materials & PDFs */
+            /* STAGE 2B: Selected Registered Course Materials & PDFs */
             <div className="space-y-4 flex-1 flex flex-col">
               <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/80 border border-[#d6e4fa] dark:border-slate-700 px-3.5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
@@ -513,14 +803,19 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                     <span>All Courses</span>
                   </button>
                   <div className="min-w-0">
-                    <div className="text-sm sm:text-base font-extrabold text-[#082252] dark:text-white truncate">
-                      {activeCourseSummary
-                        ? `${activeCourseSummary.code} — ${activeCourseSummary.title}`
-                        : 'Course Materials'}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm sm:text-base font-extrabold text-[#082252] dark:text-white truncate">
+                        {activeCourseSummary
+                          ? `${activeCourseSummary.code} — ${activeCourseSummary.title}`
+                          : 'Course Materials'}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[10px] font-extrabold">
+                        Registered
+                      </span>
                     </div>
                     <div className="text-xs text-slate-600 dark:text-slate-400">
                       {courseMaterials.length}{' '}
-                      {courseMaterials.length === 1 ? 'uploaded file' : 'uploaded files'} available
+                      {courseMaterials.length === 1 ? 'material' : 'materials'} available · Paid PDFs require individual purchase to download
                     </div>
                   </div>
                 </div>
@@ -546,7 +841,7 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                       key={cat}
                       type="button"
                       onClick={() => setSubCategory(cat)}
-                      className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-colors ${
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
                         active
                           ? 'bg-[#0a58ed] text-white shadow-xs'
                           : 'bg-[#eff5ff] dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-blue-100 dark:hover:bg-slate-700'
@@ -721,7 +1016,7 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                   </div>
 
                   <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                    Once your Paystack payment succeeds, this {payTarget.fileType} file unlocks permanently on your account so you can download it anytime.
+                    Once your Paystack payment succeeds, this {payTarget.fileType} file unlocks on your account so you can download it anytime while your course registration is active.
                   </p>
 
                   <div className="flex items-center justify-end gap-2.5">

@@ -158,6 +158,9 @@ const courseCreateSchema = z.object({
   code: z.string().trim().min(2).max(30),
   title: z.string().trim().min(2).max(160),
   level: z.string().trim().min(2).max(40).default('100 Level'),
+  faculty: z.string().trim().min(2).max(120).default('General'),
+  department: z.string().trim().min(2).max(120).default('General'),
+  semester: z.string().trim().min(2).max(60).default('First Semester'),
   description: z.string().trim().max(1000).default(''),
   registrationFee: z.coerce
     .number()
@@ -323,6 +326,9 @@ router.get('/courses', async (_req, res) => {
       code: string;
       title: string;
       level: string;
+      faculty: string;
+      department: string;
+      semester: string;
       description: string;
       courseValue: string;
       registrationFee: string;
@@ -348,6 +354,9 @@ router.get('/courses', async (_req, res) => {
         c.code,
         c.title,
         c.level,
+        COALESCE(NULLIF(TRIM(c.faculty), ''), 'General') AS faculty,
+        COALESCE(NULLIF(TRIM(c.department), ''), 'General') AS department,
+        COALESCE(NULLIF(TRIM(c.semester), ''), 'First Semester') AS semester,
         c.description,
         c.course_value::text AS "courseValue",
         c.registration_fee::text AS "registrationFee",
@@ -441,6 +450,9 @@ router.post('/courses', async (req, res) => {
         code: normalizedCode,
         title: parsed.title,
         level: parsed.level,
+        faculty: parsed.faculty,
+        department: parsed.department,
+        semester: parsed.semester,
         description: parsed.description,
         courseValue: valueNaira.toFixed(2),
         registrationFee: feeNaira.toFixed(2),
@@ -539,6 +551,9 @@ router.patch('/courses/:id', async (req, res) => {
     if (parsed.code !== undefined) updateValues.code = parsed.code.toUpperCase();
     if (parsed.title !== undefined) updateValues.title = parsed.title;
     if (parsed.level !== undefined) updateValues.level = parsed.level;
+    if (parsed.faculty !== undefined) updateValues.faculty = parsed.faculty;
+    if (parsed.department !== undefined) updateValues.department = parsed.department;
+    if (parsed.semester !== undefined) updateValues.semester = parsed.semester;
     if (parsed.description !== undefined) updateValues.description = parsed.description;
     if (parsed.publicationStatus !== undefined) {
       updateValues.publicationStatus = parsed.publicationStatus;
@@ -1776,6 +1791,16 @@ router.post('/questions/generate', async (req, res) => {
 });
 
 // Study Materials Upload & Management (External S3 Object Storage with automatic PostgreSQL BYTEA fallback)
+const MATERIAL_CATEGORIES = [
+  'Tutorials',
+  'Notes',
+  'Past Questions',
+  'Guides',
+  'Lecture Notes',
+  'Handouts',
+  'Practical Guides',
+] as const;
+
 router.get('/materials', async (_req, res) => {
   try {
     const pool = getPool();
@@ -1785,15 +1810,22 @@ router.get('/materials', async (_req, res) => {
       courseTitle: string | null;
       courseCode: string | null;
       courseLevel: string | null;
+      faculty: string | null;
+      department: string | null;
+      academicLevel: string | null;
+      semester: string | null;
       title: string;
       description: string;
       category: string;
       fileType: string;
       fileSizeBytes: number;
       mimeType: string;
+      originalFilename: string | null;
       price: string;
       currency: string;
+      publicationStatus: 'published' | 'unpublished';
       downloadCount: number;
+      freeDownloadCount: number;
       purchaseCount: number;
       totalRevenue: string;
       createdAt: Date;
@@ -1804,23 +1836,37 @@ router.get('/materials', async (_req, res) => {
          c.title AS "courseTitle",
          c.code AS "courseCode",
          c.level AS "courseLevel",
+         COALESCE(NULLIF(TRIM(sm.faculty), ''), c.faculty, 'General') AS faculty,
+         COALESCE(NULLIF(TRIM(sm.department), ''), c.department, 'General') AS department,
+         COALESCE(NULLIF(TRIM(sm.academic_level), ''), c.level, '100 Level') AS "academicLevel",
+         COALESCE(NULLIF(TRIM(sm.semester), ''), c.semester, 'First Semester') AS semester,
          sm.title,
          sm.description,
          sm.category,
          sm.file_type AS "fileType",
          sm.file_size_bytes AS "fileSizeBytes",
          sm.mime_type AS "mimeType",
+         sm.original_filename AS "originalFilename",
          sm.price::text AS price,
          sm.currency,
+         COALESCE(sm.publication_status, 'published') AS "publicationStatus",
          sm.download_count AS "downloadCount",
-         COALESCE(COUNT(smp.id) FILTER (WHERE smp.payment_status = 'successful'), 0)::int AS "purchaseCount",
-         COALESCE(SUM(smp.amount) FILTER (WHERE smp.payment_status = 'successful'), 0)::text AS "totalRevenue",
+         COALESCE((
+           SELECT COUNT(*)::int FROM study_material_download_logs smdl
+           WHERE smdl.material_id = sm.id AND smdl.is_free_download = TRUE
+         ), 0)::int AS "freeDownloadCount",
+         COALESCE((
+           SELECT COUNT(*)::int FROM study_material_purchases smp
+           WHERE smp.material_id = sm.id AND smp.payment_status = 'successful'
+         ), 0)::int AS "purchaseCount",
+         COALESCE((
+           SELECT SUM(smp.amount)::text FROM study_material_purchases smp
+           WHERE smp.material_id = sm.id AND smp.payment_status = 'successful'
+         ), '0')::text AS "totalRevenue",
          sm.created_at AS "createdAt"
        FROM study_materials sm
        LEFT JOIN courses c ON c.id = sm.course_id
-       LEFT JOIN study_material_purchases smp ON smp.material_id = sm.id
        WHERE sm.is_active = TRUE
-       GROUP BY sm.id, c.title, c.code, c.level
        ORDER BY sm.created_at DESC`
     );
 
@@ -1832,6 +1878,9 @@ router.get('/materials', async (_req, res) => {
           price: priceNum,
           isFree: priceNum <= 0,
           isPurchased: true,
+          publicationStatus:
+            r.publicationStatus === 'unpublished' ? 'unpublished' : 'published',
+          freeDownloadCount: Number(r.freeDownloadCount ?? 0),
           purchaseCount: Number(r.purchaseCount ?? 0),
           totalRevenue: Number(r.totalRevenue ?? 0),
         };
@@ -1856,14 +1905,46 @@ router.post(
       const metaSchema = z.object({
         title: z.string().trim().min(2).max(180),
         description: z.string().trim().max(500).default(''),
-        category: z.enum(['Tutorials', 'Notes', 'Past Questions', 'Guides']).default('Notes'),
+        category: z.enum(MATERIAL_CATEGORIES).default('Notes'),
         courseId: z.string().uuid().optional().or(z.literal('')),
+        faculty: z.string().trim().max(120).optional(),
+        department: z.string().trim().max(120).optional(),
+        academicLevel: z.string().trim().max(60).optional(),
+        semester: z.string().trim().max(60).optional(),
+        publicationStatus: z.enum(['published', 'unpublished']).default('published'),
         price: z.union([z.string(), z.number()]).optional(),
       });
 
       const parsed = metaSchema.parse(req.body);
       const priceNaira = validateMaterialPriceNaira(parsed.price);
       const objectKey = buildMaterialObjectKey(file.originalname, parsed.category);
+
+      const db = getDb();
+      let courseRow: {
+        id: string;
+        faculty: string;
+        department: string;
+        level: string;
+        semester: string;
+      } | null = null;
+      if (parsed.courseId) {
+        const [found] = await db
+          .select({
+            id: courses.id,
+            faculty: courses.faculty,
+            department: courses.department,
+            level: courses.level,
+            semester: courses.semester,
+          })
+          .from(courses)
+          .where(eq(courses.id, parsed.courseId))
+          .limit(1);
+        if (!found) {
+          res.status(404).json({ error: 'Selected course does not exist.' });
+          return;
+        }
+        courseRow = found;
+      }
 
       let storageBackend: 's3' | 'postgres' = 'postgres';
       let fileData: Buffer | null = file.buffer;
@@ -1895,7 +1976,6 @@ router.post(
             ? 'IMAGE'
             : 'PDF';
 
-      const db = getDb();
       const [created] = await db
         .insert(studyMaterials)
         .values({
@@ -1903,6 +1983,10 @@ router.post(
           title: parsed.title,
           description: parsed.description,
           category: parsed.category,
+          faculty: parsed.faculty?.trim() || courseRow?.faculty || 'General',
+          department: parsed.department?.trim() || courseRow?.department || 'General',
+          academicLevel: parsed.academicLevel?.trim() || courseRow?.level || '100 Level',
+          semester: parsed.semester?.trim() || courseRow?.semester || 'First Semester',
           fileType,
           fileSizeBytes: file.size,
           storageBackend,
@@ -1912,6 +1996,7 @@ router.post(
           mimeType: file.mimetype || 'application/pdf',
           price: priceNaira.toFixed(2),
           currency: 'NGN',
+          publicationStatus: parsed.publicationStatus,
           uploadedBy: req.user!.id,
           isActive: true,
         })
@@ -1921,12 +2006,18 @@ router.post(
           title: studyMaterials.title,
           description: studyMaterials.description,
           category: studyMaterials.category,
+          faculty: studyMaterials.faculty,
+          department: studyMaterials.department,
+          academicLevel: studyMaterials.academicLevel,
+          semester: studyMaterials.semester,
           fileType: studyMaterials.fileType,
           fileSizeBytes: studyMaterials.fileSizeBytes,
           storageBackend: studyMaterials.storageBackend,
+          originalFilename: studyMaterials.originalFilename,
           mimeType: studyMaterials.mimeType,
           price: studyMaterials.price,
           currency: studyMaterials.currency,
+          publicationStatus: studyMaterials.publicationStatus,
           downloadCount: studyMaterials.downloadCount,
           createdAt: studyMaterials.createdAt,
         });
@@ -1936,7 +2027,13 @@ router.post(
         action: 'admin.material.upload',
         entityType: 'study_material',
         entityId: created.id,
-        metadata: { title: created.title, objectKey, storageBackend, price: priceNaira },
+        metadata: {
+          title: created.title,
+          objectKey,
+          storageBackend,
+          price: priceNaira,
+          publicationStatus: created.publicationStatus,
+        },
         ipAddress: req.ip,
       });
 
@@ -1970,8 +2067,13 @@ router.patch('/materials/:id', async (req, res) => {
     const updateSchema = z.object({
       title: z.string().trim().min(2).max(180).optional(),
       description: z.string().trim().max(500).optional(),
-      category: z.enum(['Tutorials', 'Notes', 'Past Questions', 'Guides']).optional(),
+      category: z.enum(MATERIAL_CATEGORIES).optional(),
       courseId: z.string().uuid().nullable().optional().or(z.literal('')),
+      faculty: z.string().trim().max(120).optional(),
+      department: z.string().trim().max(120).optional(),
+      academicLevel: z.string().trim().max(60).optional(),
+      semester: z.string().trim().max(60).optional(),
+      publicationStatus: z.enum(['published', 'unpublished']).optional(),
       price: z.union([z.string(), z.number()]).optional(),
     });
 
@@ -1983,6 +2085,7 @@ router.patch('/materials/:id', async (req, res) => {
         id: studyMaterials.id,
         title: studyMaterials.title,
         price: studyMaterials.price,
+        publicationStatus: studyMaterials.publicationStatus,
       })
       .from(studyMaterials)
       .where(eq(studyMaterials.id, id))
@@ -2002,6 +2105,15 @@ router.patch('/materials/:id', async (req, res) => {
     if (parsed.courseId !== undefined) {
       updateFields.courseId = parsed.courseId ? parsed.courseId : null;
     }
+    if (parsed.faculty !== undefined) updateFields.faculty = parsed.faculty || null;
+    if (parsed.department !== undefined) updateFields.department = parsed.department || null;
+    if (parsed.academicLevel !== undefined) {
+      updateFields.academicLevel = parsed.academicLevel || null;
+    }
+    if (parsed.semester !== undefined) updateFields.semester = parsed.semester || null;
+    if (parsed.publicationStatus !== undefined) {
+      updateFields.publicationStatus = parsed.publicationStatus;
+    }
 
     let validatedPrice: number | undefined;
     if (parsed.price !== undefined) {
@@ -2019,11 +2131,17 @@ router.patch('/materials/:id', async (req, res) => {
         title: studyMaterials.title,
         description: studyMaterials.description,
         category: studyMaterials.category,
+        faculty: studyMaterials.faculty,
+        department: studyMaterials.department,
+        academicLevel: studyMaterials.academicLevel,
+        semester: studyMaterials.semester,
         fileType: studyMaterials.fileType,
         fileSizeBytes: studyMaterials.fileSizeBytes,
+        originalFilename: studyMaterials.originalFilename,
         mimeType: studyMaterials.mimeType,
         price: studyMaterials.price,
         currency: studyMaterials.currency,
+        publicationStatus: studyMaterials.publicationStatus,
         downloadCount: studyMaterials.downloadCount,
         createdAt: studyMaterials.createdAt,
       });
@@ -2037,6 +2155,8 @@ router.patch('/materials/:id', async (req, res) => {
         title: updated.title,
         previousPrice: Number(existing.price ?? 0),
         newPrice: validatedPrice ?? Number(updated.price ?? 0),
+        previousPublicationStatus: existing.publicationStatus,
+        newPublicationStatus: updated.publicationStatus,
       },
       ipAddress: req.ip,
     });
@@ -2050,9 +2170,14 @@ router.patch('/materials/:id', async (req, res) => {
         isPurchased: true,
       },
       message:
-        validatedPrice !== undefined
-          ? `Material updated. Price is now ${updatedPrice <= 0 ? 'Free' : `₦${updatedPrice.toLocaleString()}`}.`
-          : 'Study material updated.',
+        parsed.publicationStatus !== undefined &&
+        parsed.publicationStatus !== existing.publicationStatus &&
+        validatedPrice === undefined &&
+        parsed.title === undefined
+          ? `Material "${updated.title}" is now ${updated.publicationStatus === 'published' ? 'Published' : 'Unpublished'}.`
+          : validatedPrice !== undefined
+            ? `Material updated. Price is now ${updatedPrice <= 0 ? 'Free' : `₦${updatedPrice.toLocaleString()}`}. (Existing purchases remain valid.)`
+            : 'Study material updated.',
     });
   } catch (err) {
     if (err instanceof MaterialPaymentError) {
@@ -2062,6 +2187,135 @@ router.patch('/materials/:id', async (req, res) => {
     handleApiError(res, err, 'updating study material');
   }
 });
+
+router.post(
+  '/materials/:id/replace-file',
+  upload.single('file') as unknown as RequestHandler,
+  async (req, res) => {
+    try {
+      const id = req.params.id?.trim();
+      if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+        res.status(400).json({ error: 'Valid material ID is required.' });
+        return;
+      }
+
+      const file = req.file;
+      if (!file) {
+        res.status(400).json({ error: 'A replacement PDF/document file is required.' });
+        return;
+      }
+
+      const db = getDb();
+      const [existing] = await db
+        .select({
+          id: studyMaterials.id,
+          title: studyMaterials.title,
+          category: studyMaterials.category,
+          storageBackend: studyMaterials.storageBackend,
+          objectKey: studyMaterials.objectKey,
+        })
+        .from(studyMaterials)
+        .where(eq(studyMaterials.id, id))
+        .limit(1);
+
+      if (!existing) {
+        res.status(404).json({ error: 'Study material not found.' });
+        return;
+      }
+
+      const nextObjectKey = buildMaterialObjectKey(file.originalname, existing.category);
+      let storageBackend: 's3' | 'postgres' = 'postgres';
+      let fileData: Buffer | null = file.buffer;
+
+      if (isObjectStorageConfigured()) {
+        try {
+          await uploadObjectBuffer({
+            objectKey: nextObjectKey,
+            body: file.buffer,
+            contentType: file.mimetype || 'application/octet-stream',
+          });
+          storageBackend = 's3';
+          fileData = null;
+        } catch (storageErr) {
+          console.warn(
+            '[StudyMaterials] S3 replace upload failed, falling back to PostgreSQL BYTEA:',
+            storageErr
+          );
+          storageBackend = 'postgres';
+          fileData = file.buffer;
+        }
+      }
+
+      if (existing.storageBackend === 's3' && existing.objectKey !== nextObjectKey) {
+        try {
+          await deleteObjectKey(existing.objectKey);
+        } catch (delErr) {
+          if (!(delErr instanceof ObjectStorageNotConfiguredError)) {
+            console.warn('[StudyMaterials] Old S3 object cleanup warning:', delErr);
+          }
+        }
+      }
+
+      const lowerName = file.originalname.toLowerCase();
+      const fileType =
+        lowerName.endsWith('.doc') || lowerName.endsWith('.docx')
+          ? 'DOC'
+          : file.mimetype.startsWith('image/')
+            ? 'IMAGE'
+            : 'PDF';
+
+      const [updated] = await db
+        .update(studyMaterials)
+        .set({
+          fileType,
+          fileSizeBytes: file.size,
+          storageBackend,
+          objectKey: nextObjectKey,
+          originalFilename: path.basename(file.originalname || 'material.pdf'),
+          fileData,
+          mimeType: file.mimetype || 'application/pdf',
+          updatedAt: new Date(),
+        })
+        .where(eq(studyMaterials.id, existing.id))
+        .returning({
+          id: studyMaterials.id,
+          title: studyMaterials.title,
+          fileType: studyMaterials.fileType,
+          fileSizeBytes: studyMaterials.fileSizeBytes,
+          originalFilename: studyMaterials.originalFilename,
+          mimeType: studyMaterials.mimeType,
+          price: studyMaterials.price,
+          currency: studyMaterials.currency,
+          publicationStatus: studyMaterials.publicationStatus,
+        });
+
+      await writeAuditLog({
+        actorUserId: req.user!.id,
+        action: 'admin.material.replace_file',
+        entityType: 'study_material',
+        entityId: updated.id,
+        metadata: {
+          title: updated.title,
+          originalFilename: updated.originalFilename,
+          fileSizeBytes: updated.fileSizeBytes,
+          storageBackend,
+        },
+        ipAddress: req.ip,
+      });
+
+      res.json({
+        material: {
+          ...updated,
+          price: Number(updated.price ?? 0),
+          isFree: Number(updated.price ?? 0) <= 0,
+        },
+        message: `Uploaded file replaced for "${updated.title}" (${updated.originalFilename}).`,
+      });
+    } catch (err) {
+      handleApiError(res, err, 'replacing study material file');
+    }
+  }
+);
 
 router.delete('/materials/:id', async (req, res) => {
   try {
@@ -2095,6 +2349,327 @@ router.delete('/materials/:id', async (req, res) => {
     res.json({ deletedId: existing.id });
   } catch (err) {
     handleApiError(res, err, 'deleting study material');
+  }
+});
+
+// Study Material Sales Analytics & Export
+async function queryAdminMaterialSales(filters: {
+  search?: string;
+  courseId?: string;
+  materialId?: string;
+  paymentStatus?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}) {
+  const pool = getPool();
+  const clauses: string[] = [];
+  const values: unknown[] = [];
+
+  if (filters.search) {
+    values.push(`%${filters.search.toLowerCase()}%`);
+    const idx = values.length;
+    clauses.push(
+      `(LOWER(u.full_name) LIKE $${idx} OR LOWER(u.email) LIKE $${idx} OR LOWER(COALESCE(u.registration_code, '')) LIKE $${idx} OR LOWER(smp.payment_reference) LIKE $${idx} OR LOWER(sm.title) LIKE $${idx} OR LOWER(COALESCE(c.code, '')) LIKE $${idx})`
+    );
+  }
+  if (filters.courseId) {
+    values.push(filters.courseId);
+    clauses.push(`COALESCE(smp.course_id, sm.course_id) = $${values.length}`);
+  }
+  if (filters.materialId) {
+    values.push(filters.materialId);
+    clauses.push(`smp.material_id = $${values.length}`);
+  }
+  if (filters.paymentStatus) {
+    values.push(filters.paymentStatus);
+    clauses.push(`smp.payment_status = $${values.length}`);
+  }
+  if (filters.dateFrom) {
+    values.push(filters.dateFrom);
+    clauses.push(`smp.created_at >= $${values.length}::timestamptz`);
+  }
+  if (filters.dateTo) {
+    values.push(`${filters.dateTo}T23:59:59.999Z`);
+    clauses.push(`smp.created_at <= $${values.length}::timestamptz`);
+  }
+
+  const whereSql = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+
+  const [kpiRes, topMaterialsRes, byCourseRes, byDeptRes, txRes] = await Promise.all([
+    pool.query<{
+      totalMaterials: number;
+      publishedMaterials: number;
+      unpublishedMaterials: number;
+      totalSuccessfulPurchases: number;
+      totalRevenue: string;
+      totalFreeDownloads: number;
+      totalDownloadEvents: number;
+    }>(
+      `SELECT
+         (SELECT COUNT(*)::int FROM study_materials WHERE is_active = TRUE) AS "totalMaterials",
+         (SELECT COUNT(*)::int FROM study_materials WHERE is_active = TRUE AND COALESCE(publication_status, 'published') = 'published') AS "publishedMaterials",
+         (SELECT COUNT(*)::int FROM study_materials WHERE is_active = TRUE AND COALESCE(publication_status, 'published') = 'unpublished') AS "unpublishedMaterials",
+         (SELECT COUNT(*)::int FROM study_material_purchases WHERE payment_status = 'successful') AS "totalSuccessfulPurchases",
+         (SELECT COALESCE(SUM(amount), 0)::text FROM study_material_purchases WHERE payment_status = 'successful') AS "totalRevenue",
+         (SELECT COUNT(*)::int FROM study_material_download_logs WHERE is_free_download = TRUE) AS "totalFreeDownloads",
+         (SELECT COUNT(*)::int FROM study_material_download_logs) AS "totalDownloadEvents"`
+    ),
+    pool.query<{
+      materialId: string;
+      title: string;
+      courseCode: string | null;
+      courseTitle: string | null;
+      category: string;
+      price: string;
+      purchaseCount: number;
+      revenue: string;
+      freeDownloads: number;
+      downloadCount: number;
+    }>(
+      `SELECT
+         sm.id AS "materialId",
+         sm.title,
+         c.code AS "courseCode",
+         c.title AS "courseTitle",
+         sm.category,
+         sm.price::text AS price,
+         COALESCE(COUNT(DISTINCT smp.id) FILTER (WHERE smp.payment_status = 'successful'), 0)::int AS "purchaseCount",
+         COALESCE(SUM(smp.amount) FILTER (WHERE smp.payment_status = 'successful'), 0)::text AS revenue,
+         COALESCE((
+           SELECT COUNT(*)::int FROM study_material_download_logs smdl
+           WHERE smdl.material_id = sm.id AND smdl.is_free_download = TRUE
+         ), 0)::int AS "freeDownloads",
+         sm.download_count AS "downloadCount"
+       FROM study_materials sm
+       LEFT JOIN courses c ON c.id = sm.course_id
+       LEFT JOIN study_material_purchases smp ON smp.material_id = sm.id
+       WHERE sm.is_active = TRUE
+       GROUP BY sm.id, sm.title, c.code, c.title, sm.category, sm.price, sm.download_count
+       ORDER BY "purchaseCount" DESC, SUM(smp.amount) FILTER (WHERE smp.payment_status = 'successful') DESC NULLS LAST, sm.download_count DESC
+       LIMIT 10`
+    ),
+    pool.query<{
+      courseId: string | null;
+      courseCode: string;
+      courseTitle: string;
+      department: string;
+      materialCount: number;
+      purchaseCount: number;
+      revenue: string;
+      freeDownloads: number;
+    }>(
+      `SELECT
+         c.id AS "courseId",
+         COALESCE(c.code, 'GENERAL') AS "courseCode",
+         COALESCE(c.title, 'General Study Resources') AS "courseTitle",
+         COALESCE(NULLIF(TRIM(c.department), ''), 'General') AS department,
+         COUNT(DISTINCT sm.id)::int AS "materialCount",
+         COALESCE(COUNT(DISTINCT smp.id) FILTER (WHERE smp.payment_status = 'successful'), 0)::int AS "purchaseCount",
+         COALESCE(SUM(smp.amount) FILTER (WHERE smp.payment_status = 'successful'), 0)::text AS revenue,
+         COALESCE((
+           SELECT COUNT(*)::int FROM study_material_download_logs smdl
+           WHERE ((c.id IS NULL AND smdl.course_id IS NULL) OR smdl.course_id = c.id)
+             AND smdl.is_free_download = TRUE
+         ), 0)::int AS "freeDownloads"
+       FROM study_materials sm
+       LEFT JOIN courses c ON c.id = sm.course_id
+       LEFT JOIN study_material_purchases smp ON smp.material_id = sm.id
+       WHERE sm.is_active = TRUE
+       GROUP BY c.id, c.code, c.title, c.department
+       ORDER BY SUM(smp.amount) FILTER (WHERE smp.payment_status = 'successful') DESC NULLS LAST, "courseCode" ASC`
+    ),
+    pool.query<{
+      department: string;
+      materialCount: number;
+      purchaseCount: number;
+      revenue: string;
+      freeDownloads: number;
+    }>(
+      `SELECT
+         COALESCE(NULLIF(TRIM(sm.department), ''), NULLIF(TRIM(c.department), ''), 'General') AS department,
+         COUNT(DISTINCT sm.id)::int AS "materialCount",
+         COALESCE(COUNT(DISTINCT smp.id) FILTER (WHERE smp.payment_status = 'successful'), 0)::int AS "purchaseCount",
+         COALESCE(SUM(smp.amount) FILTER (WHERE smp.payment_status = 'successful'), 0)::text AS revenue,
+         COALESCE(COUNT(DISTINCT smdl.id) FILTER (WHERE smdl.is_free_download = TRUE), 0)::int AS "freeDownloads"
+       FROM study_materials sm
+       LEFT JOIN courses c ON c.id = sm.course_id
+       LEFT JOIN study_material_purchases smp ON smp.material_id = sm.id
+       LEFT JOIN study_material_download_logs smdl ON smdl.material_id = sm.id
+       WHERE sm.is_active = TRUE
+       GROUP BY COALESCE(NULLIF(TRIM(sm.department), ''), NULLIF(TRIM(c.department), ''), 'General')
+       ORDER BY SUM(smp.amount) FILTER (WHERE smp.payment_status = 'successful') DESC NULLS LAST, department ASC`
+    ),
+    pool.query<{
+      id: string;
+      studentId: string;
+      studentName: string;
+      studentEmail: string;
+      studentRegistrationCode: string | null;
+      materialId: string;
+      materialTitle: string;
+      category: string;
+      courseId: string | null;
+      courseCode: string | null;
+      courseTitle: string | null;
+      department: string | null;
+      amount: string;
+      currency: string;
+      paymentReference: string;
+      paymentStatus: string;
+      paymentChannel: string | null;
+      gatewayTransactionId: string | null;
+      paidAt: Date | null;
+      createdAt: Date;
+    }>(
+      `SELECT
+         smp.id,
+         u.id AS "studentId",
+         u.full_name AS "studentName",
+         u.email AS "studentEmail",
+         u.registration_code AS "studentRegistrationCode",
+         sm.id AS "materialId",
+         sm.title AS "materialTitle",
+         sm.category,
+         COALESCE(smp.course_id, sm.course_id) AS "courseId",
+         c.code AS "courseCode",
+         c.title AS "courseTitle",
+         COALESCE(NULLIF(TRIM(sm.department), ''), c.department, 'General') AS department,
+         smp.amount::text AS amount,
+         smp.currency,
+         smp.payment_reference AS "paymentReference",
+         smp.payment_status AS "paymentStatus",
+         smp.payment_channel AS "paymentChannel",
+         smp.gateway_transaction_id AS "gatewayTransactionId",
+         smp.paid_at AS "paidAt",
+         smp.created_at AS "createdAt"
+       FROM study_material_purchases smp
+       INNER JOIN users u ON u.id = smp.student_id
+       INNER JOIN study_materials sm ON sm.id = smp.material_id
+       LEFT JOIN courses c ON c.id = COALESCE(smp.course_id, sm.course_id)
+       ${whereSql}
+       ORDER BY smp.created_at DESC
+       LIMIT 500`,
+      values
+    ),
+  ]);
+
+  const kpi = kpiRes.rows[0];
+
+  return {
+    summary: {
+      totalMaterials: Number(kpi?.totalMaterials ?? 0),
+      publishedMaterials: Number(kpi?.publishedMaterials ?? 0),
+      unpublishedMaterials: Number(kpi?.unpublishedMaterials ?? 0),
+      totalSuccessfulPurchases: Number(kpi?.totalSuccessfulPurchases ?? 0),
+      totalRevenue: Number(kpi?.totalRevenue ?? 0),
+      totalFreeDownloads: Number(kpi?.totalFreeDownloads ?? 0),
+      totalDownloadEvents: Number(kpi?.totalDownloadEvents ?? 0),
+    },
+    mostPurchasedMaterials: topMaterialsRes.rows.map((r) => ({
+      ...r,
+      price: Number(r.price ?? 0),
+      revenue: Number(r.revenue ?? 0),
+    })),
+    salesByCourse: byCourseRes.rows.map((r) => ({
+      ...r,
+      revenue: Number(r.revenue ?? 0),
+    })),
+    salesByDepartment: byDeptRes.rows.map((r) => ({
+      ...r,
+      revenue: Number(r.revenue ?? 0),
+    })),
+    transactions: txRes.rows.map((r) => ({
+      ...r,
+      amount: Number(r.amount ?? 0),
+    })),
+  };
+}
+
+router.get('/materials/sales', async (req, res) => {
+  try {
+    const report = await queryAdminMaterialSales({
+      search: typeof req.query.search === 'string' ? req.query.search.trim() : undefined,
+      courseId: typeof req.query.courseId === 'string' ? req.query.courseId.trim() : undefined,
+      materialId:
+        typeof req.query.materialId === 'string' ? req.query.materialId.trim() : undefined,
+      paymentStatus:
+        typeof req.query.paymentStatus === 'string' ? req.query.paymentStatus.trim() : undefined,
+      dateFrom: typeof req.query.dateFrom === 'string' ? req.query.dateFrom.trim() : undefined,
+      dateTo: typeof req.query.dateTo === 'string' ? req.query.dateTo.trim() : undefined,
+    });
+    res.json(report);
+  } catch (err) {
+    handleApiError(res, err, 'fetching study material sales report');
+  }
+});
+
+router.get('/materials/sales/export', async (req, res) => {
+  try {
+    const report = await queryAdminMaterialSales({
+      search: typeof req.query.search === 'string' ? req.query.search.trim() : undefined,
+      courseId: typeof req.query.courseId === 'string' ? req.query.courseId.trim() : undefined,
+      materialId:
+        typeof req.query.materialId === 'string' ? req.query.materialId.trim() : undefined,
+      paymentStatus:
+        typeof req.query.paymentStatus === 'string' ? req.query.paymentStatus.trim() : undefined,
+      dateFrom: typeof req.query.dateFrom === 'string' ? req.query.dateFrom.trim() : undefined,
+      dateTo: typeof req.query.dateTo === 'string' ? req.query.dateTo.trim() : undefined,
+    });
+
+    const escapeCsv = (val: unknown) => {
+      const s = String(val ?? '');
+      return `"${s.replace(/"/g, '""')}"`;
+    };
+
+    const header = [
+      'Purchase ID',
+      'Student Name',
+      'Email',
+      'Reg Code',
+      'Course Code',
+      'Course Title',
+      'Department',
+      'Material Title',
+      'Category',
+      'Amount',
+      'Currency',
+      'Payment Reference',
+      'Payment Status',
+      'Channel',
+      'Paid At',
+      'Created At',
+    ].join(',');
+
+    const lines = report.transactions.map((t) =>
+      [
+        escapeCsv(t.id),
+        escapeCsv(t.studentName),
+        escapeCsv(t.studentEmail),
+        escapeCsv(t.studentRegistrationCode || ''),
+        escapeCsv(t.courseCode || 'GENERAL'),
+        escapeCsv(t.courseTitle || 'General Study Resources'),
+        escapeCsv(t.department || 'General'),
+        escapeCsv(t.materialTitle),
+        escapeCsv(t.category),
+        escapeCsv(t.amount),
+        escapeCsv(t.currency),
+        escapeCsv(t.paymentReference),
+        escapeCsv(t.paymentStatus),
+        escapeCsv(t.paymentChannel || ''),
+        escapeCsv(t.paidAt ? new Date(t.paidAt).toISOString() : ''),
+        escapeCsv(new Date(t.createdAt).toISOString()),
+      ].join(',')
+    );
+
+    const csv = [header, ...lines].join('\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="acadet-material-sales-${new Date().toISOString().slice(0, 10)}.csv"`
+    );
+    res.send(csv);
+  } catch (err) {
+    handleApiError(res, err, 'exporting study material sales CSV');
   }
 });
 
