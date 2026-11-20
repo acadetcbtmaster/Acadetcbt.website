@@ -4007,8 +4007,42 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                 </select>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-start">
                 <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    Access Type
+                  </label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setMatPrice('0')}
+                      className={`px-2.5 py-2 rounded-lg text-xs font-extrabold border ${
+                        Number(matPrice || 0) <= 0
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                      }`}
+                    >
+                      Free
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (Number(matPrice || 0) < 100) setMatPrice('100');
+                      }}
+                      className={`px-2.5 py-2 rounded-lg text-xs font-extrabold border ${
+                        Number(matPrice || 0) > 0
+                          ? 'bg-[#0a58ed] text-white border-[#0a58ed]'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                      }`}
+                    >
+                      Paid
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    Price in Naira (₦)
+                  </label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-extrabold text-slate-500">
                       ₦
@@ -4018,22 +4052,27 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                       min={0}
                       max={500000}
                       step="50"
-                      placeholder="Price (0 = Free, or >= 100)"
+                      placeholder="0 = Free, or >= 100"
                       value={matPrice}
                       onChange={(e) => setMatPrice(e.target.value)}
                       className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-7 pr-3 py-2 text-sm font-bold tabular-nums"
                     />
                   </div>
                   <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                    Enter <strong>0</strong> for Free PDF, or <strong>₦100+</strong> for Paystack paid PDF.
+                    ₦0 = Free, ₦100+ = Paystack checkout price.
                   </p>
                 </div>
-                <input
-                  placeholder="Short description"
-                  value={matDesc}
-                  onChange={(e) => setMatDesc(e.target.value)}
-                  className="sm:col-span-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
-                />
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                    Description
+                  </label>
+                  <input
+                    placeholder="Short description of this study material"
+                    value={matDesc}
+                    onChange={(e) => setMatDesc(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
+                  />
+                </div>
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
@@ -4201,9 +4240,37 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                       {isEditing && (
                         <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                           <div>
-                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
-                              Price (₦ NGN, 0 = Free)
-                            </label>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                Price (₦ NGN, 0 = Free)
+                              </label>
+                              <div className="inline-flex rounded-md overflow-hidden border border-slate-300 dark:border-slate-600 text-[10px] font-extrabold">
+                                <button
+                                  type="button"
+                                  onClick={() => setEditMatPrice('0')}
+                                  className={`px-1.5 py-0.5 ${
+                                    Number(editMatPrice || 0) <= 0
+                                      ? 'bg-emerald-600 text-white'
+                                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300'
+                                  }`}
+                                >
+                                  Free
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (Number(editMatPrice || 0) < 100) setEditMatPrice('100');
+                                  }}
+                                  className={`px-1.5 py-0.5 ${
+                                    Number(editMatPrice || 0) > 0
+                                      ? 'bg-[#0a58ed] text-white'
+                                      : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300'
+                                  }`}
+                                >
+                                  Paid
+                                </button>
+                              </div>
+                            </div>
                             <input
                               type="number"
                               min={0}

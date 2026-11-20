@@ -99,6 +99,10 @@ async function run() {
   assert.ok(materialsRoute.includes('MATERIAL_UNPUBLISHED'));
   assert.ok(materialsRoute.includes('/my-purchases'));
   assert.ok(materialsRoute.includes('recordMaterialDownloadAuthorization'));
+  assert.ok(materialsRoute.includes('DOWNLOAD_OWNERSHIP_MISMATCH'));
+  assert.ok(materialsRoute.includes("router.get('/:id/file', requireDb, requireAuth"));
+  assert.equal(materialsRoute.includes('const isAdmin ='), false, 'materials.ts must not bypass registration or payment for admins');
+  assert.equal(materialsRoute.includes('isAdmin ||'), false, 'materials.ts must not bypass payment checks');
 
   const adminRoute = await fs.readFile(
     path.resolve(process.cwd(), 'src/server/routes/admin.ts'),
@@ -137,9 +141,21 @@ async function run() {
     path.resolve(process.cwd(), 'src/components/cbt/StudyMaterialsView.tsx'),
     'utf-8'
   );
-  assert.ok(materialsView.includes('Registration Required'));
-  assert.ok(materialsView.includes('Register Now'));
-  assert.ok(materialsView.includes('Buy Now'));
+  assert.equal(materialsView.includes('Unlocked ('), false, 'Must not show misleading Unlocked (price) badge');
+  assert.ok(materialsView.includes('Course Registration Required'));
+  assert.ok(materialsView.includes('Register for '));
+  assert.ok(materialsView.includes('Payment Required'));
+  assert.ok(materialsView.includes('Payment Processing'));
+  assert.ok(materialsView.includes('Purchased'));
+  assert.ok(materialsView.includes('Purchase Study Material'));
+  assert.ok(materialsView.includes('WITH PAYSTACK'));
+  assert.ok(materialsView.includes('api.materials.downloadFile'));
+
+  const purchasesView = await fs.readFile(
+    path.resolve(process.cwd(), 'src/components/cbt/StudentMaterialPurchasesView.tsx'),
+    'utf-8'
+  );
+  assert.ok(purchasesView.includes('api.materials.downloadFile'));
 
   console.log('[Material Access & Payments Verification] 5. Checking live HTTP endpoint auth guards...');
   const app = await createApp({ skipVite: true });
@@ -170,7 +186,21 @@ async function run() {
       );
     }
 
-    // Tampered/missing signed download token should be rejected (401/403/503)
+    // Even with a valid signed download JWT, unauthenticated requests to /file must be rejected (401/503)
+    const unauthValidTokenResp = await fetch(
+      `${baseUrl}/api/materials/11111111-1111-4111-8111-111111111111/file?token=${encodeURIComponent(
+        signMaterialDownloadToken('11111111-1111-4111-8111-111111111111', 'test.pdf', {
+          isAdmin: false,
+          userId: 'student-1',
+        })
+      )}`
+    );
+    assert.ok(
+      unauthValidTokenResp.status === 401 || unauthValidTokenResp.status === 503,
+      `Unauthenticated /file with signed token returned ${unauthValidTokenResp.status}, expected 401 or 503`
+    );
+
+    // Tampered/missing signed download token should also be rejected (401/403/503)
     const fileResp = await fetch(
       `${baseUrl}/api/materials/11111111-1111-4111-8111-111111111111/file?token=invalid.jwt.token`
     );

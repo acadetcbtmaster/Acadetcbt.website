@@ -418,6 +418,40 @@ export const api = {
         `/api/materials/${encodeURIComponent(id)}/download`,
         { method: 'POST' }
       ),
+
+    downloadFile: async (downloadUrl: string, filename: string): Promise<void> => {
+      const headers = new Headers();
+      if (inMemoryAuthToken) {
+        headers.set('Authorization', `Bearer ${inMemoryAuthToken}`);
+      }
+      const resp = await fetch(downloadUrl, {
+        method: 'GET',
+        headers,
+        credentials: 'include',
+      });
+      if (!resp.ok) {
+        let errMessage = `Download failed with status ${resp.status}`;
+        let errCode: string | undefined;
+        try {
+          const parsed = (await resp.json()) as { error?: string; code?: string };
+          if (parsed?.error) errMessage = parsed.error;
+          errCode = parsed?.code;
+        } catch {
+          // Non-JSON error response
+        }
+        throw new ApiError(errMessage, resp.status, errCode);
+      }
+      const blob = await resp.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      anchor.rel = 'noopener noreferrer';
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(objectUrl);
+    },
   },
 
   notifications: {

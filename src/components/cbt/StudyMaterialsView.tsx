@@ -5,6 +5,7 @@ import {
   Calendar,
   CheckCircle2,
   ChevronRight,
+  Clock,
   CreditCard,
   Download,
   ExternalLink,
@@ -16,7 +17,6 @@ import {
   Search,
   ShieldAlert,
   ShieldCheck,
-  Unlock,
   X,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -309,7 +309,13 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
   };
 
   const handleDownload = async (item: StudyMaterialItem) => {
-    if (!item.isFree && !item.isPurchased) {
+    // Strictly block direct download for any unpaid material — open Paystack confirmation modal instead
+    const trulyPurchased =
+      item.isFree ||
+      (item.isPurchased &&
+        item.purchaseStatus !== 'payment_required' &&
+        item.purchaseStatus !== 'pending');
+    if (!trulyPurchased) {
       handleOpenPayModal(item);
       return;
     }
@@ -319,13 +325,7 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
     setNotice(null);
     try {
       const res = await api.materials.requestDownload(item.id);
-      const anchor = document.createElement('a');
-      anchor.href = res.downloadUrl;
-      anchor.download = res.filename;
-      anchor.rel = 'noopener noreferrer';
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
+      await api.materials.downloadFile(res.downloadUrl, res.filename);
 
       setMaterials((prev) =>
         prev.map((m) =>
@@ -350,8 +350,11 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
   const renderMaterialRow = (item: StudyMaterialItem) => {
     const isDoc = item.fileType === 'DOC';
     const isImage = item.fileType === 'IMAGE';
-    const isUnlocked = item.isFree || item.isPurchased;
     const priceLabel = item.isFree ? 'Free' : formatCurrency(item.price, item.currency);
+    const isFree = item.isFree || item.price <= 0;
+    const isPurchased = !isFree && item.isPurchased;
+    const isPending = !isFree && !isPurchased && item.purchaseStatus === 'pending';
+    const isPayableDownloadReady = isFree || isPurchased;
     const downloadLabel = item.fileType === 'PDF' ? 'Download PDF' : 'Download';
 
     return (
@@ -373,19 +376,24 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
               <span className="font-extrabold text-sm text-slate-900 dark:text-white break-words">
                 {item.title}
               </span>
-              {item.isFree ? (
+              {isFree ? (
                 <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[11px] font-extrabold">
                   Free
                 </span>
-              ) : item.isPurchased ? (
-                <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[11px] font-extrabold inline-flex items-center gap-1">
-                  <Unlock className="w-3 h-3" />
-                  <span>Unlocked ({priceLabel})</span>
+              ) : isPurchased ? (
+                <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 text-[11px] font-extrabold inline-flex items-center gap-1 tabular-nums">
+                  <CheckCircle2 className="w-3 h-3" />
+                  <span>Purchased · {priceLabel}</span>
+                </span>
+              ) : isPending ? (
+                <span className="px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 text-[11px] font-extrabold inline-flex items-center gap-1 tabular-nums">
+                  <Clock className="w-3 h-3" />
+                  <span>Payment Processing · {priceLabel}</span>
                 </span>
               ) : (
                 <span className="px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 text-[11px] font-extrabold inline-flex items-center gap-1 tabular-nums">
                   <Lock className="w-3 h-3" />
-                  <span>{priceLabel}</span>
+                  <span>Payment Required · {priceLabel}</span>
                 </span>
               )}
             </div>
@@ -406,27 +414,41 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2.5 shrink-0">
-          {isUnlocked ? (
+        <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
+          {isPending && item.pendingPaymentReference && (
             <button
               type="button"
-              disabled={downloadingId === item.id}
-              onClick={() => void handleDownload(item)}
-              className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-extrabold shadow-xs inline-flex items-center justify-center gap-1.5 min-h-[38px] disabled:opacity-60"
+              disabled={verifyingRef}
+              onClick={() => void handleVerifyMaterialReference(item.pendingPaymentReference!)}
+              className="px-3 py-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 text-xs font-extrabold inline-flex items-center gap-1.5 min-h-[38px] disabled:opacity-60"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span>{downloadingId === item.id ? 'Preparing...' : downloadLabel}</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => handleOpenPayModal(item)}
-              className="w-full sm:w-auto px-4 py-2 rounded-xl bg-[#0b337a] hover:bg-[#082252] text-white text-xs font-extrabold shadow-xs inline-flex items-center justify-center gap-1.5 min-h-[38px] tabular-nums"
-            >
-              <CreditCard className="w-3.5 h-3.5" />
-              <span>Buy Now · {priceLabel}</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${verifyingRef ? 'animate-spin' : ''}`} />
+              <span>Verify Payment</span>
             </button>
           )}
+          <button
+            type="button"
+            disabled={downloadingId === item.id}
+            onClick={() => void handleDownload(item)}
+            className={`w-full sm:w-auto px-3.5 py-2 rounded-xl text-white text-xs font-extrabold shadow-xs inline-flex items-center justify-center gap-1.5 min-h-[38px] tabular-nums disabled:opacity-60 ${
+              isPayableDownloadReady
+                ? 'bg-[#0a58ed] hover:bg-[#0044b8]'
+                : 'bg-[#0b337a] hover:bg-[#082252]'
+            }`}
+          >
+            {isPayableDownloadReady ? (
+              <Download className="w-3.5 h-3.5" />
+            ) : (
+              <Lock className="w-3.5 h-3.5" />
+            )}
+            <span>
+              {downloadingId === item.id
+                ? 'Preparing...'
+                : isPayableDownloadReady
+                  ? downloadLabel
+                  : `${downloadLabel} · ${priceLabel}`}
+            </span>
+          </button>
         </div>
       </div>
     );
@@ -723,10 +745,14 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
 
                 <div className="space-y-1.5">
                   <h3 className="text-lg sm:text-xl font-extrabold text-[#082252] dark:text-white">
-                    {activeCourseSummary?.code || 'Course'} Registration Required
+                    Course Registration Required
                   </h3>
                   <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                    You need to register for this course before accessing its study materials.
+                    You need to register for{' '}
+                    <span className="font-bold text-[#082252] dark:text-white">
+                      {activeCourseSummary?.code || 'this course'}
+                    </span>{' '}
+                    before accessing its study materials.
                   </p>
                 </div>
 
@@ -783,7 +809,7 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                       className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold shadow-sm inline-flex items-center justify-center gap-1.5 min-h-[42px]"
                     >
                       <CreditCard className="w-4 h-4" />
-                      <span>Register Now</span>
+                      <span>Register for {activeCourseSummary.code}</span>
                     </button>
                   )}
                 </div>
@@ -897,7 +923,7 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
           <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="bg-[#0b337a] text-white px-4 py-3.5 flex items-center justify-between shrink-0">
               <h3 className="text-base font-extrabold">
-                {checkoutData ? 'Material Checkout Ready' : 'Unlock Paid Study Material'}
+                {checkoutData ? 'Paystack Checkout Ready' : 'Purchase Study Material'}
               </h3>
               <button
                 type="button"
@@ -927,7 +953,7 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                   <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 p-3.5 space-y-2">
                     <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                       <span className="text-emerald-800 dark:text-emerald-300 font-bold">
-                        Payment Reference
+                        Transaction Reference
                       </span>
                       <span className="font-mono font-extrabold text-emerald-950 dark:text-emerald-100 break-all">
                         {checkoutData.reference}
@@ -935,19 +961,22 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                     </div>
                     <CopyReferenceButton reference={checkoutData.reference} />
                     <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
-                      Save this reference before opening Paystack. Once paid, you can immediately verify and download this PDF.
+                      Save this reference and click below to pay on Paystack. Your PDF remains locked until Paystack verifies a successful payment.
                     </p>
                   </div>
 
                   <div className="rounded-xl border border-slate-200 dark:border-slate-800 p-3 text-xs space-y-1.5">
                     <div className="flex justify-between gap-2">
-                      <span className="text-slate-500 dark:text-slate-400">PDF / Material</span>
+                      <span className="text-slate-500 dark:text-slate-400">Study Material</span>
                       <span className="font-extrabold text-slate-900 dark:text-white text-right">
+                        {checkoutData.material.courseCode
+                          ? `${checkoutData.material.courseCode} – `
+                          : ''}
                         {checkoutData.material.title}
                       </span>
                     </div>
                     <div className="flex justify-between gap-2">
-                      <span className="text-slate-500 dark:text-slate-400">Amount</span>
+                      <span className="text-slate-500 dark:text-slate-400">Amount Payable</span>
                       <span className="font-extrabold text-[#0a58ed] dark:text-blue-400 tabular-nums">
                         {formatCurrency(checkoutData.amount, checkoutData.currency)}
                       </span>
@@ -971,7 +1000,7 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                       className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 min-h-[40px] disabled:opacity-60"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${verifyingRef ? 'animate-spin' : ''}`} />
-                      <span>{verifyingRef ? 'Checking Paystack...' : "I've Paid — Verify & Unlock"}</span>
+                      <span>{verifyingRef ? 'Verifying with Paystack...' : "I've Paid — Verify & Unlock"}</span>
                     </button>
                     <button
                       type="button"
@@ -985,13 +1014,16 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
               ) : (
                 <div className="space-y-4">
                   <div className="rounded-xl bg-[#eff5ff] dark:bg-slate-800/80 border border-[#d6e4fa] dark:border-slate-700 p-3.5 space-y-2 text-xs sm:text-sm">
-                    <div className="flex justify-between gap-2">
-                      <span className="text-slate-600 dark:text-slate-400">Material</span>
-                      <span className="font-extrabold text-slate-900 dark:text-white text-right">
-                        {payTarget.title}
-                      </span>
+                    <div className="font-extrabold text-[#082252] dark:text-white text-sm sm:text-base">
+                      {payTarget.courseCode ? `${payTarget.courseCode} – ` : ''}
+                      {payTarget.title}
                     </div>
-                    <div className="flex justify-between gap-2 text-xs">
+                    {payTarget.description && (
+                      <p className="text-xs text-slate-600 dark:text-slate-300 leading-snug">
+                        {payTarget.description}
+                      </p>
+                    )}
+                    <div className="flex justify-between gap-2 text-xs pt-1">
                       <span className="text-slate-600 dark:text-slate-400">Course</span>
                       <span className="font-bold text-[#0b337a] dark:text-blue-300 text-right">
                         {payTarget.courseCode
@@ -1000,14 +1032,20 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                       </span>
                     </div>
                     <div className="flex justify-between gap-2 text-xs">
-                      <span className="text-slate-600 dark:text-slate-400">Format &amp; Size</span>
+                      <span className="text-slate-600 dark:text-slate-400">Category · Format</span>
                       <span className="font-bold text-slate-800 dark:text-slate-200">
-                        {payTarget.fileType} · {formatBytes(payTarget.fileSizeBytes)}
+                        {payTarget.category} · {payTarget.fileType} ({formatBytes(payTarget.fileSizeBytes)})
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-2 text-xs">
+                      <span className="text-slate-600 dark:text-slate-400">Payment Gateway</span>
+                      <span className="font-bold text-emerald-700 dark:text-emerald-400">
+                        Paystack (Card · Bank · USSD)
                       </span>
                     </div>
                     <div className="pt-2 border-t border-[#d6e4fa] dark:border-slate-700 flex items-center justify-between">
                       <span className="font-extrabold text-[#082252] dark:text-white">
-                        Material Price
+                        Amount Payable
                       </span>
                       <span className="text-lg font-extrabold text-[#0a58ed] dark:text-blue-400 tabular-nums">
                         {formatCurrency(payTarget.price, payTarget.currency)}
@@ -1015,11 +1053,33 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                     </div>
                   </div>
 
+                  {payTarget.pendingPaymentReference && (
+                    <div className="rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3 space-y-2 text-xs">
+                      <div className="font-extrabold text-amber-900 dark:text-amber-200">
+                        Payment Processing ({payTarget.pendingPaymentReference})
+                      </div>
+                      <p className="text-amber-800 dark:text-amber-300 leading-snug">
+                        Already completed payment on Paystack? Verify your pending transaction below before starting a new checkout.
+                      </p>
+                      <button
+                        type="button"
+                        disabled={verifyingRef}
+                        onClick={() =>
+                          void handleVerifyMaterialReference(payTarget.pendingPaymentReference!)
+                        }
+                        className="w-full py-2 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-extrabold inline-flex items-center justify-center gap-1.5 disabled:opacity-60"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${verifyingRef ? 'animate-spin' : ''}`} />
+                        <span>{verifyingRef ? 'Verifying...' : 'Verify Pending Paystack Payment'}</span>
+                      </button>
+                    </div>
+                  )}
+
                   <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                    Once your Paystack payment succeeds, this {payTarget.fileType} file unlocks on your account so you can download it anytime while your course registration is active.
+                    Complete your payment to unlock this material and download your PDF.
                   </p>
 
-                  <div className="flex items-center justify-end gap-2.5">
+                  <div className="flex flex-wrap items-center justify-end gap-2.5">
                     <button
                       type="button"
                       disabled={initializingPay}
@@ -1032,10 +1092,14 @@ export const StudyMaterialsView: React.FC<StudyMaterialsViewProps> = ({
                       type="button"
                       disabled={initializingPay}
                       onClick={() => void handleStartPaystackCheckout()}
-                      className="px-5 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold shadow-sm inline-flex items-center gap-1.5 min-h-[40px] disabled:opacity-60"
+                      className="px-5 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold shadow-sm inline-flex items-center gap-1.5 min-h-[40px] tabular-nums disabled:opacity-60"
                     >
                       <CreditCard className="w-4 h-4" />
-                      <span>{initializingPay ? 'Preparing Checkout...' : 'Pay with Paystack'}</span>
+                      <span>
+                        {initializingPay
+                          ? 'Preparing Paystack...'
+                          : `PAY ${formatCurrency(payTarget.price, payTarget.currency)} WITH PAYSTACK`}
+                      </span>
                     </button>
                   </div>
                 </div>

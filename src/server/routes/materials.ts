@@ -17,12 +17,7 @@ import {
   recordMaterialDownloadAuthorization,
   verifyAndSettleMaterialReference,
 } from '../lib/materialPayments.js';
-import {
-  getMaterialDownloadUrl,
-  getObjectBuffer,
-  isObjectStorageConfigured,
-  ObjectStorageNotConfiguredError,
-} from '../lib/objectStorage.js';
+import { getObjectBuffer } from '../lib/objectStorage.js';
 import { PaymentValidationError } from '../lib/paymentSettlement.js';
 import { PaystackGatewayError, PaystackNotConfiguredError } from '../lib/paystack.js';
 import {
@@ -91,15 +86,12 @@ router.get('/', requireDb, optionalAuth, async (req, res) => {
       return;
     }
 
-    const isAdmin =
-      req.user?.role === 'admin' || req.user?.role === 'super_admin';
+    // Strict student access control for every caller in Study Materials:
+    // course registration and individual Paystack material purchases are always enforced.
+    const registeredCourseIds = req.user
+      ? await getStudentRegisteredCourseIds(req.user.id)
+      : new Set<string>();
 
-    const registeredCourseIds =
-      req.user && !isAdmin
-        ? await getStudentRegisteredCourseIds(req.user.id)
-        : new Set<string>();
-
-    // Build course-level summaries for the course-based browser (only counting published active materials)
     const courseCountsRes = await pool.query<{
       course_id: string;
       code: string;
@@ -130,7 +122,6 @@ router.get('/', requireDb, optionalAuth, async (req, res) => {
          COUNT(sm.id) FILTER (WHERE sm.price > 0)::int AS paid_count,
          COUNT(sm.id) FILTER (
            WHERE sm.price <= 0
-              OR $2::boolean = TRUE
               OR ($1::uuid IS NOT NULL AND EXISTS (
                 SELECT 1 FROM study_material_purchases smp
                 WHERE smp.student_id = $1::uuid
@@ -146,7 +137,7 @@ router.get('/', requireDb, optionalAuth, async (req, res) => {
        WHERE c.is_active = TRUE AND c.publication_status = 'published'
        GROUP BY c.id, c.code, c.title, c.level, c.faculty, c.department, c.semester, c.registration_fee, c.currency
        ORDER BY c.code ASC`,
-      [req.user?.id || null, isAdmin]
+      [req.user?.id || null]
     );
 
     const generalCountRes = await pool.query<{
@@ -161,7 +152,6 @@ router.get('/', requireDb, optionalAuth, async (req, res) => {
          COUNT(sm.id) FILTER (WHERE sm.price > 0)::int AS paid_count,
          COUNT(sm.id) FILTER (
            WHERE sm.price <= 0
-              OR $2::boolean = TRUE
               OR ($1::uuid IS NOT NULL AND EXISTS (
                 SELECT 1 FROM study_material_purchases smp
                 WHERE smp.student_id = $1::uuid
@@ -173,11 +163,11 @@ router.get('/', requireDb, optionalAuth, async (req, res) => {
        WHERE sm.course_id IS NULL
          AND sm.is_active = TRUE
          AND COALESCE(sm.publication_status, 'published') = 'published'`,
-      [req.user?.id || null, isAdmin]
+      [req.user?.id || null]
     );
 
     const courseSummaries = courseCountsRes.rows.map((c) => {
-      const registered = isAdmin || registeredCourseIds.has(c.course_id);
+      const registered = registeredCourseIds.has(c.course_id);
       return {
         courseId: c.course_id as string | null,
         code: c.code,
@@ -219,7 +209,7 @@ router.get('/', requireDb, optionalAuth, async (req, res) => {
     }
 
     // Course registration gate check when querying a specific course folder
-    if (rawCourseId && rawCourseId !== 'general' && !isAdmin) {
+    if (rawCourseId && rawCourseId !== 'general') {
       if (!registeredCourseIds.has(rawCourseId)) {
         const targetCourse = courseSummaries.find((c) => c.courseId === rawCourseId) || null;
         res.json({
@@ -244,20 +234,17 @@ router.get('/', requireDb, optionalAuth, async (req, res) => {
       conditions.push(isNull(studyMaterials.courseId));
     } else if (rawCourseId) {
       conditions.push(eq(studyMaterials.courseId, rawCourseId));
-    } else if (!isAdmin) {
-      // Unfiltered query for non-admin students: only expose general materials or materials from registered courses
-      if (registeredCourseIds.size > 0) {
-        const allowedCourseIds = Array.from(registeredCourseIds);
-        const courseCond = or(
-          isNull(studyMaterials.courseId),
-          inArray(studyMaterials.courseId, allowedCourseIds)
-        );
-        if (courseCond) {
-          conditions.push(courseCond);
-        }
-      } else {
-        conditions.push(isNull(studyMaterials.courseId));
+    } else if (registeredCourseIds.size > 0) {
+      const allowedCourseIds = Array.from(registeredCourseIds);
+      const courseCond = or(
+        isNull(studyMaterials.courseId),
+        inArray(studyMaterials.courseId, allowedCourseIds)
+      );
+      if (courseCond) {
+        conditions.push(courseCond);
       }
+    } else {
+      conditions.push(isNull(studyMaterials.courseId));
     }
 
     const rows = await db
@@ -292,28 +279,47 @@ router.get('/', requireDb, optionalAuth, async (req, res) => {
       .orderBy(desc(studyMaterials.createdAt));
 
     const purchasedSet = new Set<string>();
+    const pendingRefMap = new Map<string, string>();
 
-    if (req.user && rows.length > 0 && !isAdmin) {
+    if (req.user && rows.length > 0) {
       const materialIds = rows.map((r) => r.id);
       const purchaseRows = await db
-        .select({ materialId: studyMaterialPurchases.materialId })
+        .select({
+          materialId: studyMaterialPurchases.materialId,
+          paymentStatus: studyMaterialPurchases.paymentStatus,
+          paymentReference: studyMaterialPurchases.paymentReference,
+        })
         .from(studyMaterialPurchases)
         .where(
           and(
             eq(studyMaterialPurchases.studentId, req.user.id),
-            eq(studyMaterialPurchases.paymentStatus, 'successful'),
             inArray(studyMaterialPurchases.materialId, materialIds)
           )
-        );
+        )
+        .orderBy(desc(studyMaterialPurchases.createdAt));
+
       for (const p of purchaseRows) {
-        purchasedSet.add(p.materialId);
+        if (p.paymentStatus === 'successful') {
+          purchasedSet.add(p.materialId);
+        } else if (p.paymentStatus === 'pending' && !pendingRefMap.has(p.materialId)) {
+          pendingRefMap.set(p.materialId, p.paymentReference);
+        }
       }
     }
 
     const materials = rows.map((r) => {
       const priceNum = Number(r.price ?? 0);
       const isFree = priceNum <= 0;
-      const isPurchased = isFree || isAdmin || purchasedSet.has(r.id);
+      const isPurchased = isFree ? true : purchasedSet.has(r.id);
+      const pendingRef = !isFree && !isPurchased ? (pendingRefMap.get(r.id) ?? null) : null;
+      const purchaseStatus: 'free' | 'payment_required' | 'pending' | 'purchased' = isFree
+        ? 'free'
+        : isPurchased
+          ? 'purchased'
+          : pendingRef
+            ? 'pending'
+            : 'payment_required';
+
       return {
         id: r.id,
         courseId: r.courseId,
@@ -337,6 +343,8 @@ router.get('/', requireDb, optionalAuth, async (req, res) => {
           | 'unpublished',
         isFree,
         isPurchased,
+        purchaseStatus,
+        pendingPaymentReference: pendingRef,
         downloadCount: r.downloadCount,
         createdAt: r.createdAt,
       };
@@ -535,10 +543,7 @@ router.post('/:id/download', requireAuth, async (req, res) => {
       return;
     }
 
-    const isAdmin =
-      req.user!.role === 'admin' || req.user!.role === 'super_admin';
-
-    if (!isAdmin && material.publicationStatus !== 'published') {
+    if (material.publicationStatus !== 'published') {
       res.status(404).json({
         error: 'This study material is currently unpublished and unavailable for download.',
         code: 'MATERIAL_UNPUBLISHED',
@@ -546,8 +551,8 @@ router.post('/:id/download', requireAuth, async (req, res) => {
       return;
     }
 
-    // 1. Course Registration Gate
-    if (!isAdmin && material.courseId) {
+    // 1. Mandatory Course Registration Gate
+    if (material.courseId) {
       const registered = await isStudentRegisteredForCourse(req.user!.id, material.courseId);
       if (!registered) {
         res.status(403).json({
@@ -560,14 +565,14 @@ router.post('/:id/download', requireAuth, async (req, res) => {
       }
     }
 
-    // 2. Individual Study Material Payment Gate
+    // 2. Mandatory Individual Study Material Payment Gate
     const priceNum = Number(material.price ?? 0);
     let verifiedPurchaseId: string | null = null;
-    if (priceNum > 0 && !isAdmin) {
+    if (priceNum > 0) {
       verifiedPurchaseId = await getSuccessfulMaterialPurchaseId(req.user!.id, material.id);
       if (!verifiedPurchaseId) {
         res.status(402).json({
-          error: `Please complete payment of ₦${priceNum.toLocaleString()} to unlock and download "${material.title}".`,
+          error: `Please complete Paystack payment of ₦${priceNum.toLocaleString()} to unlock and download "${material.title}".`,
           code: 'MATERIAL_PAYMENT_REQUIRED',
           materialId: material.id,
           price: priceNum,
@@ -577,33 +582,17 @@ router.post('/:id/download', requireAuth, async (req, res) => {
       }
     }
 
+    if (!material.hasFileData && material.storageBackend !== 's3') {
+      res.status(404).json({ error: 'Study material file content is missing.' });
+      return;
+    }
+
     const downloadFilename = resolveMaterialDownloadFilename(material);
-    let downloadUrl: string | null = null;
-
-    if (material.storageBackend === 's3' && isObjectStorageConfigured()) {
-      try {
-        downloadUrl = await getMaterialDownloadUrl({
-          objectKey: material.objectKey,
-          downloadFilename,
-        });
-      } catch (storageErr) {
-        if (!material.hasFileData) {
-          throw storageErr;
-        }
-      }
-    }
-
-    if (!downloadUrl) {
-      if (!material.hasFileData && material.storageBackend !== 's3') {
-        res.status(404).json({ error: 'Study material file content is missing.' });
-        return;
-      }
-      const token = signMaterialDownloadToken(material.id, downloadFilename, {
-        isAdmin,
-        userId: req.user!.id,
-      });
-      downloadUrl = `/api/materials/${encodeURIComponent(material.id)}/file?token=${encodeURIComponent(token)}`;
-    }
+    const token = signMaterialDownloadToken(material.id, downloadFilename, {
+      isAdmin: false,
+      userId: req.user!.id,
+    });
+    const downloadUrl = `/api/materials/${encodeURIComponent(material.id)}/file?token=${encodeURIComponent(token)}`;
 
     await recordMaterialDownloadAuthorization({
       studentId: req.user!.id,
@@ -611,7 +600,7 @@ router.post('/:id/download', requireAuth, async (req, res) => {
       courseId: material.courseId,
       purchaseId: verifiedPurchaseId,
       isFreeDownload: priceNum <= 0,
-      paymentStatusSnapshot: priceNum <= 0 ? 'free' : isAdmin ? 'admin_access' : 'successful',
+      paymentStatusSnapshot: priceNum <= 0 ? 'free' : 'successful',
       ipAddress: req.ip,
     });
 
@@ -620,24 +609,28 @@ router.post('/:id/download', requireAuth, async (req, res) => {
       filename: downloadFilename,
     });
   } catch (err) {
-    if (err instanceof ObjectStorageNotConfiguredError) {
-      res.status(503).json({
-        error: err.message,
-        code: 'OBJECT_STORAGE_NOT_CONFIGURED',
-      });
-      return;
-    }
     handleApiError(res, err, 'generating material download URL');
   }
 });
 
-router.get('/:id/file', requireDb, async (req, res) => {
+router.get('/:id/file', requireDb, requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const rawToken = typeof req.query.token === 'string' ? req.query.token.trim() : '';
     const verified = rawToken ? verifyMaterialDownloadToken(rawToken, id) : null;
     if (!verified) {
-      res.status(401).json({ error: 'Invalid or expired download token. Please click Download again.' });
+      res.status(401).json({
+        error: 'Invalid or expired download authorization token. Please click Download again.',
+      });
+      return;
+    }
+
+    // Strictly prevent one student from using another student's copied download URL
+    if (!verified.userId || verified.userId !== req.user!.id) {
+      res.status(403).json({
+        error: 'This download authorization belongs to another student account.',
+        code: 'DOWNLOAD_OWNERSHIP_MISMATCH',
+      });
       return;
     }
 
@@ -645,8 +638,12 @@ router.get('/:id/file', requireDb, async (req, res) => {
     const [material] = await db
       .select({
         id: studyMaterials.id,
+        courseId: studyMaterials.courseId,
+        courseCode: courses.code,
         title: studyMaterials.title,
         fileType: studyMaterials.fileType,
+        price: studyMaterials.price,
+        currency: studyMaterials.currency,
         publicationStatus: studyMaterials.publicationStatus,
         storageBackend: studyMaterials.storageBackend,
         objectKey: studyMaterials.objectKey,
@@ -655,12 +652,38 @@ router.get('/:id/file', requireDb, async (req, res) => {
         mimeType: studyMaterials.mimeType,
       })
       .from(studyMaterials)
+      .leftJoin(courses, eq(studyMaterials.courseId, courses.id))
       .where(and(eq(studyMaterials.id, id), eq(studyMaterials.isActive, true)))
       .limit(1);
 
-    if (!material || (!verified.isAdmin && material.publicationStatus !== 'published')) {
+    if (!material || material.publicationStatus !== 'published') {
       res.status(404).json({ error: 'Study material not found or unavailable.' });
       return;
+    }
+
+    // Re-verify active course registration in database before streaming file bytes
+    if (material.courseId) {
+      const registered = await isStudentRegisteredForCourse(req.user!.id, material.courseId);
+      if (!registered) {
+        res.status(403).json({
+          error: `Active registration for ${material.courseCode || 'this course'} is required to download this study material.`,
+          code: 'COURSE_REGISTRATION_REQUIRED',
+        });
+        return;
+      }
+    }
+
+    // Re-verify verified Paystack purchase in database before streaming paid PDF bytes
+    const priceNum = Number(material.price ?? 0);
+    if (priceNum > 0) {
+      const purchaseId = await getSuccessfulMaterialPurchaseId(req.user!.id, material.id);
+      if (!purchaseId) {
+        res.status(402).json({
+          error: `Payment verification required before downloading "${material.title}".`,
+          code: 'MATERIAL_PAYMENT_REQUIRED',
+        });
+        return;
+      }
     }
 
     let payloadBuffer: Buffer | null =

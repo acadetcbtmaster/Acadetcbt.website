@@ -258,6 +258,8 @@ export interface StudyMaterialItem {
   publicationStatus?: MaterialPublicationStatus;
   isFree: boolean;
   isPurchased: boolean;
+  purchaseStatus?: 'free' | 'payment_required' | 'pending' | 'purchased';
+  pendingPaymentReference?: string | null;
   downloadCount: number;
   freeDownloadCount?: number;
   purchaseCount?: number;

@@ -59,13 +59,7 @@ export const StudentMaterialPurchasesView: React.FC<StudentMaterialPurchasesView
     setNotice(null);
     try {
       const res = await api.materials.requestDownload(item.materialId);
-      const anchor = document.createElement('a');
-      anchor.href = res.downloadUrl;
-      anchor.download = res.filename;
-      anchor.rel = 'noopener noreferrer';
-      document.body.appendChild(anchor);
-      anchor.click();
-      document.body.removeChild(anchor);
+      await api.materials.downloadFile(res.downloadUrl, res.filename);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to download material.');
     } finally {
