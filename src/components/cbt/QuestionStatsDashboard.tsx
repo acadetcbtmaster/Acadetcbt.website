@@ -7,6 +7,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Trash2,
   X,
 } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
@@ -18,6 +19,7 @@ interface QuestionStatsDashboardProps {
   selectedCourseId: string;
   onSelectCourse: (courseId: string) => void;
   onQuickAddForCourse: (courseId: string) => void;
+  onClearCourseQuestions?: (course: CourseQuestionStatsItem) => void;
   onRefresh: () => Promise<void>;
   refreshing?: boolean;
 }
@@ -126,6 +128,7 @@ export const QuestionStatsDashboard: React.FC<QuestionStatsDashboardProps> = ({
   selectedCourseId,
   onSelectCourse,
   onQuickAddForCourse,
+  onClearCourseQuestions,
   onRefresh,
   refreshing = false,
 }) => {
@@ -481,6 +484,21 @@ export const QuestionStatsDashboard: React.FC<QuestionStatsDashboardProps> = ({
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add Question to {selectedCourse.code}</span>
               </button>
+              {onClearCourseQuestions &&
+                selectedCourse.questionCount + selectedCourse.inactiveCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => onClearCourseQuestions(selectedCourse)}
+                    className="px-3 py-2 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50 text-red-700 dark:text-red-300 text-xs font-extrabold flex items-center gap-1.5 min-h-[40px] whitespace-nowrap"
+                    title={`Delete all ${selectedCourse.questionCount + selectedCourse.inactiveCount} question(s) in ${selectedCourse.code}`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>
+                      Clear Course Questions (
+                      {selectedCourse.questionCount + selectedCourse.inactiveCount})
+                    </span>
+                  </button>
+                )}
               <button
                 type="button"
                 onClick={() => onSelectCourse('')}

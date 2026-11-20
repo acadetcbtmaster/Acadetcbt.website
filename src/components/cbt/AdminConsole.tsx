@@ -14,6 +14,7 @@ import {
   CreditCard,
   Download,
   Edit3,
+  Eraser,
   ExternalLink,
   Eye,
   FileText,
@@ -330,6 +331,15 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
   const [statsRefreshing, setStatsRefreshing] = useState(false);
   const [selectedStatsCourseId, setSelectedStatsCourseId] = useState('');
   const [selectedCourseDetailId, setSelectedCourseDetailId] = useState<string | null>(null);
+  const [clearCourseQuestionsTarget, setClearCourseQuestionsTarget] = useState<{
+    courseId: string;
+    code: string;
+    title: string;
+    totalCount: number;
+    activeCount: number;
+    inactiveCount: number;
+  } | null>(null);
+  const [deleteCourseTarget, setDeleteCourseTarget] = useState<AdminCourseItem | null>(null);
   const [qFilterDifficulty, setQFilterDifficulty] = useState<QuestionDifficulty | ''>('');
   const [qFilterStatus, setQFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const [qFilterPubStatus, setQFilterPubStatus] = useState<'all' | 'published' | 'draft'>('all');
@@ -1204,6 +1214,64 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     setSelectedStatsCourseId(courseId);
     void loadFilteredQuestions(courseId, qFilterDifficulty, qFilterStatus, qFilterSearch);
     questionFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  const handleConfirmClearCourseQuestions = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!clearCourseQuestionsTarget) return;
+    const target = clearCourseQuestionsTarget;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.clearCourseQuestions(target.courseId);
+      if (
+        editingQuestionId &&
+        (qCourseId === target.courseId ||
+          questions.some((q) => q.id === editingQuestionId && q.courseId === target.courseId))
+      ) {
+        resetQuestionForm(true);
+      }
+      setClearCourseQuestionsTarget(null);
+      setFeedback({ type: 'ok', text: res.message });
+      await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Failed to clear course questions.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleConfirmDeleteCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deleteCourseTarget) return;
+    const target = deleteCourseTarget;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      await api.admin.deleteCourse(target.id);
+      if (selectedCourseDetailId === target.id) {
+        setSelectedCourseDetailId(null);
+      }
+      if (editingCourseId === target.id) {
+        resetCourseForm();
+      }
+      if (selectedStatsCourseId === target.id) {
+        setSelectedStatsCourseId('');
+      }
+      setDeleteCourseTarget(null);
+      setFeedback({ type: 'ok', text: `Deleted course "${target.code}".` });
+      await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Failed to delete course.',
+      });
+    } finally {
+      setBusy(false);
+    }
   };
 
   const handleManualImageSelection = async (fileList: FileList | null) => {
@@ -2237,6 +2305,30 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                         <BarChart3 className="w-3.5 h-3.5" />
                         <span>Manage Questions</span>
                       </button>
+                      {detailCourse.questionCount + (detailCourse.inactiveCount ?? 0) > 0 && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            setClearCourseQuestionsTarget({
+                              courseId: detailCourse.id,
+                              code: detailCourse.code,
+                              title: detailCourse.title,
+                              totalCount:
+                                detailCourse.questionCount + (detailCourse.inactiveCount ?? 0),
+                              activeCount: detailCourse.questionCount,
+                              inactiveCount: detailCourse.inactiveCount ?? 0,
+                            })
+                          }
+                          className="px-3 py-2 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50 text-red-700 dark:text-red-300 text-xs font-extrabold flex items-center gap-1.5 min-h-[38px] disabled:opacity-50"
+                        >
+                          <Eraser className="w-3.5 h-3.5" />
+                          <span>
+                            Clear All Questions (
+                            {detailCourse.questionCount + (detailCourse.inactiveCount ?? 0)})
+                          </span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => setSelectedCourseDetailId(null)}
@@ -2444,55 +2536,61 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                           {formatCurrency(c.totalRevenue, c.currency)}
                         </td>
                         <td className="px-4 py-3 text-right whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setSelectedCourseDetailId(isDetailOpen ? null : c.id)
-                            }
-                            className="p-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg mr-1"
-                            title="Question breakdown"
-                          >
-                            <BarChart3 className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => startEditCourse(c)}
-                            className="p-1.5 text-[#0a58ed] hover:bg-blue-50 dark:hover:bg-slate-800 rounded-lg mr-1"
-                            title="Edit course"
-                          >
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={async () => {
-                              setBusy(true);
-                              setFeedback(null);
-                              try {
-                                await api.admin.deleteCourse(c.id);
-                                if (selectedCourseDetailId === c.id) {
-                                  setSelectedCourseDetailId(null);
-                                }
-                                setFeedback({ type: 'ok', text: `Deleted course "${c.code}".` });
-                                await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
-                              } catch (err) {
-                                setFeedback({
-                                  type: 'err',
-                                  text:
-                                    err instanceof Error
-                                      ? err.message
-                                      : 'Failed to delete course.',
-                                });
-                              } finally {
-                                setBusy(false);
+                          <div className="inline-flex items-center justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedCourseDetailId(isDetailOpen ? null : c.id)
                               }
-                            }}
-                            className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg disabled:opacity-50"
-                            title="Safe delete course"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                              className="p-1.5 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
+                              title="Question breakdown"
+                            >
+                              <BarChart3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={
+                                busy || c.questionCount + (c.inactiveCount ?? 0) === 0
+                              }
+                              onClick={() =>
+                                setClearCourseQuestionsTarget({
+                                  courseId: c.id,
+                                  code: c.code,
+                                  title: c.title,
+                                  totalCount: c.questionCount + (c.inactiveCount ?? 0),
+                                  activeCount: c.questionCount,
+                                  inactiveCount: c.inactiveCount ?? 0,
+                                })
+                              }
+                              className="px-2 py-1 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-950/50 text-[11px] font-extrabold inline-flex items-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={
+                                c.questionCount + (c.inactiveCount ?? 0) > 0
+                                  ? `Clear all ${c.questionCount + (c.inactiveCount ?? 0)} question(s) for ${c.code}`
+                                  : `No questions to clear for ${c.code}`
+                              }
+                            >
+                              <Eraser className="w-3.5 h-3.5" />
+                              <span>Clear Qs</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => startEditCourse(c)}
+                              className="p-1.5 text-[#0a58ed] hover:bg-blue-50 dark:hover:bg-slate-800 rounded-lg"
+                              title="Edit course"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => setDeleteCourseTarget(c)}
+                              className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg disabled:opacity-50"
+                              title="Delete course"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -3320,6 +3418,16 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
               selectedCourseId={selectedStatsCourseId}
               onSelectCourse={handleSelectStatsCourse}
               onQuickAddForCourse={handleQuickAddForCourse}
+              onClearCourseQuestions={(c) =>
+                setClearCourseQuestionsTarget({
+                  courseId: c.courseId,
+                  code: c.code,
+                  title: c.title,
+                  totalCount: c.questionCount + c.inactiveCount,
+                  activeCount: c.questionCount,
+                  inactiveCount: c.inactiveCount,
+                })
+              }
               onRefresh={async () => {
                 await Promise.all([loadQuestionStats(), loadFilteredQuestions()]);
               }}
@@ -3730,6 +3838,43 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                     >
                       Filter
                     </button>
+                    {selectedStatsCourseId && (() => {
+                      const courseStat = courseQuestionStats.find(
+                        (item) => item.courseId === selectedStatsCourseId
+                      );
+                      const fallbackCourse = courses.find(
+                        (item) => item.id === selectedStatsCourseId
+                      );
+                      const code = courseStat?.code || fallbackCourse?.code || '';
+                      const title = courseStat?.title || fallbackCourse?.title || '';
+                      const activeCount =
+                        courseStat?.questionCount ?? fallbackCourse?.questionCount ?? 0;
+                      const inactiveCount =
+                        courseStat?.inactiveCount ?? fallbackCourse?.inactiveCount ?? 0;
+                      const totalCount = activeCount + inactiveCount;
+                      if (!code || totalCount <= 0) return null;
+                      return (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            setClearCourseQuestionsTarget({
+                              courseId: selectedStatsCourseId,
+                              code,
+                              title,
+                              totalCount,
+                              activeCount,
+                              inactiveCount,
+                            })
+                          }
+                          className="px-3 py-1.5 rounded-lg border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/30 hover:bg-red-100 dark:hover:bg-red-950/50 text-red-700 dark:text-red-300 text-xs font-extrabold inline-flex items-center gap-1.5 min-h-[38px] whitespace-nowrap disabled:opacity-50"
+                          title={`Clear all ${totalCount} question(s) in ${code}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Clear {code} ({totalCount})</span>
+                        </button>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>
@@ -4215,6 +4360,9 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                               setFeedback(null);
                               try {
                                 await api.admin.deleteMaterial(m.id);
+                                if (editingMaterialId === m.id) {
+                                  setEditingMaterialId(null);
+                                }
                                 setFeedback({ type: 'ok', text: 'Study material deleted.' });
                                 await Promise.all([loadAllAdminData(), onCatalogUpdated()]);
                               } catch (err) {
@@ -6714,6 +6862,130 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
                   className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-extrabold"
                 >
                   {busy ? 'Resetting...' : 'Execute Full Reset'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Clear All Course Questions Confirmation Modal */}
+      {clearCourseQuestionsTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900 shadow-2xl overflow-hidden">
+            <div className="bg-red-600 text-white px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Eraser className="w-5 h-5" />
+                <h3 className="text-sm sm:text-base font-extrabold">
+                  Clear All Course Questions
+                </h3>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setClearCourseQuestionsTarget(null)}
+                className="p-1 rounded-lg hover:bg-white/15"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmClearCourseQuestions} className="p-4 space-y-3">
+              <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 p-3 text-xs text-red-800 dark:text-red-200 space-y-1.5">
+                <div className="font-extrabold">
+                  {clearCourseQuestionsTarget.code} — {clearCourseQuestionsTarget.title}
+                </div>
+                <p>
+                  This will permanently delete all{' '}
+                  <strong>{clearCourseQuestionsTarget.totalCount}</strong> question(s) in this
+                  course ({clearCourseQuestionsTarget.activeCount} active/published
+                  {clearCourseQuestionsTarget.inactiveCount > 0
+                    ? `, ${clearCourseQuestionsTarget.inactiveCount} draft/inactive`
+                    : ''}
+                  ) along with their attached question images.
+                </p>
+                <p className="text-red-700/90 dark:text-red-300/90">
+                  The course itself, student registrations, payment records, and past submitted exam
+                  summary scores will remain untouched.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setClearCourseQuestionsTarget(null)}
+                  className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-extrabold inline-flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>
+                    {busy
+                      ? 'Clearing...'
+                      : `Clear ${clearCourseQuestionsTarget.totalCount} Question(s)`}
+                  </span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Course Confirmation Modal */}
+      {deleteCourseTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-slate-950/70 backdrop-blur-[1px]">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-red-200 dark:border-red-900 shadow-2xl overflow-hidden">
+            <div className="bg-red-600 text-white px-4 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5" />
+                <h3 className="text-sm sm:text-base font-extrabold">
+                  Delete Course
+                </h3>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setDeleteCourseTarget(null)}
+                className="p-1 rounded-lg hover:bg-white/15"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleConfirmDeleteCourse} className="p-4 space-y-3">
+              <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 p-3 text-xs text-red-800 dark:text-red-200 space-y-1.5">
+                <div className="font-extrabold">
+                  {deleteCourseTarget.code} — {deleteCourseTarget.title}
+                </div>
+                <p>
+                  This deletes the course itself from the catalog (together with its questions).
+                  Courses with existing payment records, registrations, or CBT exam attempts cannot
+                  be deleted; use <strong>Clear Qs</strong> if you only want to remove questions.
+                </p>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setDeleteCourseTarget(null)}
+                  className="px-3.5 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-extrabold inline-flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{busy ? 'Deleting...' : `Delete ${deleteCourseTarget.code}`}</span>
                 </button>
               </div>
             </form>

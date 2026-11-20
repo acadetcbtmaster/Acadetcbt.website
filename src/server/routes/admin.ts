@@ -85,7 +85,7 @@ import {
 } from '../lib/pricing.js';
 import {
   attachImagesToQuestion,
-  cleanupS3ObjectsForQuestion,
+  cleanupS3ObjectsForQuestions,
   deleteQuestionImage,
   getQuestionImagesMap,
   MAX_QUESTION_IMAGE_BYTES,
@@ -605,10 +605,150 @@ router.patch('/courses/:id', async (req, res) => {
   }
 });
 
+async function deleteQuestionsAtomically(
+  questionIds: string[]
+): Promise<Array<{ id: string; courseId: string | null; difficulty: string }>> {
+  const uniqueIds = Array.from(new Set(questionIds.filter(Boolean)));
+  if (uniqueIds.length === 0) return [];
+
+  await cleanupS3ObjectsForQuestions(uniqueIds);
+
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Identify any in-progress exam sessions referencing deleted questions so their counts stay valid
+    const affectedInProgress = await client.query<{ session_id: string }>(
+      `SELECT DISTINCT esq.session_id
+       FROM exam_session_questions esq
+       INNER JOIN exam_sessions es ON es.id = esq.session_id
+       WHERE esq.question_id = ANY($1::uuid[])
+         AND es.status = 'in_progress'`,
+      [uniqueIds]
+    );
+
+    // Clear dependent exam_session_questions rows (ON DELETE RESTRICT) while preserving submitted exam_sessions summaries
+    await client.query(
+      `DELETE FROM exam_session_questions WHERE question_id = ANY($1::uuid[])`,
+      [uniqueIds]
+    );
+
+    for (const row of affectedInProgress.rows) {
+      const remRes = await client.query<{ cnt: number }>(
+        `SELECT COUNT(*)::int AS cnt FROM exam_session_questions WHERE session_id = $1`,
+        [row.session_id]
+      );
+      const remaining = remRes.rows[0]?.cnt ?? 0;
+      if (remaining <= 0) {
+        await client.query(
+          `UPDATE exam_sessions SET status = 'abandoned', total_questions = 0 WHERE id = $1`,
+          [row.session_id]
+        );
+      } else {
+        await client.query(
+          `UPDATE exam_sessions SET total_questions = $2 WHERE id = $1`,
+          [row.session_id, remaining]
+        );
+      }
+    }
+
+    const delRes = await client.query<{
+      id: string;
+      courseId: string | null;
+      difficulty: string;
+    }>(
+      `DELETE FROM questions
+       WHERE id = ANY($1::uuid[])
+       RETURNING id, course_id AS "courseId", difficulty`,
+      [uniqueIds]
+    );
+
+    await client.query('COMMIT');
+    return delRes.rows;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+router.delete('/courses/:id/questions', async (req, res) => {
+  try {
+    const courseIdParsed = z.string().uuid('Valid course ID is required.').safeParse(req.params.id);
+    if (!courseIdParsed.success) {
+      res.status(400).json({ error: 'Valid course ID is required.' });
+      return;
+    }
+    const courseId = courseIdParsed.data;
+    const pool = getPool();
+    const db = getDb();
+
+    const [course] = await db
+      .select({
+        id: courses.id,
+        code: courses.code,
+        title: courses.title,
+        subjectId: courses.subjectId,
+      })
+      .from(courses)
+      .where(eq(courses.id, courseId))
+      .limit(1);
+
+    if (!course) {
+      res.status(404).json({ error: 'Course not found.' });
+      return;
+    }
+
+    const matchedRes = await pool.query<{ id: string }>(
+      `SELECT q.id
+       FROM questions q
+       WHERE q.course_id = $1
+          OR (q.course_id IS NULL AND $2::uuid IS NOT NULL AND q.subject_id = $2::uuid)`,
+      [course.id, course.subjectId]
+    );
+    const questionIds = matchedRes.rows.map((r) => r.id);
+
+    const deletedRows = await deleteQuestionsAtomically(questionIds);
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.course.clear_questions',
+      entityType: 'course',
+      entityId: course.id,
+      metadata: {
+        code: course.code,
+        title: course.title,
+        deletedCount: deletedRows.length,
+      },
+      ipAddress: req.ip,
+    });
+
+    res.json({
+      courseId: course.id,
+      courseCode: course.code,
+      courseTitle: course.title,
+      deletedCount: deletedRows.length,
+      message:
+        deletedRows.length > 0
+          ? `Cleared ${deletedRows.length} question(s) from ${course.code} — ${course.title}.`
+          : `No questions found to clear for ${course.code}.`,
+    });
+  } catch (err) {
+    handleApiError(res, err, 'clearing course questions');
+  }
+});
+
 router.delete('/courses/:id', async (req, res) => {
   try {
+    const courseIdParsed = z.string().uuid('Valid course ID is required.').safeParse(req.params.id);
+    if (!courseIdParsed.success) {
+      res.status(400).json({ error: 'Valid course ID is required.' });
+      return;
+    }
     const pool = getPool();
-    const courseId = req.params.id;
+    const courseId = courseIdParsed.data;
 
     // Safe delete check: do not delete if payments, registrations, or exam sessions depend on it
     const depRes = await pool.query<{
@@ -1353,16 +1493,16 @@ router.delete('/questions/:id/images/:imageId', async (req, res) => {
 
 router.delete('/questions/:id', async (req, res) => {
   try {
-    await cleanupS3ObjectsForQuestion(req.params.id);
-    const db = getDb();
-    const [deleted] = await db
-      .delete(questions)
-      .where(eq(questions.id, req.params.id))
-      .returning({
-        id: questions.id,
-        courseId: questions.courseId,
-        difficulty: questions.difficulty,
-      });
+    const questionIdParsed = z
+      .string()
+      .uuid('Valid question ID is required.')
+      .safeParse(req.params.id);
+    if (!questionIdParsed.success) {
+      res.status(400).json({ error: 'Valid question ID is required.' });
+      return;
+    }
+    const deletedRows = await deleteQuestionsAtomically([questionIdParsed.data]);
+    const deleted = deletedRows[0];
     if (!deleted) {
       res.status(404).json({ error: 'Question not found.' });
       return;
@@ -2319,15 +2459,21 @@ router.post(
 
 router.delete('/materials/:id', async (req, res) => {
   try {
+    const idParsed = z.string().uuid('Valid material ID is required.').safeParse(req.params.id);
+    if (!idParsed.success) {
+      res.status(400).json({ error: 'Valid material ID is required.' });
+      return;
+    }
     const db = getDb();
     const [existing] = await db
       .select({
         id: studyMaterials.id,
+        title: studyMaterials.title,
         objectKey: studyMaterials.objectKey,
         storageBackend: studyMaterials.storageBackend,
       })
       .from(studyMaterials)
-      .where(eq(studyMaterials.id, req.params.id))
+      .where(eq(studyMaterials.id, idParsed.data))
       .limit(1);
 
     if (!existing) {
@@ -2346,6 +2492,14 @@ router.delete('/materials/:id', async (req, res) => {
     }
 
     await db.delete(studyMaterials).where(eq(studyMaterials.id, existing.id));
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.material.delete',
+      entityType: 'study_material',
+      entityId: existing.id,
+      metadata: { title: existing.title },
+      ipAddress: req.ip,
+    });
     res.json({ deletedId: existing.id });
   } catch (err) {
     handleApiError(res, err, 'deleting study material');
@@ -3114,15 +3268,28 @@ router.patch('/announcements/:id', async (req, res) => {
 
 router.delete('/announcements/:id', async (req, res) => {
   try {
+    const idParsed = z.string().uuid('Valid announcement ID is required.').safeParse(req.params.id);
+    if (!idParsed.success) {
+      res.status(400).json({ error: 'Valid announcement ID is required.' });
+      return;
+    }
     const db = getDb();
     const [deleted] = await db
       .delete(announcements)
-      .where(eq(announcements.id, req.params.id))
-      .returning({ id: announcements.id });
+      .where(eq(announcements.id, idParsed.data))
+      .returning({ id: announcements.id, title: announcements.title });
     if (!deleted) {
       res.status(404).json({ error: 'Announcement not found.' });
       return;
     }
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'admin.announcement.delete',
+      entityType: 'announcement',
+      entityId: deleted.id,
+      metadata: { title: deleted.title },
+      ipAddress: req.ip,
+    });
     res.json({ deletedId: deleted.id });
   } catch (err) {
     handleApiError(res, err, 'deleting announcement');

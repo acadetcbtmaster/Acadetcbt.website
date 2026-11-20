@@ -518,6 +518,16 @@ export const api = {
       }),
     deleteCourse: (id: string) =>
       request<{ deletedId: string }>(`/api/admin/courses/${id}`, { method: 'DELETE' }),
+    clearCourseQuestions: (courseId: string) =>
+      request<{
+        courseId: string;
+        courseCode: string;
+        courseTitle: string;
+        deletedCount: number;
+        message: string;
+      }>(`/api/admin/courses/${encodeURIComponent(courseId)}/questions`, {
+        method: 'DELETE',
+      }),
 
     getQuestionStats: () => request<QuestionStatsResponse>('/api/admin/questions/stats'),
     listQuestions: (

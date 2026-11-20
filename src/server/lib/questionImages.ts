@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import path from 'node:path';
-import { asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { getDb, getPool } from '../../db/index.js';
 import { questionImages } from '../../db/schema.js';
 import {
@@ -249,7 +249,7 @@ export async function deleteQuestionImage(
   const db = getDb();
   const [deleted] = await db
     .delete(questionImages)
-    .where(eq(questionImages.id, imageId))
+    .where(and(eq(questionImages.id, imageId), eq(questionImages.questionId, questionId)))
     .returning({
       id: questionImages.id,
       questionId: questionImages.questionId,
@@ -258,9 +258,6 @@ export async function deleteQuestionImage(
     });
 
   if (!deleted) return false;
-  if (deleted.questionId !== questionId) {
-    return true;
-  }
 
   if (deleted.storageBackend === 's3' && deleted.objectKey) {
     try {
@@ -272,7 +269,10 @@ export async function deleteQuestionImage(
   return true;
 }
 
-export async function cleanupS3ObjectsForQuestion(questionId: string): Promise<void> {
+export async function cleanupS3ObjectsForQuestions(questionIds: string[]): Promise<void> {
+  const uniqueIds = Array.from(new Set(questionIds.filter(Boolean)));
+  if (uniqueIds.length === 0) return;
+
   const db = getDb();
   const rows = await db
     .select({
@@ -280,7 +280,7 @@ export async function cleanupS3ObjectsForQuestion(questionId: string): Promise<v
       objectKey: questionImages.objectKey,
     })
     .from(questionImages)
-    .where(eq(questionImages.questionId, questionId));
+    .where(inArray(questionImages.questionId, uniqueIds));
 
   for (const r of rows) {
     if (r.storageBackend === 's3' && r.objectKey) {
@@ -291,6 +291,10 @@ export async function cleanupS3ObjectsForQuestion(questionId: string): Promise<v
       }
     }
   }
+}
+
+export async function cleanupS3ObjectsForQuestion(questionId: string): Promise<void> {
+  await cleanupS3ObjectsForQuestions([questionId]);
 }
 
 export async function getQuestionImageBinary(

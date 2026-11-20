@@ -283,6 +283,12 @@ export const AiQuestionGeneratorPanel: React.FC<AiQuestionGeneratorPanelProps> =
     try {
       await api.admin.deleteQuestion(id);
       setDrafts((prev) => prev.filter((item) => item.id !== id));
+      setSelectedIds((prev) => {
+        if (!prev[id]) return prev;
+        const copy = { ...prev };
+        delete copy[id];
+        return copy;
+      });
       setFeedback({ type: 'ok', text: 'Draft question deleted.' });
       await onPublishedOrChanged();
     } catch (err) {
