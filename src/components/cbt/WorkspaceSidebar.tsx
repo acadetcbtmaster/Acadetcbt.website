@@ -13,6 +13,7 @@ import {
   Settings,
   Shield,
   ShieldCheck,
+  Trophy,
   X,
 } from 'lucide-react';
 import React from 'react';
@@ -20,6 +21,7 @@ import type { UserRole } from '../../types/cbt';
 
 export type WorkspaceTab =
   | 'home'
+  | 'reward-challenge'
   | 'catalogue'
   | 'my-courses'
   | 'payment-verification'
@@ -64,6 +66,7 @@ export const WorkspaceSidebar: React.FC<WorkspaceSidebarProps> = ({
     badge?: number;
   }> = [
     { id: 'home', label: 'Home', icon: Home },
+    { id: 'reward-challenge', label: 'Reward Challenge', icon: Trophy },
     { id: 'catalogue', label: 'Course Registration', icon: CreditCard },
     { id: 'my-courses', label: 'My Registered Courses', icon: BookCheck },
     { id: 'payment-verification', label: 'Payment Verification', icon: ShieldCheck },

@@ -38,6 +38,7 @@ import {
   Sliders,
   Sparkles,
   Trash2,
+  Trophy,
   Upload,
   UserCheck,
   Users,
@@ -87,6 +88,7 @@ import {
   useBranding,
 } from './AcadetLogo';
 import { AdminEmailStatusPanel } from './AdminEmailStatusPanel';
+import { AdminRewardChallengePanel } from './AdminRewardChallengePanel';
 import { AiQuestionGeneratorPanel } from './AiQuestionGeneratorPanel';
 import { AiSettingsPanel } from './AiSettingsPanel';
 import { CopyReferenceButton } from './CopyReferenceButton';
@@ -104,6 +106,7 @@ interface AdminConsoleProps {
 
 type AdminSection =
   | 'overview'
+  | 'reward_challenge'
   | 'courses'
   | 'registrations'
   | 'gst111'
@@ -1879,6 +1882,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     badgeCount?: number;
   }> = [
     { id: 'overview', label: 'Overview', icon: Shield },
+    { id: 'reward_challenge', label: 'Reward CBT Challenge', icon: Trophy },
     { id: 'courses', label: 'Courses', icon: BookOpen },
     { id: 'registrations', label: 'Registrations', icon: ClipboardList },
     { id: 'gst111', label: 'Manual Activation', icon: KeyRound },
@@ -6549,6 +6553,10 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {section === 'reward_challenge' && (
+        <AdminRewardChallengePanel onUpdated={onCatalogUpdated} />
       )}
 
       {/* Suspend Account Confirmation Modal */}

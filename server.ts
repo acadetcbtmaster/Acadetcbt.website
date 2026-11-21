@@ -17,6 +17,7 @@ import {
 } from './src/server/lib/branding.js';
 import { validateEmailStartup } from './src/server/lib/email.js';
 import adminRoutes from './src/server/routes/admin.js';
+import adminRewardChallengeRoutes from './src/server/routes/adminRewardChallenges.js';
 import authRoutes from './src/server/routes/auth.js';
 import catalogRoutes from './src/server/routes/catalog.js';
 import examRoutes from './src/server/routes/exams.js';
@@ -26,7 +27,12 @@ import notificationRoutes from './src/server/routes/notifications.js';
 import paymentRoutes from './src/server/routes/payments.js';
 import publicRoutes from './src/server/routes/public.js';
 import resultRoutes from './src/server/routes/results.js';
+import rewardChallengeRoutes from './src/server/routes/rewardChallenges.js';
 import webhookRoutes from './src/server/routes/webhooks.js';
+import {
+  startRewardChallengeScheduler,
+  stopRewardChallengeScheduler,
+} from './src/server/lib/rewardScheduler.js';
 
 const STATIC_ASSET_EXT_RE =
   /\.(?:js|mjs|cjs|css|map|png|jpg|jpeg|webp|gif|svg|ico|woff|woff2|ttf|eot|json|xml|txt|pdf|doc|docx)$/i;
@@ -108,6 +114,8 @@ export async function createApp(options?: { skipVite?: boolean }) {
   app.use('/api/results', resultRoutes);
   app.use('/api/materials', materialRoutes);
   app.use('/api/notifications', notificationRoutes);
+  app.use('/api/reward-challenges', rewardChallengeRoutes);
+  app.use('/api/admin/reward-challenges', adminRewardChallengeRoutes);
   app.use('/api/admin', adminRoutes);
 
   // Unknown API routes always return structured JSON 404
@@ -370,6 +378,7 @@ async function bootstrap() {
             `[Acadet CBT] PostgreSQL migrations ready (applied: ${migrationResult.applied.length}, skipped: ${migrationResult.skipped.length})`
           );
           await seedDatabaseIfEmpty();
+          startRewardChallengeScheduler();
         } catch (err) {
           console.error('[Acadet CBT] PostgreSQL startup initialization warning:', err);
         }
@@ -383,6 +392,7 @@ async function bootstrap() {
 
   const shutdown = async () => {
     console.log('[Acadet CBT] Gracefully shutting down...');
+    stopRewardChallengeScheduler();
     server.close(async () => {
       await closePool();
       process.exit(0);

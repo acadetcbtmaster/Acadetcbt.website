@@ -83,6 +83,16 @@ const ResetPasswordScreen = lazy(() =>
 const ResultsView = lazy(() =>
   import('./components/cbt/ResultsView').then((m) => ({ default: m.ResultsView }))
 );
+const RewardChallengeExamHall = lazy(() =>
+  import('./components/cbt/RewardChallengeExamHall').then((m) => ({
+    default: m.RewardChallengeExamHall,
+  }))
+);
+const RewardChallengeHub = lazy(() =>
+  import('./components/cbt/RewardChallengeHub').then((m) => ({
+    default: m.RewardChallengeHub,
+  }))
+);
 const SettingsDrawer = lazy(() =>
   import('./components/cbt/SettingsDrawer').then((m) => ({ default: m.SettingsDrawer }))
 );
@@ -118,6 +128,8 @@ import type {
   GradedExamQuestion,
   PaymentVerifyOutcome,
   PublicCourseSummary,
+  RewardChallengeAttemptPayload,
+  RewardChallengeSummary,
   SafeUser,
   SiteBrandingData,
   StudentNotificationItem,
@@ -207,6 +219,18 @@ export default function App() {
     questions: GradedExamQuestion[];
   } | null>(null);
 
+  const [rewardChallenge, setRewardChallenge] = useState<RewardChallengeSummary | null>(null);
+  const [loadingRewardChallenge, setLoadingRewardChallenge] = useState(false);
+  const [startingRewardChallenge, setStartingRewardChallenge] = useState(false);
+  const [rewardHubInitialView, setRewardHubInitialView] = useState<
+    'overview' | 'leaderboard' | 'winner'
+  >('overview');
+  const [activeRewardAttempt, setActiveRewardAttempt] =
+    useState<RewardChallengeAttemptPayload | null>(null);
+  const [rewardRemainingSeconds, setRewardRemainingSeconds] = useState(0);
+  const [endRewardConfirmOpen, setEndRewardConfirmOpen] = useState(false);
+  const [rewardSubmissionNotice, setRewardSubmissionNotice] = useState<string | null>(null);
+
   // Course access lock & Paystack verification states
   const [courseRequiredModalCourse, setCourseRequiredModalCourse] =
     useState<CourseCatalogueItem | null>(null);
@@ -275,11 +299,13 @@ export default function App() {
 
   const loadWorkspaceData = useCallback(async (authenticatedUser: SafeUser | null) => {
     if (!authenticatedUser) return;
-    const [courseRes, annRes, actRes, notifRes] = await Promise.allSettled([
+    setLoadingRewardChallenge(true);
+    const [courseRes, annRes, actRes, notifRes, rewardRes] = await Promise.allSettled([
       api.catalog.getCourses(),
       api.catalog.getAnnouncements(),
       api.catalog.getActivity(),
       api.notifications.list(),
+      api.rewardChallenges.getCurrent(),
     ]);
 
     if (courseRes.status === 'fulfilled') {
@@ -308,6 +334,11 @@ export default function App() {
       setNotifications(notifRes.value.notifications);
       setUnreadNotifications(notifRes.value.unreadCount);
     }
+
+    if (rewardRes.status === 'fulfilled') {
+      setRewardChallenge(rewardRes.value.challenge);
+    }
+    setLoadingRewardChallenge(false);
   }, []);
 
   useEffect(() => {
@@ -319,6 +350,8 @@ export default function App() {
       );
       setUser(null);
       setActiveExam(null);
+      setActiveRewardAttempt(null);
+      setRewardChallenge(null);
       setLatestResult(null);
       setCourses([]);
       setAnnouncements([]);
@@ -413,10 +446,26 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [activeExam]);
 
+  // Countdown tick while inside active Reward CBT Challenge exam (server-offset calibrated)
+  useEffect(() => {
+    if (!activeRewardAttempt) return;
+    const expiresMs = new Date(activeRewardAttempt.attempt.expiresAt).getTime();
+    const serverMs = new Date(activeRewardAttempt.serverNow).getTime();
+    const offset = Number.isNaN(serverMs) ? 0 : serverMs - Date.now();
+
+    const syncClock = () => {
+      const next = Math.max(0, Math.floor((expiresMs - (Date.now() + offset)) / 1000));
+      setRewardRemainingSeconds(next);
+    };
+    syncClock();
+    const interval = window.setInterval(syncClock, 1000);
+    return () => window.clearInterval(interval);
+  }, [activeRewardAttempt]);
+
   // Real-time subscription status synchronization across tabs/devices:
   // Re-fetch authoritative DB state on tab switch, window focus, tab visibility, and every 15s.
   useEffect(() => {
-    if (!user || activeExam) return;
+    if (!user || activeExam || activeRewardAttempt) return;
 
     const syncNow = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
@@ -439,12 +488,13 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibility);
       window.clearInterval(interval);
     };
-  }, [user, activeExam, loadWorkspaceData]);
+  }, [user, activeExam, activeRewardAttempt, loadWorkspaceData]);
 
   useEffect(() => {
-    if (!user || activeExam) return;
+    if (!user || activeExam || activeRewardAttempt) return;
     if (
       activeTab === 'home' ||
+      activeTab === 'reward-challenge' ||
       activeTab === 'catalogue' ||
       activeTab === 'my-courses' ||
       activeTab === 'materials' ||
@@ -456,7 +506,7 @@ export default function App() {
         setMyCoursesRefreshKey((k) => k + 1);
       }
     }
-  }, [activeTab, user, activeExam, loadWorkspaceData]);
+  }, [activeTab, user, activeExam, activeRewardAttempt, loadWorkspaceData]);
 
   const handleAuthenticated = async (signedInUser: SafeUser) => {
     setSuspensionNotice(null);
@@ -487,6 +537,9 @@ export default function App() {
     await api.auth.logout();
     setUser(null);
     setActiveExam(null);
+    setActiveRewardAttempt(null);
+    setRewardChallenge(null);
+    setRewardSubmissionNotice(null);
     setLatestResult(null);
     setCourses([]);
     setAnnouncements([]);
@@ -623,6 +676,49 @@ export default function App() {
     setEndExamConfirmOpen(false);
     setLatestResult(result);
     setActiveTab('results');
+    await loadWorkspaceData(user);
+  };
+
+  const handleStartOrResumeRewardChallenge = async (challengeId: string) => {
+    setStartingRewardChallenge(true);
+    try {
+      const started = await api.rewardChallenges.startExam(challengeId);
+      if (started.attempt.status !== 'in_progress') {
+        setRewardHubInitialView('overview');
+        setActiveTab('reward-challenge');
+        await loadWorkspaceData(user);
+        return;
+      }
+      setRewardSubmissionNotice(null);
+      setActiveRewardAttempt(started);
+      setRewardRemainingSeconds(started.remainingSeconds);
+      setEndRewardConfirmOpen(false);
+    } catch {
+      setRewardHubInitialView('overview');
+      setActiveTab('reward-challenge');
+    } finally {
+      setStartingRewardChallenge(false);
+    }
+  };
+
+  const handleOpenRewardChallengeHub = (
+    initialView: 'overview' | 'leaderboard' | 'winner' = 'overview'
+  ) => {
+    setRewardHubInitialView(initialView);
+    setActiveTab('reward-challenge');
+  };
+
+  const handleRewardChallengeSubmitted = async (
+    result: RewardChallengeAttemptPayload & { confirmationMessage: string }
+  ) => {
+    setActiveRewardAttempt(null);
+    setEndRewardConfirmOpen(false);
+    setRewardSubmissionNotice(
+      result.confirmationMessage ||
+        'Your examination has been submitted. Results and winners will be announced according to the challenge schedule.'
+    );
+    setRewardHubInitialView('overview');
+    setActiveTab('reward-challenge');
     await loadWorkspaceData(user);
   };
 
@@ -800,6 +896,38 @@ export default function App() {
       );
     }
 
+    // Active Acadet Reward CBT Challenge Exam Hall Mode
+    if (user && activeRewardAttempt) {
+      return (
+        <div className="min-h-screen flex flex-col bg-[#eef3fb] dark:bg-[#0a0f1e]">
+          <TopHeader
+            user={user}
+            courses={courses}
+            selectedCourseId={selectedCourseId}
+            onSelectCourse={setSelectedCourseId}
+            onNavigateHome={() => setEndRewardConfirmOpen(true)}
+            onLogout={handleLogout}
+            examMode={{
+              remainingSeconds: rewardRemainingSeconds,
+              courseLabel: `ACADET REWARD CBT CHALLENGE — ${activeRewardAttempt.challenge.title}`,
+              onRequestEndExam: () => setEndRewardConfirmOpen(true),
+            }}
+          />
+          <main className="flex-1 flex flex-col">
+            <RewardChallengeExamHall
+              studentName={user.fullName}
+              initialPayload={activeRewardAttempt}
+              remainingSeconds={rewardRemainingSeconds}
+              endConfirmOpen={endRewardConfirmOpen}
+              onCloseEndConfirm={() => setEndRewardConfirmOpen(false)}
+              onOpenEndConfirm={() => setEndRewardConfirmOpen(true)}
+              onSubmitted={handleRewardChallengeSubmitted}
+            />
+          </main>
+        </div>
+      );
+    }
+
     // Genuine unknown routes always display a clean 404 page instead of hiding behind `/` or login
     if (isNotFoundRoute) {
       return (
@@ -949,6 +1077,11 @@ export default function App() {
                 onNavigateStudyMaterials={() => setActiveTab('materials')}
                 onOpenSettings={() => setSettingsOpen(true)}
                 startingExam={startingExam}
+                rewardChallenge={rewardChallenge}
+                loadingRewardChallenge={loadingRewardChallenge}
+                startingRewardChallenge={startingRewardChallenge}
+                onStartRewardChallenge={(id) => void handleStartOrResumeRewardChallenge(id)}
+                onOpenRewardChallengeHub={handleOpenRewardChallengeHub}
               />
             </main>
           </>
@@ -1019,6 +1152,18 @@ export default function App() {
                   />
                 )}
 
+                {activeTab === 'reward-challenge' && (
+                  <RewardChallengeHub
+                    currentUserId={user.id}
+                    featuredChallenge={rewardChallenge}
+                    initialSubView={rewardHubInitialView}
+                    submissionConfirmationMessage={rewardSubmissionNotice}
+                    onClearSubmissionConfirmation={() => setRewardSubmissionNotice(null)}
+                    onStartOrResumeChallenge={handleStartOrResumeRewardChallenge}
+                    onChallengeStateUpdated={() => loadWorkspaceData(user)}
+                  />
+                )}
+
                 {activeTab === 'notifications' && (
                   <NotificationsView
                     notifications={notifications}
@@ -1026,6 +1171,10 @@ export default function App() {
                     onMarkRead={handleMarkNotificationRead}
                     onMarkAllRead={handleMarkAllNotificationsRead}
                     onStartCourseExam={handleStartCourseExamQuick}
+                    onOpenRewardChallenge={() => {
+                      setRewardHubInitialView('overview');
+                      setActiveTab('reward-challenge');
+                    }}
                   />
                 )}
 

@@ -41,6 +41,19 @@ import type {
   QuestionStatsResponse,
   RegisteredCourseItem,
   ResultsOverview,
+  RewardChallengeAdminOverview,
+  RewardChallengeAdminParticipantItem,
+  RewardChallengeAdminQuestion,
+  RewardChallengeAdminWinnerPayment,
+  RewardChallengeAiDraftQuestion,
+  RewardChallengeAttemptPayload,
+  RewardChallengeBankDetailsData,
+  RewardChallengeLeaderboardResponse,
+  RewardChallengePaymentData,
+  RewardChallengeSelectionMode,
+  RewardChallengeStudentHistoryItem,
+  RewardChallengeSummary,
+  RewardChallengeWinnerPublic,
   SafeUser,
   SiteBrandingData,
   StudentMaterialPurchaseItem,
@@ -470,6 +483,111 @@ export const api = {
       request<{ ok: boolean; markedCount: number }>('/api/notifications/read-all', {
         method: 'POST',
       }),
+  },
+
+  rewardChallenges: {
+    getCurrent: () =>
+      request<{ challenge: RewardChallengeSummary | null }>('/api/reward-challenges/current'),
+
+    listHistory: () =>
+      request<{ challenges: RewardChallengeSummary[] }>('/api/reward-challenges/history'),
+
+    getMyHistory: () =>
+      request<{ history: RewardChallengeStudentHistoryItem[] }>(
+        '/api/reward-challenges/my/history'
+      ),
+
+    getDetail: (challengeId: string) =>
+      request<{ challenge: RewardChallengeSummary }>(
+        `/api/reward-challenges/${encodeURIComponent(challengeId)}`
+      ),
+
+    join: (challengeId: string) =>
+      request<{ challenge: RewardChallengeSummary }>(
+        `/api/reward-challenges/${encodeURIComponent(challengeId)}/join`,
+        { method: 'POST' }
+      ),
+
+    startExam: (challengeId: string) =>
+      request<RewardChallengeAttemptPayload>(
+        `/api/reward-challenges/${encodeURIComponent(challengeId)}/start`,
+        { method: 'POST' }
+      ),
+
+    getAttempt: (challengeId: string) =>
+      request<RewardChallengeAttemptPayload>(
+        `/api/reward-challenges/${encodeURIComponent(challengeId)}/attempt`
+      ),
+
+    saveAnswer: (
+      challengeId: string,
+      payload: {
+        questionOrder: number;
+        selectedOption?: OptionLetter | null;
+        isMarkedForReview?: boolean;
+      }
+    ) =>
+      request<{ ok: boolean; remainingSeconds: number }>(
+        `/api/reward-challenges/${encodeURIComponent(challengeId)}/attempt/answer`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify(payload),
+        }
+      ),
+
+    submitExam: (
+      challengeId: string,
+      payload: {
+        submissionSource: 'manual' | 'auto_timer';
+        answers?: Array<{
+          questionOrder: number;
+          selectedOption: OptionLetter | null;
+          isMarkedForReview?: boolean;
+        }>;
+      }
+    ) =>
+      request<RewardChallengeAttemptPayload & { confirmationMessage: string }>(
+        `/api/reward-challenges/${encodeURIComponent(challengeId)}/attempt/submit`,
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }
+      ),
+
+    getLeaderboard: (challengeId: string) =>
+      request<RewardChallengeLeaderboardResponse>(
+        `/api/reward-challenges/${encodeURIComponent(challengeId)}/leaderboard`
+      ),
+
+    getWinner: (challengeId: string) =>
+      request<{
+        challengeId: string;
+        challengeTitle: string;
+        displayStatus: RewardChallengeSummary['displayStatus'];
+        hasWinner: boolean;
+        noValidParticipants: boolean;
+        winner: RewardChallengeWinnerPublic | null;
+        isCurrentUserWinner: boolean;
+        myBankDetails: RewardChallengeBankDetailsData | null;
+        myPayment: RewardChallengePaymentData | null;
+      }>(`/api/reward-challenges/${encodeURIComponent(challengeId)}/winner`),
+
+    submitBankDetails: (
+      challengeId: string,
+      payload: {
+        bankName: string;
+        accountNumber: string;
+        accountName: string;
+        correctionNote?: string;
+      }
+    ) =>
+      request<{ bankDetails: RewardChallengeBankDetailsData; message: string }>(
+        `/api/reward-challenges/${encodeURIComponent(challengeId)}/winner/bank-details`,
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }
+      ),
   },
 
   admin: {
@@ -1167,6 +1285,271 @@ export const api = {
           method: 'POST',
           body: JSON.stringify(payload),
         }),
+    },
+
+    rewardChallenges: {
+      list: () =>
+        request<{ challenges: RewardChallengeSummary[] }>('/api/admin/reward-challenges'),
+
+      create: (payload: {
+        title: string;
+        description?: string;
+        rewardAmount?: number;
+        rewardCurrency?: string;
+        durationMinutes?: number;
+        questionCount?: number;
+        selectionMode?: RewardChallengeSelectionMode;
+        challengeOpenAt?: string;
+        examStartAt?: string;
+        examEndAt?: string;
+        winnerAnnouncementAt?: string;
+        challengeCloseAt?: string | null;
+        featureImmediately?: boolean;
+      }) =>
+        request<{ challenge: RewardChallengeSummary }>('/api/admin/reward-challenges', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        }),
+
+      getOverview: (challengeId: string) =>
+        request<{
+          challenge: RewardChallengeSummary;
+          overview: RewardChallengeAdminOverview;
+        }>(`/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/overview`),
+
+      updateSettings: (
+        challengeId: string,
+        payload: {
+          title?: string;
+          description?: string;
+          rewardAmount?: number;
+          rewardCurrency?: string;
+          isFeatured?: boolean;
+          durationMinutes?: number;
+          questionCount?: number;
+          selectionMode?: RewardChallengeSelectionMode;
+          challengeOpenAt?: string;
+          examStartAt?: string;
+          examEndAt?: string;
+          winnerAnnouncementAt?: string;
+          challengeCloseAt?: string | null;
+        }
+      ) =>
+        request<{ challenge: RewardChallengeSummary; message: string }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/settings`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+          }
+        ),
+
+      activate: (challengeId: string) =>
+        request<{ challenge: RewardChallengeSummary; message: string }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/activate`,
+          { method: 'POST' }
+        ),
+
+      deactivate: (challengeId: string) =>
+        request<{ challenge: RewardChallengeSummary; message: string }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/deactivate`,
+          { method: 'POST' }
+        ),
+
+      sync: (challengeId: string) =>
+        request<{ challenge: RewardChallengeSummary; message: string }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/sync`,
+          { method: 'POST' }
+        ),
+
+      listQuestions: (challengeId: string) =>
+        request<{ questions: RewardChallengeAdminQuestion[] }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/questions`
+        ),
+
+      createQuestion: (
+        challengeId: string,
+        payload: {
+          questionText: string;
+          optionA: string;
+          optionB: string;
+          optionC: string;
+          optionD: string;
+          correctOption: OptionLetter;
+          explanation?: string;
+          subjectCategory?: string;
+          publicationStatus?: QuestionPublicationStatus;
+        }
+      ) =>
+        request<{ question: RewardChallengeAdminQuestion }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/questions`,
+          {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          }
+        ),
+
+      updateQuestion: (
+        challengeId: string,
+        questionId: string,
+        payload: Partial<{
+          questionText: string;
+          optionA: string;
+          optionB: string;
+          optionC: string;
+          optionD: string;
+          correctOption: OptionLetter;
+          explanation: string;
+          subjectCategory: string;
+          publicationStatus: QuestionPublicationStatus;
+          sortOrder: number;
+        }>
+      ) =>
+        request<{ question: RewardChallengeAdminQuestion }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/questions/${encodeURIComponent(questionId)}`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+          }
+        ),
+
+      deleteQuestion: (challengeId: string, questionId: string) =>
+        request<{ deletedId: string }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/questions/${encodeURIComponent(questionId)}`,
+          { method: 'DELETE' }
+        ),
+
+      publishQuestionsBatch: (
+        challengeId: string,
+        payload: { questionIds?: string[]; publishAllDrafts?: boolean }
+      ) =>
+        request<{ publishedCount: number; publishedIds: string[]; message: string }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/questions/publish-batch`,
+          {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          }
+        ),
+
+      bulkUploadQuestions: (
+        challengeId: string,
+        file: File,
+        publicationStatus: QuestionPublicationStatus = 'published'
+      ) => {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('publicationStatus', publicationStatus);
+        return request<{
+          count: number;
+          questions: RewardChallengeAdminQuestion[];
+          message: string;
+        }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/questions/bulk-upload`,
+          {
+            method: 'POST',
+            body: fd,
+          }
+        );
+      },
+
+      aiGenerateQuestions: (
+        challengeId: string,
+        payload: {
+          count: number;
+          subjectCategory?: string;
+          instructions?: string;
+          document?: File | null;
+        }
+      ) => {
+        const fd = new FormData();
+        fd.append('count', String(payload.count));
+        if (payload.subjectCategory) fd.append('subjectCategory', payload.subjectCategory);
+        if (payload.instructions) fd.append('instructions', payload.instructions);
+        if (payload.document) fd.append('document', payload.document);
+        return request<{
+          drafts: RewardChallengeAiDraftQuestion[];
+          count: number;
+          message: string;
+        }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/questions/ai-generate`,
+          {
+            method: 'POST',
+            body: fd,
+          }
+        );
+      },
+
+      aiSaveBatch: (
+        challengeId: string,
+        payload: {
+          questions: Array<RewardChallengeAiDraftQuestion & { publicationStatus?: QuestionPublicationStatus }>;
+          sourceType?: 'manual' | 'bulk_upload' | 'ai_generated';
+          publicationStatus?: QuestionPublicationStatus;
+        }
+      ) =>
+        request<{
+          count: number;
+          questions: RewardChallengeAdminQuestion[];
+          message: string;
+        }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/questions/ai-save-batch`,
+          {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          }
+        ),
+
+      listParticipants: (challengeId: string) =>
+        request<{ participants: RewardChallengeAdminParticipantItem[] }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/participants`
+        ),
+
+      getLeaderboard: (challengeId: string) =>
+        request<RewardChallengeLeaderboardResponse>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/leaderboard`
+        ),
+
+      getWinnerPayment: (challengeId: string) =>
+        request<{
+          challenge: RewardChallengeSummary;
+          winnerPayment: RewardChallengeAdminWinnerPayment | null;
+        }>(`/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/winner-payment`),
+
+      listAllPayments: () =>
+        request<{ payments: RewardChallengePaymentData[] }>(
+          '/api/admin/reward-challenges/payments/all'
+        ),
+
+      updatePaymentStatus: (
+        challengeId: string,
+        payload: {
+          paymentStatus: 'payment_pending' | 'payment_processing';
+          paymentReference?: string;
+          adminNote?: string;
+        }
+      ) =>
+        request<{ paymentStatus: string; message: string }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/payment/status`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+          }
+        ),
+
+      markPaymentPaid: (
+        challengeId: string,
+        payload: {
+          confirmedTransfer: true;
+          paymentReference?: string;
+          adminNote?: string;
+        }
+      ) =>
+        request<{ payment: RewardChallengePaymentData; message: string }>(
+          `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/payment/mark-paid`,
+          {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          }
+        ),
     },
   },
 };

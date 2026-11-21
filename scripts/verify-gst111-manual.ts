@@ -116,9 +116,8 @@ async function run() {
     path.resolve(process.cwd(), 'src/components/cbt/HomeDashboard.tsx'),
     'utf-8'
   );
-  assert.ok(homeSrc.includes('GST 111 – Subscription Active'));
-  assert.ok(homeSrc.includes('Payment Status: Successful'));
-  assert.ok(homeSrc.includes('Admin Activated'));
+  assert.ok(homeSrc.includes('RewardChallengeDashboardCard'));
+  assert.equal(homeSrc.includes('GST 111 – Subscription Active'), false);
 
   const regViewSrc = await fs.readFile(
     path.resolve(process.cwd(), 'src/components/cbt/CourseRegistrationView.tsx'),

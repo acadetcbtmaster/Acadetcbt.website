@@ -939,3 +939,419 @@ export const brandingAssetBinaries = pgTable(
     ),
   ]
 );
+
+export const rewardChallenges = pgTable(
+  'reward_challenges',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    title: text('title').notNull(),
+    description: text('description').notNull().default(''),
+    isActive: boolean('is_active').notNull().default(false),
+    isFeatured: boolean('is_featured').notNull().default(false),
+    lifecycleStatus: text('lifecycle_status').notNull().default('draft'),
+    rewardAmount: numeric('reward_amount', { precision: 12, scale: 2 })
+      .notNull()
+      .default('10000.00'),
+    rewardCurrency: text('reward_currency').notNull().default('NGN'),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    activatedAt: timestamp('activated_at', { withTimezone: true }),
+    deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('reward_challenges_active_idx').on(table.isActive, table.isFeatured, table.createdAt),
+    check(
+      'reward_challenges_lifecycle_check',
+      sql`${table.lifecycleStatus} IN ('draft', 'active', 'closed', 'deactivated')`
+    ),
+    check('reward_challenges_reward_amount_check', sql`${table.rewardAmount} >= 0`),
+  ]
+);
+
+export const rewardChallengeSettings = pgTable(
+  'reward_challenge_settings',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    challengeId: uuid('challenge_id')
+      .notNull()
+      .references(() => rewardChallenges.id, { onDelete: 'cascade' }),
+    timezone: text('timezone').notNull().default('Africa/Lagos'),
+    challengeOpenAt: timestamp('challenge_open_at', { withTimezone: true }).notNull().defaultNow(),
+    examStartAt: timestamp('exam_start_at', { withTimezone: true }).notNull(),
+    examEndAt: timestamp('exam_end_at', { withTimezone: true }).notNull(),
+    durationMinutes: integer('duration_minutes').notNull().default(10),
+    questionCount: integer('question_count').notNull().default(40),
+    selectionMode: text('selection_mode').notNull().default('random'),
+    winnerAnnouncementAt: timestamp('winner_announcement_at', { withTimezone: true }).notNull(),
+    challengeCloseAt: timestamp('challenge_close_at', { withTimezone: true }),
+    examFinalizedAt: timestamp('exam_finalized_at', { withTimezone: true }),
+    winnerAnnouncedAt: timestamp('winner_announced_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('reward_challenge_settings_challenge_unique_idx').on(table.challengeId),
+    index('reward_challenge_settings_schedule_idx').on(
+      table.examStartAt,
+      table.examEndAt,
+      table.winnerAnnouncementAt
+    ),
+    check(
+      'reward_challenge_settings_selection_mode_check',
+      sql`${table.selectionMode} IN ('random', 'ordered')`
+    ),
+  ]
+);
+
+export const rewardChallengeQuestions = pgTable(
+  'reward_challenge_questions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    challengeId: uuid('challenge_id')
+      .notNull()
+      .references(() => rewardChallenges.id, { onDelete: 'cascade' }),
+    sortOrder: integer('sort_order').notNull().default(0),
+    questionText: text('question_text').notNull(),
+    optionA: text('option_a').notNull(),
+    optionB: text('option_b').notNull(),
+    optionC: text('option_c').notNull(),
+    optionD: text('option_d').notNull(),
+    correctOption: text('correct_option').notNull(),
+    explanation: text('explanation').notNull().default(''),
+    subjectCategory: text('subject_category').notNull().default('General'),
+    publicationStatus: text('publication_status').notNull().default('published'),
+    sourceType: text('source_type').notNull().default('manual'),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('reward_challenge_questions_chal_pub_idx').on(
+      table.challengeId,
+      table.publicationStatus,
+      table.sortOrder,
+      table.createdAt
+    ),
+    check(
+      'reward_challenge_questions_correct_check',
+      sql`${table.correctOption} IN ('A', 'B', 'C', 'D')`
+    ),
+    check(
+      'reward_challenge_questions_pub_check',
+      sql`${table.publicationStatus} IN ('draft', 'published')`
+    ),
+    check(
+      'reward_challenge_questions_source_check',
+      sql`${table.sourceType} IN ('manual', 'bulk_upload', 'ai_generated')`
+    ),
+  ]
+);
+
+export const rewardChallengeParticipants = pgTable(
+  'reward_challenge_participants',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    challengeId: uuid('challenge_id')
+      .notNull()
+      .references(() => rewardChallenges.id, { onDelete: 'cascade' }),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: text('status').notNull().default('joined'),
+    joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('reward_challenge_participants_unique_idx').on(table.challengeId, table.studentId),
+    index('reward_challenge_participants_student_idx').on(table.studentId, table.joinedAt),
+    check(
+      'reward_challenge_participants_status_check',
+      sql`${table.status} IN ('joined', 'in_progress', 'completed')`
+    ),
+  ]
+);
+
+export const rewardChallengeAttempts = pgTable(
+  'reward_challenge_attempts',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    challengeId: uuid('challenge_id')
+      .notNull()
+      .references(() => rewardChallenges.id, { onDelete: 'cascade' }),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    participantId: uuid('participant_id')
+      .notNull()
+      .references(() => rewardChallengeParticipants.id, { onDelete: 'cascade' }),
+    questionIdsOrder: jsonb('question_ids_order').$type<string[]>().notNull().default([]),
+    totalQuestions: integer('total_questions').notNull(),
+    durationSeconds: integer('duration_seconds').notNull(),
+    startedAt: timestamp('started_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }),
+    completionSeconds: integer('completion_seconds'),
+    status: text('status').notNull().default('in_progress'),
+    isValid: boolean('is_valid').notNull().default(true),
+    submissionSource: text('submission_source'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('reward_challenge_attempts_chal_student_unique_idx').on(
+      table.challengeId,
+      table.studentId
+    ),
+    index('reward_challenge_attempts_status_expires_idx').on(
+      table.challengeId,
+      table.status,
+      table.expiresAt
+    ),
+    check(
+      'reward_challenge_attempts_status_check',
+      sql`${table.status} IN ('in_progress', 'submitted', 'auto_submitted')`
+    ),
+  ]
+);
+
+export const rewardChallengeAnswers = pgTable(
+  'reward_challenge_answers',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    attemptId: uuid('attempt_id')
+      .notNull()
+      .references(() => rewardChallengeAttempts.id, { onDelete: 'cascade' }),
+    challengeId: uuid('challenge_id')
+      .notNull()
+      .references(() => rewardChallenges.id, { onDelete: 'cascade' }),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    questionId: uuid('question_id')
+      .notNull()
+      .references(() => rewardChallengeQuestions.id, { onDelete: 'cascade' }),
+    questionOrder: integer('question_order').notNull(),
+    selectedOption: text('selected_option'),
+    isMarkedForReview: boolean('is_marked_for_review').notNull().default(false),
+    isCorrect: boolean('is_correct'),
+    answeredAt: timestamp('answered_at', { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex('reward_challenge_answers_attempt_order_unique_idx').on(
+      table.attemptId,
+      table.questionOrder
+    ),
+    uniqueIndex('reward_challenge_answers_attempt_question_unique_idx').on(
+      table.attemptId,
+      table.questionId
+    ),
+    check(
+      'reward_challenge_answers_selected_check',
+      sql`${table.selectedOption} IS NULL OR ${table.selectedOption} IN ('A', 'B', 'C', 'D')`
+    ),
+  ]
+);
+
+export const rewardChallengeResults = pgTable(
+  'reward_challenge_results',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    challengeId: uuid('challenge_id')
+      .notNull()
+      .references(() => rewardChallenges.id, { onDelete: 'cascade' }),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    attemptId: uuid('attempt_id')
+      .notNull()
+      .references(() => rewardChallengeAttempts.id, { onDelete: 'cascade' }),
+    totalQuestions: integer('total_questions').notNull(),
+    correctAnswers: integer('correct_answers').notNull().default(0),
+    wrongAnswers: integer('wrong_answers').notNull().default(0),
+    unansweredQuestions: integer('unanswered_questions').notNull().default(0),
+    score: integer('score').notNull().default(0),
+    percentage: integer('percentage').notNull().default(0),
+    completionTimeSeconds: integer('completion_time_seconds').notNull().default(0),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull(),
+    isFinalized: boolean('is_finalized').notNull().default(false),
+    isValid: boolean('is_valid').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('reward_challenge_results_attempt_unique_idx').on(table.attemptId),
+    uniqueIndex('reward_challenge_results_chal_student_unique_idx').on(
+      table.challengeId,
+      table.studentId
+    ),
+    index('reward_challenge_results_ranking_idx').on(
+      table.challengeId,
+      table.isValid,
+      table.score,
+      table.completionTimeSeconds,
+      table.submittedAt
+    ),
+  ]
+);
+
+export const rewardChallengeLeaderboards = pgTable(
+  'reward_challenge_leaderboards',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    challengeId: uuid('challenge_id')
+      .notNull()
+      .references(() => rewardChallenges.id, { onDelete: 'cascade' }),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    attemptId: uuid('attempt_id')
+      .notNull()
+      .references(() => rewardChallengeAttempts.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull(),
+    studentName: text('student_name').notNull(),
+    score: integer('score').notNull(),
+    totalQuestions: integer('total_questions').notNull(),
+    percentage: integer('percentage').notNull(),
+    completionTimeSeconds: integer('completion_time_seconds').notNull(),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull(),
+    isFinal: boolean('is_final').notNull().default(false),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('reward_challenge_leaderboards_chal_student_unique_idx').on(
+      table.challengeId,
+      table.studentId
+    ),
+    index('reward_challenge_leaderboards_chal_pos_idx').on(table.challengeId, table.position),
+  ]
+);
+
+export const rewardChallengeWinners = pgTable(
+  'reward_challenge_winners',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    challengeId: uuid('challenge_id')
+      .notNull()
+      .references(() => rewardChallenges.id, { onDelete: 'cascade' }),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    attemptId: uuid('attempt_id')
+      .notNull()
+      .references(() => rewardChallengeAttempts.id, { onDelete: 'cascade' }),
+    resultId: uuid('result_id')
+      .notNull()
+      .references(() => rewardChallengeResults.id, { onDelete: 'cascade' }),
+    position: integer('position').notNull().default(1),
+    studentName: text('student_name').notNull(),
+    studentRegistrationCode: text('student_registration_code'),
+    score: integer('score').notNull(),
+    totalQuestions: integer('total_questions').notNull(),
+    percentage: integer('percentage').notNull(),
+    completionTimeSeconds: integer('completion_time_seconds').notNull(),
+    rewardAmount: numeric('reward_amount', { precision: 12, scale: 2 }).notNull().default('0'),
+    rewardCurrency: text('reward_currency').notNull().default('NGN'),
+    announcedAt: timestamp('announced_at', { withTimezone: true }).notNull().defaultNow(),
+    announcementMode: text('announcement_mode').notNull().default('scheduler'),
+  },
+  (table) => [
+    uniqueIndex('reward_challenge_winners_challenge_unique_idx').on(table.challengeId),
+    index('reward_challenge_winners_student_idx').on(table.studentId, table.announcedAt),
+  ]
+);
+
+export const rewardChallengeBankDetails = pgTable(
+  'reward_challenge_bank_details',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    challengeId: uuid('challenge_id')
+      .notNull()
+      .references(() => rewardChallenges.id, { onDelete: 'cascade' }),
+    winnerId: uuid('winner_id')
+      .notNull()
+      .references(() => rewardChallengeWinners.id, { onDelete: 'cascade' }),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    bankName: text('bank_name').notNull(),
+    accountNumber: text('account_number').notNull(),
+    accountName: text('account_name').notNull(),
+    editLocked: boolean('edit_locked').notNull().default(false),
+    correctionNote: text('correction_note'),
+    submittedAt: timestamp('submitted_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('reward_challenge_bank_details_challenge_unique_idx').on(table.challengeId),
+    index('reward_challenge_bank_details_student_idx').on(table.studentId, table.submittedAt),
+  ]
+);
+
+export const rewardChallengePayments = pgTable(
+  'reward_challenge_payments',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    challengeId: uuid('challenge_id')
+      .notNull()
+      .references(() => rewardChallenges.id, { onDelete: 'cascade' }),
+    winnerId: uuid('winner_id')
+      .notNull()
+      .references(() => rewardChallengeWinners.id, { onDelete: 'cascade' }),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    bankDetailsId: uuid('bank_details_id').references(() => rewardChallengeBankDetails.id, {
+      onDelete: 'set null',
+    }),
+    rewardAmount: numeric('reward_amount', { precision: 12, scale: 2 }).notNull().default('0'),
+    currency: text('currency').notNull().default('NGN'),
+    paymentStatus: text('payment_status').notNull().default('payment_pending'),
+    paidByAdminId: uuid('paid_by_admin_id').references(() => users.id, { onDelete: 'set null' }),
+    paidByAdminName: text('paid_by_admin_name'),
+    paidByAdminEmail: text('paid_by_admin_email'),
+    paidAt: timestamp('paid_at', { withTimezone: true }),
+    paymentReference: text('payment_reference'),
+    adminNote: text('admin_note'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('reward_challenge_payments_challenge_unique_idx').on(table.challengeId),
+    index('reward_challenge_payments_status_idx').on(table.paymentStatus, table.createdAt),
+    check(
+      'reward_challenge_payments_status_check',
+      sql`${table.paymentStatus} IN ('payment_pending', 'payment_processing', 'payment_completed')`
+    ),
+  ]
+);
+
+export const rewardChallengeNotifications = pgTable(
+  'reward_challenge_notifications',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    challengeId: uuid('challenge_id')
+      .notNull()
+      .references(() => rewardChallenges.id, { onDelete: 'cascade' }),
+    studentId: uuid('student_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    eventType: text('event_type').notNull(),
+    title: text('title').notNull(),
+    message: text('message').notNull(),
+    notificationId: uuid('notification_id').references(() => notifications.id, {
+      onDelete: 'set null',
+    }),
+    idempotencyKey: text('idempotency_key').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('reward_challenge_notifications_idempotency_unique_idx').on(table.idempotencyKey),
+    index('reward_challenge_notifications_chal_student_idx').on(
+      table.challengeId,
+      table.studentId,
+      table.createdAt
+    ),
+  ]
+);

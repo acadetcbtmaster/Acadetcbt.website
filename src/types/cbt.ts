@@ -1023,3 +1023,310 @@ export interface Gst111StudentsResponse {
     lockedCount: number;
   };
 }
+
+export type RewardChallengeDisplayStatus =
+  | 'Upcoming'
+  | 'Active'
+  | 'Examination in Progress'
+  | 'Examination Completed'
+  | 'Winner Announced'
+  | 'Challenge Closed';
+
+export type RewardChallengeLifecycleStatus = 'draft' | 'active' | 'closed' | 'deactivated';
+export type RewardChallengeSelectionMode = 'random' | 'ordered';
+export type RewardChallengePaymentStatus =
+  | 'payment_pending'
+  | 'payment_processing'
+  | 'payment_completed';
+
+export interface RewardChallengeSettingsData {
+  timezone: string;
+  challengeOpenAt: string;
+  examStartAt: string;
+  examEndAt: string;
+  durationMinutes: number;
+  questionCount: number;
+  selectionMode: RewardChallengeSelectionMode;
+  winnerAnnouncementAt: string;
+  challengeCloseAt: string | null;
+  examFinalizedAt: string | null;
+  winnerAnnouncedAt: string | null;
+}
+
+export interface RewardChallengeWinnerPublic {
+  id: string;
+  challengeId: string;
+  studentId: string;
+  position: number;
+  studentName: string;
+  studentRegistrationCode?: string | null;
+  score: number;
+  totalQuestions: number;
+  percentage: number;
+  completionTimeSeconds: number;
+  rewardAmount: number;
+  rewardCurrency: string;
+  announcedAt: string;
+  isCurrentUserWinner?: boolean;
+}
+
+export interface RewardChallengeBankDetailsData {
+  id: string;
+  challengeId: string;
+  bankName: string;
+  accountNumber: string;
+  accountName: string;
+  editLocked: boolean;
+  correctionNote: string | null;
+  submittedAt: string;
+  updatedAt: string;
+}
+
+export interface RewardChallengePaymentData {
+  id: string;
+  challengeId: string;
+  challengeTitle?: string;
+  winnerId: string;
+  studentId: string;
+  studentName?: string;
+  studentRegistrationCode?: string | null;
+  score?: number;
+  totalQuestions?: number;
+  position?: number;
+  bankName?: string | null;
+  accountNumber?: string | null;
+  accountName?: string | null;
+  bankSubmittedAt?: string | null;
+  rewardAmount: number;
+  currency: string;
+  paymentStatus: RewardChallengePaymentStatus;
+  paidByAdminName: string | null;
+  paidByAdminEmail: string | null;
+  paidAt: string | null;
+  paymentReference: string | null;
+  adminNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RewardChallengeAttemptSummary {
+  id: string;
+  status: 'in_progress' | 'submitted' | 'auto_submitted';
+  startedAt: string;
+  expiresAt: string;
+  submittedAt: string | null;
+  completionSeconds: number | null;
+  totalQuestions: number;
+  durationSeconds: number;
+  submissionSource: string | null;
+}
+
+export interface RewardChallengeResultSummary {
+  id: string;
+  totalQuestions: number;
+  correctAnswers: number;
+  wrongAnswers: number;
+  unansweredQuestions: number;
+  score: number;
+  percentage: number;
+  completionTimeSeconds: number;
+  submittedAt: string;
+  isFinalized: boolean;
+  position: number | null;
+}
+
+export interface RewardChallengeSummary {
+  id: string;
+  title: string;
+  description: string;
+  isActive: boolean;
+  isFeatured: boolean;
+  lifecycleStatus: RewardChallengeLifecycleStatus;
+  displayStatus: RewardChallengeDisplayStatus;
+  rewardAmount: number;
+  rewardCurrency: string;
+  uploadedQuestionCount: number;
+  publishedQuestionCount: number;
+  participantCount: number;
+  submittedCount: number;
+  settings: RewardChallengeSettingsData;
+  canStartExam: boolean;
+  canJoinWaitingRoom: boolean;
+  unavailableReason: string | null;
+  hasWinner: boolean;
+  winner: RewardChallengeWinnerPublic | null;
+  noValidParticipants: boolean;
+  serverNow: string;
+  myParticipation: {
+    joined: boolean;
+    attempt: RewardChallengeAttemptSummary | null;
+    result: RewardChallengeResultSummary | null;
+    isWinner: boolean;
+    myBankDetails: RewardChallengeBankDetailsData | null;
+    myPayment: RewardChallengePaymentData | null;
+  };
+}
+
+export interface RewardChallengeExamQuestion {
+  order: number;
+  questionId: string;
+  questionText: string;
+  optionA: string;
+  optionB: string;
+  optionC: string;
+  optionD: string;
+  subjectCategory: string;
+  selectedOption: OptionLetter | null;
+  isMarkedForReview: boolean;
+}
+
+export interface RewardChallengeGradedQuestion extends RewardChallengeExamQuestion {
+  correctOption: OptionLetter;
+  explanation: string;
+  isCorrect: boolean | null;
+}
+
+export interface RewardChallengeAttemptPayload {
+  challenge: RewardChallengeSummary;
+  attempt: RewardChallengeAttemptSummary;
+  remainingSeconds: number;
+  serverNow: string;
+  questions: RewardChallengeExamQuestion[] | RewardChallengeGradedQuestion[];
+  answersRevealed: boolean;
+  result: RewardChallengeResultSummary | null;
+}
+
+export interface RewardChallengeLeaderboardEntry {
+  position: number;
+  studentId: string;
+  studentName: string;
+  score: number;
+  totalQuestions: number;
+  percentage: number;
+  completionTimeSeconds: number;
+  submittedAt: string;
+  isFinal: boolean;
+  isCurrentUser: boolean;
+}
+
+export interface RewardChallengeLeaderboardResponse {
+  challengeId: string;
+  challengeTitle: string;
+  displayStatus: RewardChallengeDisplayStatus;
+  isFinal: boolean;
+  winnerAnnouncementAt: string;
+  winnerAnnouncedAt: string | null;
+  winner: RewardChallengeWinnerPublic | null;
+  myRank: RewardChallengeLeaderboardEntry | null;
+  entries: RewardChallengeLeaderboardEntry[];
+  serverNow: string;
+}
+
+export interface RewardChallengeAdminOverview {
+  totalRegisteredStudents: number;
+  totalParticipants: number;
+  totalSubmittedExaminations: number;
+  totalCompletedExaminations: number;
+  currentStatus: RewardChallengeDisplayStatus;
+  lifecycleStatus: RewardChallengeLifecycleStatus;
+  scheduledExamStartAt: string;
+  scheduledExamEndAt: string;
+  uploadedQuestionsCount: number;
+  publishedQuestionsCount: number;
+  winnerAnnouncementStatus: string;
+  rewardPaymentStatus: string;
+}
+
+export interface RewardChallengeAdminQuestion {
+  id: string;
+  challengeId: string;
+  sortOrder: number;
+  questionText: string;
+  optionA: string;
+  optionB: string;
+  optionC: string;
+  optionD: string;
+  correctOption: OptionLetter;
+  explanation: string;
+  subjectCategory: string;
+  publicationStatus: QuestionPublicationStatus;
+  sourceType: 'manual' | 'bulk_upload' | 'ai_generated';
+  createdAt: string;
+}
+
+export interface RewardChallengeAiDraftQuestion {
+  questionText: string;
+  optionA: string;
+  optionB: string;
+  optionC: string;
+  optionD: string;
+  correctOption: OptionLetter;
+  explanation: string;
+  subjectCategory: string;
+}
+
+export interface RewardChallengeAdminParticipantItem {
+  participantId: string;
+  studentId: string;
+  fullName: string;
+  email: string;
+  registrationCode: string | null;
+  status: 'joined' | 'in_progress' | 'completed';
+  joinedAt: string;
+  attemptStatus: 'not_started' | 'in_progress' | 'submitted' | 'auto_submitted';
+  startedAt: string | null;
+  submittedAt: string | null;
+  completionTimeSeconds: number | null;
+  score: number | null;
+  totalQuestions: number | null;
+  percentage: number | null;
+}
+
+export interface RewardChallengeStudentHistoryItem {
+  challengeId: string;
+  challengeTitle: string;
+  rewardAmount: number;
+  rewardCurrency: string;
+  attemptId: string;
+  status: string;
+  submittedAt: string | null;
+  score: number | null;
+  totalQuestions: number;
+  percentage: number | null;
+  completionTimeSeconds: number | null;
+  position: number | null;
+  isWinner: boolean;
+  paymentStatus: RewardChallengePaymentStatus | null;
+  paidAt: string | null;
+  paymentReference: string | null;
+}
+
+export interface RewardChallengeAdminWinnerPayment {
+  id: string;
+  challengeId: string;
+  winnerId: string;
+  studentId: string;
+  studentName: string;
+  studentEmail: string;
+  studentRegistrationCode: string | null;
+  score: number;
+  totalQuestions: number;
+  percentage: number;
+  completionTimeSeconds: number;
+  bankName: string | null;
+  accountNumber: string | null;
+  accountName: string | null;
+  correctionNote: string | null;
+  bankSubmittedAt: string | null;
+  rewardAmount: number;
+  currency: string;
+  paymentStatus: RewardChallengePaymentStatus;
+  paidByAdminName: string | null;
+  paidByAdminEmail: string | null;
+  paidAt: string | null;
+  paymentReference: string | null;
+  adminNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+

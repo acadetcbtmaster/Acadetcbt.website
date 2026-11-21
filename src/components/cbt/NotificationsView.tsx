@@ -18,6 +18,7 @@ interface NotificationsViewProps {
   onMarkRead: (notificationId: string) => Promise<void>;
   onMarkAllRead: () => Promise<void>;
   onStartCourseExam?: (courseId: string) => void;
+  onOpenRewardChallenge?: () => void;
 }
 
 export const NotificationsView: React.FC<NotificationsViewProps> = ({
@@ -27,6 +28,7 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
   onMarkRead,
   onMarkAllRead,
   onStartCourseExam,
+  onOpenRewardChallenge,
 }) => {
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -243,20 +245,32 @@ export const NotificationsView: React.FC<NotificationsViewProps> = ({
 
                   {(activeNotification.actionUrl || activeNotification.courseId) && (
                     <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center gap-2">
-                      {activeNotification.actionUrl && (
-                        <a
-                          href={activeNotification.actionUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-extrabold inline-flex items-center gap-2 min-h-[40px] shadow-xs transition-colors"
-                        >
-                          <MessageCircle className="w-4 h-4" />
-                          <span>
-                            {activeNotification.actionLabel || 'Join Course Tutorial Group'}
-                          </span>
-                          <ExternalLink className="w-3.5 h-3.5 opacity-90" />
-                        </a>
-                      )}
+                      {activeNotification.actionUrl &&
+                        (activeNotification.actionUrl === '#reward-challenge' &&
+                        onOpenRewardChallenge ? (
+                          <button
+                            type="button"
+                            onClick={onOpenRewardChallenge}
+                            className="px-3.5 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold inline-flex items-center gap-2 min-h-[40px] shadow-xs transition-colors"
+                          >
+                            <span>
+                              {activeNotification.actionLabel || 'Open Reward Challenge'}
+                            </span>
+                          </button>
+                        ) : (
+                          <a
+                            href={activeNotification.actionUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-extrabold inline-flex items-center gap-2 min-h-[40px] shadow-xs transition-colors"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                            <span>
+                              {activeNotification.actionLabel || 'Join Course Tutorial Group'}
+                            </span>
+                            <ExternalLink className="w-3.5 h-3.5 opacity-90" />
+                          </a>
+                        ))}
 
                       {activeNotification.notificationType === 'payment_success' &&
                         activeNotification.courseId &&
