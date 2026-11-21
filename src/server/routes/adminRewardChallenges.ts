@@ -5,8 +5,11 @@ import { getPool } from '../../db/index.js';
 import { writeAuditLog } from '../lib/audit.js';
 import {
   RewardChallengeError,
+  broadcastNotificationToStudents,
   buildChallengeSummaryForUser,
   dispatchChallengeNotification,
+  finalizeAndAnnounceChallengeWinner,
+  formatWatDateTime,
   generateRewardChallengeQuestionsWithAi,
   getChallengeLeaderboard,
   markRewardPaymentPaid,
@@ -149,7 +152,7 @@ router.post('/', async (req, res) => {
       const chRes = await client.query<{ id: string }>(
         `INSERT INTO reward_challenges (
            title, description, is_active, is_featured, lifecycle_status,
-           reward_amount, reward_currency, created_by_admin_id
+           reward_amount, reward_currency, created_by
          )
          VALUES ($1, $2, FALSE, $3, 'draft', $4, $5, $6)
          RETURNING id`,
@@ -383,6 +386,10 @@ router.patch('/:id/settings', async (req, res) => {
             ? new Date(currentSummary.settings.challengeCloseAt)
             : null;
 
+    if (nextOpenAt.getTime() > nextStartAt.getTime()) {
+      res.status(400).json({ error: 'Challenge opening time must be on or before examination start time.' });
+      return;
+    }
     if (nextEndAt.getTime() <= nextStartAt.getTime()) {
       res.status(400).json({ error: 'Examination closing time must be after examination start time.' });
       return;
@@ -526,6 +533,14 @@ router.post('/:id/activate', async (req, res) => {
       ipAddress: req.ip,
     });
 
+    await broadcastNotificationToStudents({
+      challengeId: req.params.id,
+      eventType: 'challenge_activated',
+      title: `Acadet Reward CBT Challenge Activated: ${summary.title}`,
+      message: `${summary.title} is now activated! Grand Prize: ₦${Math.round(summary.rewardAmount).toLocaleString('en-NG')}. Exam begins ${formatWatDateTime(summary.settings.examStartAt)} (${summary.settings.questionCount} questions · ${summary.settings.durationMinutes} mins).`,
+      actionLabel: 'Open Reward Challenge',
+    });
+
     const updated = await buildChallengeSummaryForUser({
       challengeId: req.params.id,
       userId: req.user!.id,
@@ -543,6 +558,7 @@ router.post('/:id/deactivate', async (req, res) => {
       `UPDATE reward_challenges
        SET is_active = FALSE,
            lifecycle_status = 'deactivated',
+           deactivated_at = NOW(),
            updated_at = NOW()
        WHERE id = $1`,
       [req.params.id]
@@ -662,9 +678,9 @@ router.post('/:id/questions', async (req, res) => {
     }>(
       `INSERT INTO reward_challenge_questions (
          challenge_id, sort_order, question_text, option_a, option_b, option_c, option_d,
-         correct_option, explanation, subject_category, publication_status, source_type
+         correct_option, explanation, subject_category, publication_status, source_type, created_by
        )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual')
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual', $12)
        RETURNING
          id, challenge_id AS "challengeId", sort_order AS "sortOrder",
          question_text AS "questionText", option_a AS "optionA", option_b AS "optionB",
@@ -684,6 +700,7 @@ router.post('/:id/questions', async (req, res) => {
         parsed.explanation,
         parsed.subjectCategory,
         parsed.publicationStatus,
+        req.user!.id,
       ]
     );
 
@@ -857,9 +874,9 @@ router.post('/:id/questions/bulk-upload', upload.single('file') as unknown as Re
       }>(
         `INSERT INTO reward_challenge_questions (
            challenge_id, sort_order, question_text, option_a, option_b, option_c, option_d,
-           correct_option, explanation, subject_category, publication_status, source_type
+           correct_option, explanation, subject_category, publication_status, source_type, created_by
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'bulk_upload')
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'bulk_upload', $12)
          RETURNING
            id, challenge_id AS "challengeId", sort_order AS "sortOrder",
            question_text AS "questionText", option_a AS "optionA", option_b AS "optionB",
@@ -879,6 +896,7 @@ router.post('/:id/questions/bulk-upload', upload.single('file') as unknown as Re
           item.explanation,
           item.subjectCategory,
           publicationStatus,
+          req.user!.id,
         ]
       );
       sortCursor += 1;
@@ -970,9 +988,9 @@ router.post('/:id/questions/ai-save-batch', async (req, res) => {
       }>(
         `INSERT INTO reward_challenge_questions (
            challenge_id, sort_order, question_text, option_a, option_b, option_c, option_d,
-           correct_option, explanation, subject_category, publication_status, source_type
+           correct_option, explanation, subject_category, publication_status, source_type, created_by
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          RETURNING
            id, challenge_id AS "challengeId", sort_order AS "sortOrder",
            question_text AS "questionText", option_a AS "optionA", option_b AS "optionB",
@@ -993,6 +1011,7 @@ router.post('/:id/questions/ai-save-batch', async (req, res) => {
           q.subjectCategory,
           q.publicationStatus ?? parsed.publicationStatus,
           parsed.sourceType,
+          req.user!.id,
         ]
       );
       sortCursor += 1;
@@ -1079,6 +1098,49 @@ router.get('/:id/leaderboard', async (req, res) => {
     res.json(leaderboard);
   } catch (err) {
     handleRewardError(res, err, 'loading admin reward challenge leaderboard');
+  }
+});
+
+router.post('/:id/winner/announce', async (req, res) => {
+  try {
+    const schema = z.object({
+      forceEndOpenAttempts: z.boolean().optional().default(false),
+    });
+    const parsed = schema.parse(req.body ?? {});
+
+    const outcome = await finalizeAndAnnounceChallengeWinner({
+      challengeId: req.params.id,
+      mode: 'admin',
+      forceEndOpenAttempts: parsed.forceEndOpenAttempts,
+    });
+
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'reward_challenge_winner_announced',
+      entityType: 'reward_challenge',
+      entityId: req.params.id,
+      metadata: {
+        finalizedNow: outcome.finalizedNow,
+        winnerStudentId: outcome.winner?.studentId ?? null,
+      },
+      ipAddress: req.ip,
+    });
+
+    const summary = await buildChallengeSummaryForUser({
+      challengeId: req.params.id,
+      userId: req.user!.id,
+    });
+
+    res.json({
+      challenge: summary,
+      finalizedNow: outcome.finalizedNow,
+      winner: outcome.winner,
+      message: outcome.winner
+        ? `Official winner ${outcome.winner.studentName} (${outcome.winner.score}/${outcome.winner.totalQuestions}) announced and all participants notified.`
+        : 'Challenge finalized with zero valid submissions.',
+    });
+  } catch (err) {
+    handleRewardError(res, err, 'finalizing and announcing reward challenge winner');
   }
 });
 

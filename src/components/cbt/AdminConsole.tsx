@@ -1882,7 +1882,7 @@ export const AdminConsole: React.FC<AdminConsoleProps> = ({
     badgeCount?: number;
   }> = [
     { id: 'overview', label: 'Overview', icon: Shield },
-    { id: 'reward_challenge', label: 'Reward CBT Challenge', icon: Trophy },
+    { id: 'reward_challenge', label: 'Acadet Reward CBT Challenge Management', icon: Trophy },
     { id: 'courses', label: 'Courses', icon: BookOpen },
     { id: 'registrations', label: 'Registrations', icon: ClipboardList },
     { id: 'gst111', label: 'Manual Activation', icon: KeyRound },

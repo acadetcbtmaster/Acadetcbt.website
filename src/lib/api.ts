@@ -1508,6 +1508,22 @@ export const api = {
           `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/leaderboard`
         ),
 
+      announceWinner: (challengeId: string, forceEndOpenAttempts = false) =>
+        request<{
+          challenge: RewardChallengeSummary | null;
+          finalizedNow: boolean;
+          winner: {
+            studentId: string;
+            studentName: string;
+            score: number;
+            totalQuestions: number;
+          } | null;
+          message: string;
+        }>(`/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/winner/announce`, {
+          method: 'POST',
+          body: JSON.stringify({ forceEndOpenAttempts }),
+        }),
+
       getWinnerPayment: (challengeId: string) =>
         request<{
           challenge: RewardChallengeSummary;

@@ -270,8 +270,7 @@ router.post('/:id/attempt/submit', async (req, res) => {
     });
     res.json({
       ...payload,
-      confirmationMessage:
-        'Your examination has been submitted. Results and winners will be announced according to the challenge schedule.',
+      confirmationMessage: 'Your examination has been successfully submitted.',
     });
   } catch (err) {
     handleRewardError(res, err, 'submitting reward challenge examination');

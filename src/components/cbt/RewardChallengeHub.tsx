@@ -554,7 +554,7 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                           className="px-5 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-sm font-extrabold inline-flex items-center gap-2 min-h-[44px] shadow-sm"
                         >
                           <Play className="w-4 h-4" />
-                          <span>{busyAction ? 'Starting...' : 'Start Challenge Examination'}</span>
+                          <span>{busyAction ? 'Starting...' : 'START REWARD CBT CHALLENGE'}</span>
                         </button>
                       ) : challenge.canJoinWaitingRoom && !challenge.myParticipation.joined ? (
                         <button
@@ -839,10 +839,13 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                         <Trophy className="w-8 h-8" />
                       </div>
                       <div className="text-xs font-extrabold uppercase tracking-wider text-amber-700 dark:text-amber-300">
-                        CONGRATULATIONS! ACADET REWARD CBT CHALLENGE WINNER
+                        CONGRATULATIONS!
+                      </div>
+                      <div className="text-sm sm:text-base font-extrabold text-[#0b337a] dark:text-amber-200">
+                        🏆 ACADET REWARD CBT CHALLENGE WINNER
                       </div>
                       <h3 className="text-xl sm:text-2xl font-extrabold text-[#082252] dark:text-white">
-                        {challenge.winner.studentName}
+                        Winner&apos;s Name: {challenge.winner.studentName}
                       </h3>
                       <div className="flex flex-wrap justify-center gap-3 text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-300">
                         <span>Position: 1st Place</span>
@@ -861,6 +864,9 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                           Prize: ₦{Math.round(challenge.winner.rewardAmount).toLocaleString('en-NG')}
                         </span>
                       </div>
+                      <p className="text-xs sm:text-sm text-slate-700 dark:text-slate-300 max-w-lg mx-auto font-medium">
+                        Congratulations on topping the official Acadet Reward CBT Challenge leaderboard!
+                      </p>
                       <div className="text-xs text-slate-500 dark:text-slate-400">
                         Announced: {formatWatDateTimeDisplay(challenge.winner.announcedAt)}
                       </div>
@@ -917,6 +923,9 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                       </div>
 
                       <div className="p-5 space-y-4">
+                        <p className="text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200 leading-relaxed">
+                          Congratulations on winning the Acadet Reward CBT Challenge! Please provide your bank details below so the administrator can process your reward.
+                        </p>
                         {challenge.myParticipation.myPayment?.paymentStatus ===
                           'payment_completed' && (
                           <div className="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700 p-4 text-xs sm:text-sm text-emerald-900 dark:text-emerald-200 space-y-1">
@@ -1023,7 +1032,7 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
 
                               <div>
                                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                                  Account Holder Name
+                                  Account Name
                                 </label>
                                 <input
                                   type="text"
@@ -1058,7 +1067,7 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                                 disabled={busyAction}
                                 className="px-4 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] disabled:opacity-60 text-white text-xs sm:text-sm font-extrabold"
                               >
-                                {busyAction ? 'Submitting...' : 'Submit Bank Details for Reward Payout'}
+                                {busyAction ? 'Submitting...' : 'Submit Bank Details'}
                               </button>
                               {editingBank && (
                                 <button

@@ -101,6 +101,16 @@ async function run() {
 
   assert.equal(
     computeChallengeDisplayStatus({
+      challenge: makeChallenge({ isActive: false, lifecycleStatus: 'draft' }),
+      hasWinner: false,
+      uploadedQuestionCount: 20,
+      now: new Date(ch.examStartAt.getTime() + 60_000),
+    }).displayStatus,
+    'Upcoming'
+  );
+
+  assert.equal(
+    computeChallengeDisplayStatus({
       challenge: makeChallenge({ isActive: false, lifecycleStatus: 'deactivated' }),
       hasWinner: false,
       uploadedQuestionCount: 20,
@@ -151,11 +161,27 @@ async function run() {
   assert.equal(txtQs.length, 1);
   assert.equal(txtQs[0].correctOption, 'C');
 
-  console.log('[Reward Challenge Verification] 3. Auditing migration, schema, UI invariants & safety rules...');
+  console.log('[Reward Challenge Verification] 3. Auditing migration, SQL column names, schema & UI invariants...');
   const migrationSql = await fs.readFile(
     path.resolve(process.cwd(), 'migrations/0018_reward_cbt_challenge.sql'),
     'utf-8'
   );
+  const tableColumns = new Map<string, Set<string>>();
+  for (const match of migrationSql.matchAll(
+    /CREATE TABLE IF NOT EXISTS\s+([a-z0-9_]+)\s*\(([\s\S]*?)\n\);/g
+  )) {
+    const tblName = match[1];
+    const body = match[2];
+    const cols = new Set<string>();
+    for (const line of body.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('CHECK ') || trimmed.startsWith('CONSTRAINT ')) continue;
+      const colMatch = /^([a-z_][a-z0-9_]*)\s+/.exec(trimmed);
+      if (colMatch) cols.add(colMatch[1]);
+    }
+    tableColumns.set(tblName, cols);
+  }
+
   for (const tbl of [
     'reward_challenges',
     'reward_challenge_settings',
@@ -170,9 +196,37 @@ async function run() {
     'reward_challenge_payments',
     'reward_challenge_notifications',
   ]) {
-    assert.ok(migrationSql.includes(tbl), `Missing migration table ${tbl}`);
+    assert.ok(tableColumns.has(tbl), `Missing migration table ${tbl}`);
   }
   assert.equal(migrationSql.toUpperCase().includes('DROP TABLE'), false);
+
+  // Verify every INSERT INTO reward_challenge_* column list in src/server/ only references real columns
+  const serverFiles = [
+    'src/server/lib/rewardChallenge.ts',
+    'src/server/routes/adminRewardChallenges.ts',
+    'src/server/routes/rewardChallenges.ts',
+    'src/server/lib/rewardScheduler.ts',
+  ];
+  for (const rel of serverFiles) {
+    const src = await fs.readFile(path.resolve(process.cwd(), rel), 'utf-8');
+    for (const m of src.matchAll(
+      /INSERT INTO\s+(reward_challenge(?:s|_[a-z_]+))\s*\(([\s\S]*?)\)\s*VALUES/g
+    )) {
+      const tbl = m[1];
+      const allowed = tableColumns.get(tbl);
+      assert.ok(allowed, `Unknown table ${tbl} in ${rel}`);
+      const cols = m[2]
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean);
+      for (const col of cols) {
+        assert.ok(
+          allowed.has(col),
+          `Invalid INSERT column "${col}" for table "${tbl}" in ${rel}`
+        );
+      }
+    }
+  }
 
   const schemaSrc = await fs.readFile(
     path.resolve(process.cwd(), 'src/db/schema.ts'),
@@ -202,7 +256,20 @@ async function run() {
   );
   assert.ok(
     adminRewardSrc.includes('successfully transferred the reward') &&
-      adminRewardSrc.includes("provided bank account?")
+      adminRewardSrc.includes('provided bank account?') &&
+      adminRewardSrc.includes('Acadet Reward CBT Challenge Management') &&
+      adminRewardSrc.includes('MARK AS PAID / PAYMENT COMPLETED')
+  );
+
+  const hubSrc = await fs.readFile(
+    path.resolve(process.cwd(), 'src/components/cbt/RewardChallengeHub.tsx'),
+    'utf-8'
+  );
+  assert.ok(
+    hubSrc.includes('START REWARD CBT CHALLENGE') &&
+      hubSrc.includes('ACADET REWARD CBT CHALLENGE WINNER') &&
+      hubSrc.includes('CLAIM YOUR REWARD') &&
+      hubSrc.includes('Submit Bank Details')
   );
 
   for (const rel of [

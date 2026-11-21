@@ -75,7 +75,7 @@ export const RewardChallengeDashboardCard: React.FC<RewardChallengeDashboardCard
           <div className="min-w-0 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-sm sm:text-base font-extrabold tracking-tight text-[#082252] dark:text-white">
-                ACADET REWARD CBT CHALLENGE
+                Acadet Reward CBT Challenge
               </h2>
               <span className="px-2 py-0.5 rounded-md border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-800 dark:text-indigo-200 text-[11px] font-extrabold">
                 Upcoming
@@ -93,7 +93,7 @@ export const RewardChallengeDashboardCard: React.FC<RewardChallengeDashboardCard
             className="px-3.5 py-2 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs font-extrabold inline-flex items-center gap-1.5 min-h-[40px]"
           >
             <Trophy className="w-3.5 h-3.5" />
-            <span>Open Challenge</span>
+            <span>Start Challenge</span>
           </button>
           <button
             type="button"

@@ -109,6 +109,15 @@ export function computeChallengeDisplayStatus(params: {
   const tAnnounce = c.winnerAnnouncementAt.getTime();
   const tClose = c.challengeCloseAt ? c.challengeCloseAt.getTime() : null;
 
+  if (!c.isActive && c.lifecycleStatus === 'draft') {
+    return {
+      displayStatus: 'Upcoming',
+      canStartExam: false,
+      canJoinWaitingRoom: false,
+      unavailableReason: 'This challenge is currently inactive and awaiting administrator activation.',
+    };
+  }
+
   if (!c.isActive || c.lifecycleStatus === 'deactivated') {
     return {
       displayStatus: 'Challenge Closed',
@@ -136,6 +145,15 @@ export function computeChallengeDisplayStatus(params: {
     };
   }
 
+  if (tNow >= tStart && tNow < tEnd) {
+    return {
+      displayStatus: 'Examination in Progress',
+      canStartExam: true,
+      canJoinWaitingRoom: true,
+      unavailableReason: null,
+    };
+  }
+
   if (tNow < tOpen) {
     return {
       displayStatus: 'Upcoming',
@@ -151,15 +169,6 @@ export function computeChallengeDisplayStatus(params: {
       canStartExam: false,
       canJoinWaitingRoom: true,
       unavailableReason: `Examination begins ${formatWatDateTime(c.examStartAt)}. Please wait until the scheduled start time.`,
-    };
-  }
-
-  if (tNow >= tStart && tNow < tEnd) {
-    return {
-      displayStatus: 'Examination in Progress',
-      canStartExam: true,
-      canJoinWaitingRoom: true,
-      unavailableReason: null,
     };
   }
 
@@ -710,7 +719,7 @@ export async function broadcastNotificationToStudents(params: {
     : await pool.query<{ studentId: string }>(
         `SELECT id AS "studentId"
          FROM users
-         WHERE is_active = TRUE AND account_status = 'active'`
+         WHERE role = 'student' AND is_active = TRUE AND account_status = 'active'`
       );
 
   for (const row of studentRows.rows) {
@@ -1024,6 +1033,225 @@ export async function recalculateLeaderboardForChallenge(
   }
 }
 
+export async function finalizeAndAnnounceChallengeWinner(params: {
+  challengeId: string;
+  mode: 'scheduler' | 'admin';
+  forceEndOpenAttempts?: boolean;
+}): Promise<{
+  finalizedNow: boolean;
+  winner: {
+    studentId: string;
+    studentName: string;
+    score: number;
+    totalQuestions: number;
+  } | null;
+}> {
+  const pool = getPool();
+  const chRes = await pool.query<{
+    id: string;
+    title: string;
+    rewardAmount: number;
+    rewardCurrency: string;
+  }>(
+    `SELECT id, title, reward_amount::float8 AS "rewardAmount", reward_currency AS "rewardCurrency"
+     FROM reward_challenges
+     WHERE id = $1
+     LIMIT 1`,
+    [params.challengeId]
+  );
+  const ch = chRes.rows[0];
+  if (!ch) {
+    throw new RewardChallengeError('Challenge not found.', 404, 'CHALLENGE_NOT_FOUND');
+  }
+
+  const openRes = await pool.query<{ id: string; expiresAt: Date }>(
+    `SELECT id, expires_at AS "expiresAt"
+     FROM reward_challenge_attempts
+     WHERE challenge_id = $1 AND status = 'in_progress'`,
+    [ch.id]
+  );
+
+  let remainingActive = 0;
+  for (const att of openRes.rows) {
+    if (att.expiresAt.getTime() <= Date.now() || params.forceEndOpenAttempts) {
+      await gradeAndSubmitAttemptInternal({
+        attemptId: att.id,
+        submissionSource: 'server_scheduler',
+      });
+    } else {
+      remainingActive += 1;
+    }
+  }
+
+  if (remainingActive > 0) {
+    throw new RewardChallengeError(
+      `${remainingActive} student examination attempt(s) are still within their allocated timer. Wait for them to finish or enable force-submission before finalizing.`,
+      409,
+      'ATTEMPTS_STILL_ACTIVE'
+    );
+  }
+
+  await recalculateLeaderboardForChallenge(ch.id, true);
+
+  const client = await pool.connect();
+  let announcedWinner: {
+    studentId: string;
+    studentName: string;
+    score: number;
+    totalQuestions: number;
+  } | null = null;
+  let finalizedNow = false;
+
+  try {
+    await client.query('BEGIN');
+
+    const lockedSetting = await client.query<{ winnerAnnouncedAt: Date | null }>(
+      `SELECT winner_announced_at AS "winnerAnnouncedAt"
+       FROM reward_challenge_settings
+       WHERE challenge_id = $1
+       FOR UPDATE`,
+      [ch.id]
+    );
+
+    if (!lockedSetting.rows[0]?.winnerAnnouncedAt) {
+      const topRes = await client.query<{
+        resultId: string;
+        attemptId: string;
+        studentId: string;
+        studentName: string;
+        registrationCode: string | null;
+        score: number;
+        totalQuestions: number;
+        percentage: number;
+        completionTimeSeconds: number;
+      }>(
+        `SELECT
+           r.id AS "resultId",
+           r.attempt_id AS "attemptId",
+           r.student_id AS "studentId",
+           u.full_name AS "studentName",
+           u.registration_code AS "registrationCode",
+           r.score,
+           r.total_questions AS "totalQuestions",
+           r.percentage,
+           r.completion_time_seconds AS "completionTimeSeconds"
+         FROM reward_challenge_results r
+         INNER JOIN users u ON u.id = r.student_id
+         WHERE r.challenge_id = $1 AND r.is_valid = TRUE
+         ORDER BY r.score DESC, r.completion_time_seconds ASC, r.submitted_at ASC
+         LIMIT 1`,
+        [ch.id]
+      );
+
+      const top = topRes.rows[0];
+      if (top) {
+        const winnerIns = await client.query<{ id: string }>(
+          `INSERT INTO reward_challenge_winners (
+             challenge_id, student_id, attempt_id, result_id,
+             position, student_name, student_registration_code,
+             score, total_questions, percentage, completion_time_seconds,
+             reward_amount, reward_currency, announced_at, announcement_mode
+           )
+           VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13)
+           ON CONFLICT (challenge_id) DO NOTHING
+           RETURNING id`,
+          [
+            ch.id,
+            top.studentId,
+            top.attemptId,
+            top.resultId,
+            top.studentName,
+            top.registrationCode,
+            top.score,
+            top.totalQuestions,
+            top.percentage,
+            top.completionTimeSeconds,
+            ch.rewardAmount,
+            ch.rewardCurrency,
+            params.mode,
+          ]
+        );
+
+        if (winnerIns.rows[0]?.id) {
+          await client.query(
+            `INSERT INTO reward_challenge_payments (
+               challenge_id, winner_id, student_id, reward_amount, currency, payment_status
+             )
+             VALUES ($1, $2, $3, $4, $5, 'payment_pending')
+             ON CONFLICT (challenge_id) DO NOTHING`,
+            [ch.id, winnerIns.rows[0].id, top.studentId, ch.rewardAmount, ch.rewardCurrency]
+          );
+          announcedWinner = {
+            studentId: top.studentId,
+            studentName: top.studentName,
+            score: top.score,
+            totalQuestions: top.totalQuestions,
+          };
+        }
+      }
+
+      await client.query(
+        `UPDATE reward_challenge_settings
+         SET exam_finalized_at = COALESCE(exam_finalized_at, NOW()),
+             winner_announced_at = NOW(),
+             updated_at = NOW()
+         WHERE challenge_id = $1`,
+        [ch.id]
+      );
+      finalizedNow = true;
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+
+  if (finalizedNow) {
+    await broadcastNotificationToStudents({
+      challengeId: ch.id,
+      eventType: 'leaderboard_published',
+      title: `${ch.title}: Final Leaderboard Published`,
+      message: `The official final leaderboard for ${ch.title} has been published. Open the Reward Challenge Leaderboard to view final verified positions.`,
+      onlyParticipants: true,
+      actionLabel: 'View Final Leaderboard',
+    });
+
+    if (announcedWinner) {
+      await dispatchChallengeNotification({
+        challengeId: ch.id,
+        studentId: announcedWinner.studentId,
+        eventType: 'winner_announced_personal',
+        title: `CONGRATULATIONS! You Won ${ch.title}!`,
+        message: `Congratulations ${announcedWinner.studentName}! You emerged in 1ST PLACE in ${ch.title} with a score of ${announcedWinner.score}/${announcedWinner.totalQuestions}. Kindly open the Reward CBT Challenge section to submit your bank details and claim your ₦${Math.round(ch.rewardAmount).toLocaleString('en-NG')} prize.`,
+        idempotencyKey: `winner_personal:${ch.id}:${announcedWinner.studentId}`,
+        actionLabel: 'Claim Your Reward',
+      });
+
+      const participants = await pool.query<{ studentId: string }>(
+        `SELECT student_id AS "studentId" FROM reward_challenge_participants WHERE challenge_id = $1`,
+        [ch.id]
+      );
+      for (const p of participants.rows) {
+        if (p.studentId === announcedWinner.studentId) continue;
+        await dispatchChallengeNotification({
+          challengeId: ch.id,
+          studentId: p.studentId,
+          eventType: 'winner_announced_public',
+          title: `${ch.title}: Official Winner Announced`,
+          message: `Final results for ${ch.title} are out! Congratulations to ${announcedWinner.studentName} (1st Place, ${announcedWinner.score}/${announcedWinner.totalQuestions}). Open the Reward Challenge leaderboard to view your final position.`,
+          idempotencyKey: `winner_public:${ch.id}:${p.studentId}`,
+          actionLabel: 'View Final Leaderboard',
+        });
+      }
+    }
+  }
+
+  return { finalizedNow, winner: announcedWinner };
+}
+
 export async function syncChallengeAutomations(challengeId?: string): Promise<void> {
   const pool = getPool();
   const now = new Date();
@@ -1125,151 +1353,10 @@ export async function syncChallengeAutomations(challengeId?: string): Promise<vo
 
       // Respect full configured duration for active writers before declaring winner
       if (stillActiveCount === 0) {
-        await recalculateLeaderboardForChallenge(ch.id, true);
-
-        const client = await pool.connect();
-        let announcedWinner: {
-          studentId: string;
-          studentName: string;
-          score: number;
-          totalQuestions: number;
-        } | null = null;
-        let finalizedNow = false;
-
-        try {
-          await client.query('BEGIN');
-
-          const lockedSetting = await client.query<{ winnerAnnouncedAt: Date | null }>(
-            `SELECT winner_announced_at AS "winnerAnnouncedAt"
-             FROM reward_challenge_settings
-             WHERE challenge_id = $1
-             FOR UPDATE`,
-            [ch.id]
-          );
-
-          if (!lockedSetting.rows[0]?.winnerAnnouncedAt) {
-            const topRes = await client.query<{
-              resultId: string;
-              attemptId: string;
-              studentId: string;
-              studentName: string;
-              registrationCode: string | null;
-              score: number;
-              totalQuestions: number;
-              percentage: number;
-              completionTimeSeconds: number;
-            }>(
-              `SELECT
-                 r.id AS "resultId",
-                 r.attempt_id AS "attemptId",
-                 r.student_id AS "studentId",
-                 u.full_name AS "studentName",
-                 u.registration_code AS "registrationCode",
-                 r.score,
-                 r.total_questions AS "totalQuestions",
-                 r.percentage,
-                 r.completion_time_seconds AS "completionTimeSeconds"
-               FROM reward_challenge_results r
-               INNER JOIN users u ON u.id = r.student_id
-               WHERE r.challenge_id = $1 AND r.is_valid = TRUE
-               ORDER BY r.score DESC, r.completion_time_seconds ASC, r.submitted_at ASC
-               LIMIT 1`,
-              [ch.id]
-            );
-
-            const top = topRes.rows[0];
-            if (top) {
-              const winnerIns = await client.query<{ id: string }>(
-                `INSERT INTO reward_challenge_winners (
-                   challenge_id, student_id, attempt_id, result_id,
-                   position, student_name, student_registration_code,
-                   score, total_questions, percentage, completion_time_seconds,
-                   reward_amount, reward_currency, announced_at, announcement_mode
-                 )
-                 VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), 'scheduler')
-                 ON CONFLICT (challenge_id) DO NOTHING
-                 RETURNING id`,
-                [
-                  ch.id,
-                  top.studentId,
-                  top.attemptId,
-                  top.resultId,
-                  top.studentName,
-                  top.registrationCode,
-                  top.score,
-                  top.totalQuestions,
-                  top.percentage,
-                  top.completionTimeSeconds,
-                  ch.rewardAmount,
-                  ch.rewardCurrency,
-                ]
-              );
-
-              if (winnerIns.rows[0]?.id) {
-                await client.query(
-                  `INSERT INTO reward_challenge_payments (
-                     challenge_id, winner_id, student_id, reward_amount, currency, payment_status
-                   )
-                   VALUES ($1, $2, $3, $4, $5, 'payment_pending')
-                   ON CONFLICT (challenge_id) DO NOTHING`,
-                  [ch.id, winnerIns.rows[0].id, top.studentId, ch.rewardAmount, ch.rewardCurrency]
-                );
-                announcedWinner = {
-                  studentId: top.studentId,
-                  studentName: top.studentName,
-                  score: top.score,
-                  totalQuestions: top.totalQuestions,
-                };
-              }
-            }
-
-            await client.query(
-              `UPDATE reward_challenge_settings
-               SET exam_finalized_at = COALESCE(exam_finalized_at, NOW()),
-                   winner_announced_at = NOW(),
-                   updated_at = NOW()
-               WHERE challenge_id = $1`,
-              [ch.id]
-            );
-            finalizedNow = true;
-          }
-
-          await client.query('COMMIT');
-        } catch (err) {
-          await client.query('ROLLBACK');
-          throw err;
-        } finally {
-          client.release();
-        }
-
-        if (finalizedNow && announcedWinner) {
-          await dispatchChallengeNotification({
-            challengeId: ch.id,
-            studentId: announcedWinner.studentId,
-            eventType: 'winner_announced_personal',
-            title: `CONGRATULATIONS! You Won ${ch.title}!`,
-            message: `Congratulations ${announcedWinner.studentName}! You emerged in 1ST PLACE in ${ch.title} with a score of ${announcedWinner.score}/${announcedWinner.totalQuestions}. Kindly open the Reward CBT Challenge section to submit your bank details and claim your ₦${Math.round(ch.rewardAmount).toLocaleString('en-NG')} prize.`,
-            idempotencyKey: `winner_personal:${ch.id}:${announcedWinner.studentId}`,
-            actionLabel: 'Claim Your Reward',
-          });
-
-          const participants = await pool.query<{ studentId: string }>(
-            `SELECT student_id AS "studentId" FROM reward_challenge_participants WHERE challenge_id = $1`,
-            [ch.id]
-          );
-          for (const p of participants.rows) {
-            if (p.studentId === announcedWinner.studentId) continue;
-            await dispatchChallengeNotification({
-              challengeId: ch.id,
-              studentId: p.studentId,
-              eventType: 'winner_announced_public',
-              title: `${ch.title}: Official Winner Announced`,
-              message: `Final results for ${ch.title} are out! Congratulations to ${announcedWinner.studentName} (1st Place, ${announcedWinner.score}/${announcedWinner.totalQuestions}). Open the Reward Challenge leaderboard to view your final position.`,
-              idempotencyKey: `winner_public:${ch.id}:${p.studentId}`,
-              actionLabel: 'View Final Leaderboard',
-            });
-          }
-        }
+        await finalizeAndAnnounceChallengeWinner({
+          challengeId: ch.id,
+          mode: 'scheduler',
+        });
       }
     }
 
@@ -2423,7 +2510,7 @@ export async function markRewardPaymentPaid(params: {
     eventType: 'reward_payment_completed',
     title: `Reward Payment Completed: ${pay.challengeTitle}`,
     message:
-      'CONGRATULATIONS! Your Acadet Reward CBT Challenge prize has been successfully paid into the bank account you provided. Thank you for participating in Acadet CBT.',
+      'Congratulations! Your Acadet Reward CBT Challenge reward has been successfully processed and paid into the bank account you provided. Thank you for participating.',
     idempotencyKey: `reward_paid:${params.challengeId}:${pay.studentId}`,
     actionLabel: 'View Reward Payment History',
   });

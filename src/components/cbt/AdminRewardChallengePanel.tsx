@@ -292,25 +292,79 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
     }
   };
 
-  const handleToggleActivate = async () => {
+  const [forceEndAttemptsOnFinalize, setForceEndAttemptsOnFinalize] = useState(false);
+
+  const handleActivateChallenge = async () => {
     if (!activeChallenge) return;
     setBusy(true);
     setFeedback(null);
     try {
-      const res = activeChallenge.isActive
-        ? await api.admin.rewardChallenges.deactivate(activeChallenge.id)
-        : await api.admin.rewardChallenges.activate(activeChallenge.id);
+      const res = await api.admin.rewardChallenges.activate(activeChallenge.id);
       setFeedback({ type: 'ok', text: res.message });
       await loadChallenges(activeChallenge.id);
       await onUpdated?.();
     } catch (err) {
       setFeedback({
         type: 'err',
-        text: err instanceof Error ? err.message : 'Unable to change challenge status.',
+        text: err instanceof Error ? err.message : 'Unable to activate challenge.',
       });
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleDeactivateChallenge = async () => {
+    if (!activeChallenge) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.rewardChallenges.deactivate(activeChallenge.id);
+      setFeedback({ type: 'ok', text: res.message });
+      await loadChallenges(activeChallenge.id);
+      await onUpdated?.();
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Unable to deactivate challenge.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleAnnounceWinnerNow = async () => {
+    if (!activeChallenge) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.rewardChallenges.announceWinner(
+        activeChallenge.id,
+        forceEndAttemptsOnFinalize
+      );
+      setFeedback({ type: 'ok', text: res.message });
+      await loadChallenges(activeChallenge.id);
+      await onUpdated?.();
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Unable to finalize and announce winner.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleApplyQuickNowSchedule = () => {
+    const now = Date.now();
+    setSchOpenAt(formatIsoToWatInput(new Date(now - 60_000).toISOString()));
+    setSchExamStartAt(formatIsoToWatInput(new Date(now - 60_000).toISOString()));
+    setSchExamEndAt(formatIsoToWatInput(new Date(now + 120 * 60_000).toISOString()));
+    setSchWinnerAnnounceAt(formatIsoToWatInput(new Date(now + 125 * 60_000).toISOString()));
+    setSchCloseAt('');
+    setFeedback({
+      type: 'ok',
+      text: 'Schedule fields prefilled in Africa/Lagos (WAT) to open immediately for 2 hours. Click "Save Schedule & Examination Rules" to apply.',
+    });
   };
 
   const resetQuestionEditor = () => {
@@ -553,7 +607,7 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
           </div>
           <div className="min-w-0">
             <h3 className="text-sm sm:text-base font-extrabold text-[#082252] dark:text-white">
-              ACADET REWARD CBT CHALLENGE — Competition Control Center
+              Acadet Reward CBT Challenge Management
             </h3>
             <p className="text-xs text-slate-600 dark:text-slate-300">
               Manage multiple competition editions independently (questions, WAT schedule, leaderboard, winners & payouts).
@@ -680,18 +734,22 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    disabled={busy}
-                    onClick={handleToggleActivate}
-                    className={`px-4 py-2 rounded-xl text-xs font-extrabold inline-flex items-center gap-1.5 min-h-[40px] text-white ${
-                      activeChallenge.isActive
-                        ? 'bg-rose-600 hover:bg-rose-700'
-                        : 'bg-emerald-600 hover:bg-emerald-700'
-                    }`}
+                    disabled={busy || activeChallenge.isActive}
+                    onClick={() => void handleActivateChallenge()}
+                    className="px-3.5 py-2 rounded-xl text-xs font-extrabold inline-flex items-center gap-1.5 min-h-[40px] text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-45"
                   >
                     <Power className="w-4 h-4" />
-                    <span>
-                      {activeChallenge.isActive ? 'Deactivate Challenge' : 'Activate Challenge'}
-                    </span>
+                    <span>Activate Challenge</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={busy || !activeChallenge.isActive}
+                    onClick={() => void handleDeactivateChallenge()}
+                    className="px-3.5 py-2 rounded-xl text-xs font-extrabold inline-flex items-center gap-1.5 min-h-[40px] text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-45"
+                  >
+                    <Power className="w-4 h-4" />
+                    <span>Deactivate Challenge</span>
                   </button>
 
                   <button
@@ -752,17 +810,26 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
                 <h4 className="text-sm font-extrabold text-[#082252] dark:text-white">
                   Challenge Identity, Prize Reward & Visibility
                 </h4>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={handleToggleActivate}
-                  className={`px-3.5 py-2 rounded-xl text-xs font-extrabold text-white inline-flex items-center gap-1.5 ${
-                    activeChallenge.isActive ? 'bg-rose-600' : 'bg-emerald-600'
-                  }`}
-                >
-                  <Power className="w-3.5 h-3.5" />
-                  <span>{activeChallenge.isActive ? 'Deactivate Challenge' : 'Activate Challenge'}</span>
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={busy || activeChallenge.isActive}
+                    onClick={() => void handleActivateChallenge()}
+                    className="px-3 py-1.5 rounded-xl text-xs font-extrabold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-45 inline-flex items-center gap-1.5"
+                  >
+                    <Power className="w-3.5 h-3.5" />
+                    <span>Activate Challenge</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy || !activeChallenge.isActive}
+                    onClick={() => void handleDeactivateChallenge()}
+                    className="px-3 py-1.5 rounded-xl text-xs font-extrabold text-white bg-rose-600 hover:bg-rose-700 disabled:opacity-45 inline-flex items-center gap-1.5"
+                  >
+                    <Power className="w-3.5 h-3.5" />
+                    <span>Deactivate Challenge</span>
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -822,7 +889,7 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
                   className="px-4 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold inline-flex items-center gap-1.5"
                 >
                   <Save className="w-4 h-4" />
-                  <span>Save Challenge Settings</span>
+                  <span>Save Settings</span>
                 </button>
               </div>
             </form>
@@ -1219,14 +1286,23 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
               onSubmit={(e) => void handleSaveSettingsOrSchedule(e, 'schedule')}
               className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4 sm:p-5 space-y-4"
             >
-              <div className="border-b border-slate-200 dark:border-slate-800 pb-3">
-                <h4 className="text-sm font-extrabold text-[#082252] dark:text-white flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-[#0a58ed]" />
-                  <span>Competition Schedule & Examination Parameters (Nigeria WAT · Africa/Lagos)</span>
-                </h4>
-                <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
-                  All date/time fields below operate strictly in West Africa Time (Africa/Lagos, UTC+1) and drive automated openings, exam enforcement, auto-submission, and winner announcements.
-                </p>
+              <div className="border-b border-slate-200 dark:border-slate-800 pb-3 flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-extrabold text-[#082252] dark:text-white flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-[#0a58ed]" />
+                    <span>Competition Schedule & Examination Parameters (Nigeria WAT · Africa/Lagos)</span>
+                  </h4>
+                  <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                    All date/time fields operate strictly in West Africa Time (Africa/Lagos, UTC+1) and drive automated openings, exam enforcement, auto-submission, and winner announcements.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleApplyQuickNowSchedule}
+                  className="px-3 py-1.5 rounded-xl border border-[#9dc0f5] bg-[#eff5ff] dark:bg-slate-800 text-[#0b337a] dark:text-blue-200 text-xs font-extrabold hover:bg-blue-100"
+                >
+                  Quick Fill: Open Immediately (2 Hours WAT)
+                </button>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1435,12 +1511,36 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
                 <span>Winner Management</span>
               </h4>
               {!activeChallenge.winner ? (
-                <div className="rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-5 text-xs sm:text-sm text-slate-600 dark:text-slate-300 space-y-2">
+                <div className="rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-5 text-xs sm:text-sm text-slate-600 dark:text-slate-300 space-y-3">
                   <div>
                     {activeChallenge.noValidParticipants
                       ? 'Examination ended with zero valid submitted attempts; no winner was recorded.'
                       : `Winner has not been announced yet. Scheduled automatic announcement: ${formatWatDateTimeDisplay(activeChallenge.settings.winnerAnnouncementAt)}.`}
                   </div>
+                  {!activeChallenge.noValidParticipants && (
+                    <div className="pt-2 border-t border-slate-200 dark:border-slate-700 space-y-2.5">
+                      <label className="inline-flex items-center gap-2 text-xs font-semibold cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={forceEndAttemptsOnFinalize}
+                          onChange={(e) => setForceEndAttemptsOnFinalize(e.target.checked)}
+                          className="w-4 h-4 rounded"
+                        />
+                        <span>Force-submit any currently open in-progress attempts before announcing winner</span>
+                      </label>
+                      <div>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void handleAnnounceWinnerNow()}
+                          className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-extrabold inline-flex items-center gap-1.5"
+                        >
+                          <Award className="w-4 h-4" />
+                          <span>Finalize Results &amp; Announce Winner Now</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50/70 dark:bg-amber-950/30 p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
@@ -1477,13 +1577,13 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
             </div>
           )}
 
-          {/* 8. REWARD PAYMENT MANAGEMENT */}
+          {/* 8. WINNER REWARD PAYMENT MANAGEMENT */}
           {subSection === 'payments' && (
             <div className="space-y-4">
               <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-5 space-y-4">
                 <h4 className="text-sm font-extrabold text-[#082252] dark:text-white flex items-center gap-2">
                   <CreditCard className="w-4 h-4 text-[#0a58ed]" />
-                  <span>Current Challenge Reward Payout Control</span>
+                  <span>Winner Reward Payment Management</span>
                 </h4>
 
                 {!winnerPayment ? (
@@ -1575,7 +1675,7 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
                             className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-extrabold inline-flex items-center gap-1.5"
                           >
                             <CheckCircle2 className="w-4 h-4" />
-                            <span>MARK AS PAID</span>
+                            <span>MARK AS PAID / PAYMENT COMPLETED</span>
                           </button>
                         </div>
                       </div>
