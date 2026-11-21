@@ -26,6 +26,7 @@ import {
   regenerateSingleQuestionWithAi,
 } from '../lib/aiQuestionGenerator.js';
 import {
+  SUPPORTED_GEMINI_MODELS,
   getAiSettingsSummary,
   saveGeminiApiSettings,
   testGeminiConnection,
@@ -1539,9 +1540,17 @@ router.get('/ai/settings', async (_req, res) => {
 router.put('/ai/settings', async (req, res) => {
   try {
     const schema = z.object({
-      apiKey: z.string().trim().min(15).max(300).optional(),
+      apiKey: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z
+          .string()
+          .trim()
+          .min(10, 'API key is too short. Please paste your full Gemini API key.')
+          .max(1000, 'API key exceeds maximum allowed length.')
+          .optional()
+      ),
       clearStoredKey: z.boolean().optional(),
-      modelName: z.enum(['gemini-4-hydrogen', 'gemini-4-neon']).optional(),
+      modelName: z.enum(SUPPORTED_GEMINI_MODELS).optional(),
     });
     const parsed = schema.parse(req.body ?? {});
 
@@ -1583,8 +1592,16 @@ router.put('/ai/settings', async (req, res) => {
 router.post('/ai/test', async (req, res) => {
   try {
     const schema = z.object({
-      apiKey: z.string().trim().min(10).max(300).optional(),
-      modelName: z.enum(['gemini-4-hydrogen', 'gemini-4-neon']).optional(),
+      apiKey: z.preprocess(
+        (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+        z
+          .string()
+          .trim()
+          .min(10, 'API key is too short. Please paste your full Gemini API key.')
+          .max(1000, 'API key exceeds maximum allowed length.')
+          .optional()
+      ),
+      modelName: z.enum(SUPPORTED_GEMINI_MODELS).optional(),
     });
     const parsed = schema.parse(req.body ?? {});
 
@@ -1594,7 +1611,7 @@ router.post('/ai/test', async (req, res) => {
       adminUserId: req.user!.id,
     });
 
-    res.status(outcome.ok ? 200 : 400).json({
+    res.json({
       ok: outcome.ok,
       message: outcome.message,
       settings: outcome.summary,

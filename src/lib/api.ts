@@ -135,7 +135,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const message =
       typeof parsed.error === 'string' && parsed.error
         ? parsed.error
-        : `Request failed with status ${response.status}`;
+        : typeof parsed.message === 'string' && parsed.message
+          ? parsed.message
+          : `Request failed with status ${response.status}`;
     const code = typeof parsed.code === 'string' ? parsed.code : undefined;
 
     if (
@@ -672,7 +674,7 @@ export const api = {
       saveSettings: (payload: {
         apiKey?: string;
         clearStoredKey?: boolean;
-        modelName?: 'gemini-4-hydrogen' | 'gemini-4-neon';
+        modelName?: string;
       }) =>
         request<{ settings: AiSettingsSummary; message: string }>('/api/admin/ai/settings', {
           method: 'PUT',
@@ -680,7 +682,7 @@ export const api = {
         }),
       testConnection: (payload?: {
         apiKey?: string;
-        modelName?: 'gemini-4-hydrogen' | 'gemini-4-neon';
+        modelName?: string;
       }) =>
         request<{ ok: boolean; message: string; settings: AiSettingsSummary }>(
           '/api/admin/ai/test',

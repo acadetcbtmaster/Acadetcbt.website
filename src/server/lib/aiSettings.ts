@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, type GenerateContentResponse } from '@google/genai';
 import { eq } from 'drizzle-orm';
 import { getDb, isDatabaseConfigured } from '../../db/index.js';
 import { aiProviderSettings } from '../../db/schema.js';
@@ -8,7 +8,12 @@ export const DEFAULT_GEMINI_MODEL = 'gemini-4-hydrogen';
 export const SUPPORTED_GEMINI_MODELS = [
   'gemini-4-hydrogen',
   'gemini-4-neon',
+  'gemini-3.1-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-2.5-pro',
 ] as const;
+
+export type SupportedGeminiModel = (typeof SUPPORTED_GEMINI_MODELS)[number];
 
 export type AiConnectionStatus = 'connected' | 'failed' | 'unconfigured' | 'unknown';
 export type AiKeySource = 'database' | 'environment' | 'none';
@@ -65,6 +70,33 @@ export function decryptApiKey(payload: string | null | undefined): string | null
   }
 }
 
+export function normalizeGeminiApiKey(rawKey: string): string {
+  let clean = rawKey.trim();
+  // Strip accidental surrounding quotes from .env or clipboard copy
+  if (
+    (clean.startsWith('"') && clean.endsWith('"')) ||
+    (clean.startsWith("'") && clean.endsWith("'"))
+  ) {
+    clean = clean.slice(1, -1).trim();
+  }
+  // Strip accidental GEMINI_API_KEY= or Bearer prefix if pasted from config
+  clean = clean.replace(/^(?:GEMINI_API_KEY|API_KEY)\s*=\s*/i, '').trim();
+  clean = clean.replace(/^Bearer\s+/i, '').trim();
+  if (
+    (clean.startsWith('"') && clean.endsWith('"')) ||
+    (clean.startsWith("'") && clean.endsWith("'"))
+  ) {
+    clean = clean.slice(1, -1).trim();
+  }
+
+  if (clean.length < 15 || clean.length > 1000 || /\s/.test(clean)) {
+    throw new Error(
+      'Invalid Gemini API key format. Paste only your API key (at least 15 characters, with no spaces).'
+    );
+  }
+  return clean;
+}
+
 export function maskApiKey(rawKey: string | null | undefined): string | null {
   if (!rawKey) return null;
   const trimmed = rawKey.trim();
@@ -75,6 +107,59 @@ export function maskApiKey(rawKey: string | null | undefined): string | null {
   return `${trimmed.slice(0, 6)}••••••••${trimmed.slice(-4)}`;
 }
 
+export function maskSensitiveKeysInMessage(rawMessage: string): string {
+  return rawMessage
+    .replace(/AIza[0-9A-Za-z_-]{8,}/g, 'AIza••••••••')
+    .replace(/AQ\.[0-9A-Za-z._-]{8,}/g, 'AQ.••••••••');
+}
+
+export function formatGeminiErrorMessage(err: unknown): string {
+  let rawMsg = err instanceof Error ? err.message : String(err || 'Gemini API request failed.');
+
+  // Google SDK errors frequently embed JSON payloads inside Error.message
+  const jsonStart = rawMsg.indexOf('{');
+  if (jsonStart !== -1) {
+    const candidateJson = rawMsg.slice(jsonStart);
+    try {
+      const parsed = JSON.parse(candidateJson) as {
+        error?: { message?: string; status?: string; code?: number };
+        message?: string;
+      };
+      const nestedMsg = parsed?.error?.message || parsed?.message;
+      if (typeof nestedMsg === 'string' && nestedMsg.trim()) {
+        rawMsg = nestedMsg.trim();
+      }
+    } catch {
+      // Keep original string if not valid JSON
+    }
+  }
+
+  const sanitized = maskSensitiveKeysInMessage(rawMsg).trim();
+  const lower = sanitized.toLowerCase();
+
+  if (
+    lower.includes('api key not valid') ||
+    lower.includes('api_key_invalid') ||
+    lower.includes('invalid api key')
+  ) {
+    return 'Google rejected this API key as invalid for both Gemini Developer API and Vertex AI Express Mode. Verify that you copied the full key from Google AI Studio or Google Cloud Console, and check that it has no HTTP-referrer restrictions (backend servers require unrestricted or API-only key restrictions).';
+  }
+
+  if (lower.includes('referer') || lower.includes('referrer') || lower.includes('ip_address')) {
+    return 'This API key has HTTP-referrer or IP restrictions that block server-side requests. In Google Cloud Console, set Application Restrictions to "None" for backend server usage.';
+  }
+
+  if (lower.includes('permission_denied') || lower.includes('permission denied')) {
+    return `Permission denied by Google API: ${sanitized}`;
+  }
+
+  if (lower.includes('resource_exhausted') || lower.includes('quota')) {
+    return `Gemini API quota or rate limit exceeded: ${sanitized}`;
+  }
+
+  return sanitized || 'Gemini API request failed.';
+}
+
 export function sanitizeModelName(modelName?: string | null): string {
   const candidate = (modelName || '').trim();
   if ((SUPPORTED_GEMINI_MODELS as readonly string[]).includes(candidate)) {
@@ -83,15 +168,105 @@ export function sanitizeModelName(modelName?: string | null): string {
   return DEFAULT_GEMINI_MODEL;
 }
 
-export function createGeminiClient(apiKey: string): GoogleGenAI {
+export function createGeminiClient(apiKey: string, options?: { vertexai?: boolean }): GoogleGenAI {
   return new GoogleGenAI({
     apiKey: apiKey.trim(),
+    ...(options?.vertexai ? { vertexai: true } : {}),
     httpOptions: {
       headers: {
         'User-Agent': 'aistudio-build',
       },
     },
   });
+}
+
+function isModelUnavailableError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
+  return (
+    msg.includes('not_found') ||
+    msg.includes('not found') ||
+    msg.includes('is not supported for generatecontent') ||
+    msg.includes('unknown model') ||
+    msg.includes('404')
+  );
+}
+
+function isEndpointOrKeyAuthError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
+  return (
+    msg.includes('api key not valid') ||
+    msg.includes('api_key_invalid') ||
+    msg.includes('api keys are not supported') ||
+    msg.includes('invalid_argument') ||
+    msg.includes('unauthenticated') ||
+    msg.includes('permission_denied') ||
+    msg.includes('401') ||
+    msg.includes('403') ||
+    msg.includes('400')
+  );
+}
+
+/**
+ * Executes a Gemini `generateContent` call supporting:
+ * 1) Standard Google AI Studio Gemini API keys (`generativelanguage.googleapis.com`)
+ * 2) Google Cloud Vertex AI Express Mode keys (`AQ.*` with `vertexai: true`)
+ * 3) Automatic fallback to GA Gemini models (`gemini-2.5-flash`, `gemini-3.1-flash-lite`)
+ *    if a preview alias (like `gemini-4-hydrogen`) is not enabled on an external key.
+ */
+export async function executeGeminiGenerateContent(params: {
+  apiKey: string;
+  modelName: string;
+  contents: Parameters<GoogleGenAI['models']['generateContent']>[0]['contents'];
+  config?: Parameters<GoogleGenAI['models']['generateContent']>[0]['config'];
+}): Promise<{
+  response: GenerateContentResponse;
+  usedModel: string;
+  usedVertexExpress: boolean;
+}> {
+  const cleanKey = params.apiKey.trim();
+  const primaryModel = sanitizeModelName(params.modelName);
+  const candidateModels = Array.from(
+    new Set([primaryModel, 'gemini-2.5-flash', 'gemini-3.1-flash-lite'])
+  );
+
+  // If the key uses the newer AQ. format, try standard Gemini API first and fall back to Vertex Express Mode on auth/key mismatch
+  const modes: Array<{ vertexai: boolean }> = cleanKey.startsWith('AQ.')
+    ? [{ vertexai: false }, { vertexai: true }]
+    : [{ vertexai: false }, { vertexai: true }];
+
+  let lastErr: unknown = null;
+
+  for (const mode of modes) {
+    const ai = createGeminiClient(cleanKey, { vertexai: mode.vertexai });
+    for (let i = 0; i < candidateModels.length; i += 1) {
+      const model = candidateModels[i];
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: params.contents,
+          ...(params.config ? { config: params.config } : {}),
+        });
+        return {
+          response,
+          usedModel: model,
+          usedVertexExpress: mode.vertexai,
+        };
+      } catch (err) {
+        lastErr = err;
+        // If model isn't enabled on this key/endpoint, try next candidate model in same mode
+        if (isModelUnavailableError(err) && i < candidateModels.length - 1) {
+          continue;
+        }
+        // If key/endpoint auth failed (e.g. Vertex Express AQ. key sent to Developer API), switch mode
+        if (isEndpointOrKeyAuthError(err) || isModelUnavailableError(err)) {
+          break;
+        }
+        throw err;
+      }
+    }
+  }
+
+  throw lastErr instanceof Error ? lastErr : new Error('Gemini API request failed.');
 }
 
 export async function getConfiguredGeminiCredentials(): Promise<{
@@ -210,17 +385,12 @@ export async function saveGeminiApiSettings(params: {
     updateValues.lastTestStatus = 'unknown';
     updateValues.lastTestMessage = 'Stored database API key cleared.';
     updateValues.lastTestedAt = null;
-  } else if (params.apiKey !== undefined) {
-    const cleanKey = params.apiKey.trim();
-    if (cleanKey.length < 15 || /\s/.test(cleanKey)) {
-      throw new Error(
-        'Invalid Gemini API key format. Please paste a valid Gemini API key without spaces.'
-      );
-    }
+  } else if (params.apiKey !== undefined && params.apiKey.trim() !== '') {
+    const cleanKey = normalizeGeminiApiKey(params.apiKey);
     updateValues.encryptedApiKey = encryptApiKey(cleanKey);
     updateValues.keyHint = maskApiKey(cleanKey);
     updateValues.lastTestStatus = 'unknown';
-    updateValues.lastTestMessage = 'New API key saved securely. Click "Test Connection" to verify.';
+    updateValues.lastTestMessage = 'New API key saved securely. Verifying connection...';
     updateValues.lastTestedAt = null;
   }
 
@@ -242,7 +412,23 @@ export async function testGeminiConnection(params?: {
   summary: AiSettingsSummary;
 }> {
   const creds = await getConfiguredGeminiCredentials();
-  const candidate = params?.candidateApiKey?.trim();
+  let candidate: string | undefined;
+  if (params?.candidateApiKey !== undefined && params.candidateApiKey.trim() !== '') {
+    try {
+      candidate = normalizeGeminiApiKey(params.candidateApiKey);
+    } catch (validationErr) {
+      const summary = await getAiSettingsSummary();
+      return {
+        ok: false,
+        message:
+          validationErr instanceof Error
+            ? validationErr.message
+            : 'Invalid Gemini API key format.',
+        summary,
+      };
+    }
+  }
+
   const keyToTest = candidate || creds.apiKey;
   const modelToUse = sanitizeModelName(params?.modelName || creds.modelName);
 
@@ -257,29 +443,32 @@ export async function testGeminiConnection(params?: {
 
   let ok = false;
   let message = '';
+  let resolvedModel = modelToUse;
 
   try {
-    const ai = createGeminiClient(keyToTest);
-    const response = await ai.models.generateContent({
-      model: modelToUse,
+    const { response, usedModel, usedVertexExpress } = await executeGeminiGenerateContent({
+      apiKey: keyToTest,
+      modelName: modelToUse,
       contents: 'Reply concisely with the two words: Connection OK',
     });
+    resolvedModel = usedModel;
     const text = (response.text || '').trim();
-    if (text.length > 0) {
-      ok = true;
-      message = `Connected successfully using model ${modelToUse}.`;
-    } else {
-      ok = true;
-      message = `Gemini API responded cleanly using model ${modelToUse}.`;
-    }
+    const endpointLabel = usedVertexExpress ? 'Vertex AI Express Mode' : 'Google AI Gemini API';
+    const modelNote =
+      usedModel !== modelToUse
+        ? `${usedModel} (auto-selected because ${modelToUse} is unavailable on this key)`
+        : usedModel;
+    ok = true;
+    message =
+      text.length > 0
+        ? `Connected successfully via ${endpointLabel} using model ${modelNote}.`
+        : `Gemini API responded cleanly via ${endpointLabel} using model ${modelNote}.`;
   } catch (err) {
-    const rawMsg = err instanceof Error ? err.message : 'Gemini API request failed.';
-    // Ensure we never echo back any key fragments in error messages
-    message = rawMsg.replace(/AIza[0-9A-Za-z_-]{10,}/g, 'AIza••••••••');
+    message = formatGeminiErrorMessage(err);
     ok = false;
   }
 
-  // Persist test result when testing the saved configuration (or when DB is available & no unsaved candidate differs)
+  // Persist test result (and auto-selected working model if fallback succeeded) when testing the saved configuration
   if (isDatabaseConfigured() && !candidate) {
     try {
       const db = getDb();
@@ -287,6 +476,7 @@ export async function testGeminiConnection(params?: {
       await db
         .update(aiProviderSettings)
         .set({
+          ...(ok && resolvedModel !== creds.modelName ? { modelName: resolvedModel } : {}),
           lastTestedAt: new Date(),
           lastTestStatus: ok ? 'connected' : 'failed',
           lastTestMessage: message,

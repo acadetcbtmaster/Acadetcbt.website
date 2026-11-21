@@ -2,7 +2,8 @@ import zlib from 'node:zlib';
 import path from 'node:path';
 import { Type, type Part } from '@google/genai';
 import {
-  createGeminiClient,
+  executeGeminiGenerateContent,
+  formatGeminiErrorMessage,
   getConfiguredGeminiCredentials,
 } from './aiSettings.js';
 import { validateQuestionImageFile } from './questionImages.js';
@@ -435,12 +436,11 @@ Requirements:
     });
   }
 
-  const ai = createGeminiClient(creds.apiKey);
-
   let responseText = '';
   try {
-    const response = await ai.models.generateContent({
-      model: creds.modelName,
+    const { response } = await executeGeminiGenerateContent({
+      apiKey: creds.apiKey,
+      modelName: creds.modelName,
       contents: [{ role: 'user', parts }],
       config: {
         responseMimeType: 'application/json',
@@ -449,8 +449,7 @@ Requirements:
     });
     responseText = response.text || '';
   } catch (err) {
-    const rawMsg = err instanceof Error ? err.message : 'Gemini question generation failed.';
-    const safeMsg = rawMsg.replace(/AIza[0-9A-Za-z_-]{10,}/g, 'AIza••••••••');
+    const safeMsg = formatGeminiErrorMessage(err);
     throw new AiGenerationError(`AI generation failed: ${safeMsg}`, 502);
   }
 
@@ -521,8 +520,6 @@ export async function regenerateSingleQuestionWithAi(params: {
   const dbDifficulty = normalizeDifficultyForDb(params.existingQuestion.difficulty);
   const difficultyLabel = formatDifficultyLabel(dbDifficulty);
 
-  const ai = createGeminiClient(creds.apiKey);
-
   const prompt = `Regenerate 1 improved replacement multiple-choice CBT question for Acadet CBT.
 Course: ${params.course.code} — ${params.course.title}
 Topic: ${params.existingQuestion.topic}
@@ -541,8 +538,9 @@ Return 1 complete JSON object with questionText, optionA, optionB, optionC, opti
 
   let responseText = '';
   try {
-    const response = await ai.models.generateContent({
-      model: creds.modelName,
+    const { response } = await executeGeminiGenerateContent({
+      apiKey: creds.apiKey,
+      modelName: creds.modelName,
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -551,8 +549,7 @@ Return 1 complete JSON object with questionText, optionA, optionB, optionC, opti
     });
     responseText = response.text || '';
   } catch (err) {
-    const rawMsg = err instanceof Error ? err.message : 'AI regeneration failed.';
-    const safeMsg = rawMsg.replace(/AIza[0-9A-Za-z_-]{10,}/g, 'AIza••••••••');
+    const safeMsg = formatGeminiErrorMessage(err);
     throw new AiGenerationError(`AI regeneration failed: ${safeMsg}`, 502);
   }
 

@@ -18,13 +18,38 @@ interface AiSettingsPanelProps {
   onStatusChanged?: (settings: AiSettingsSummary) => void;
 }
 
+const GEMINI_MODEL_OPTIONS = [
+  { value: 'gemini-4-hydrogen', label: 'gemini-4-hydrogen (Fast Default)' },
+  { value: 'gemini-4-neon', label: 'gemini-4-neon (High Reasoning)' },
+  { value: 'gemini-3.1-flash-lite', label: 'gemini-3.1-flash-lite (Flash Lite)' },
+  { value: 'gemini-2.5-flash', label: 'gemini-2.5-flash (Standard Gemini API)' },
+  { value: 'gemini-2.5-pro', label: 'gemini-2.5-pro (Pro Reasoning)' },
+] as const;
+
+type GeminiModelOption = (typeof GEMINI_MODEL_OPTIONS)[number]['value'];
+
+function isSupportedModelOption(value: string | undefined | null): value is GeminiModelOption {
+  return GEMINI_MODEL_OPTIONS.some((opt) => opt.value === value);
+}
+
+function sanitizeKeyInput(raw: string): string {
+  let clean = raw.trim();
+  if (
+    (clean.startsWith('"') && clean.endsWith('"')) ||
+    (clean.startsWith("'") && clean.endsWith("'"))
+  ) {
+    clean = clean.slice(1, -1).trim();
+  }
+  clean = clean.replace(/^(?:GEMINI_API_KEY|API_KEY)\s*=\s*/i, '').trim();
+  clean = clean.replace(/^Bearer\s+/i, '').trim();
+  return clean;
+}
+
 export const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({ onStatusChanged }) => {
   const [settings, setSettings] = useState<AiSettingsSummary | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [showKey, setShowKey] = useState(false);
-  const [modelName, setModelName] = useState<'gemini-4-hydrogen' | 'gemini-4-neon'>(
-    'gemini-4-hydrogen'
-  );
+  const [modelName, setModelName] = useState<GeminiModelOption>('gemini-4-hydrogen');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -35,10 +60,7 @@ export const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({ onStatusChange
     try {
       const res = await api.admin.ai.getSettings();
       setSettings(res.settings);
-      if (
-        res.settings.modelName === 'gemini-4-hydrogen' ||
-        res.settings.modelName === 'gemini-4-neon'
-      ) {
+      if (isSupportedModelOption(res.settings.modelName)) {
         setModelName(res.settings.modelName);
       }
       onStatusChanged?.(res.settings);
@@ -59,19 +81,59 @@ export const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({ onStatusChange
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cleanedKey = sanitizeKeyInput(apiKeyInput);
+    if (!cleanedKey && !settings?.configured) {
+      setFeedback({
+        type: 'err',
+        text: 'Please paste your Gemini API key before saving.',
+      });
+      return;
+    }
+
     setSaving(true);
     setFeedback(null);
     try {
-      const trimmedKey = apiKeyInput.trim();
       const res = await api.admin.ai.saveSettings({
-        ...(trimmedKey ? { apiKey: trimmedKey } : {}),
+        ...(cleanedKey ? { apiKey: cleanedKey } : {}),
         modelName,
       });
       setSettings(res.settings);
       setApiKeyInput('');
       setShowKey(false);
       onStatusChanged?.(res.settings);
-      setFeedback({ type: 'ok', text: res.message });
+
+      // Immediately verify connection after saving an active key so admin gets clear feedback
+      if (res.settings.configured) {
+        setTesting(true);
+        try {
+          const testRes = await api.admin.ai.testConnection({
+            modelName: res.settings.modelName,
+          });
+          setSettings(testRes.settings);
+          if (isSupportedModelOption(testRes.settings.modelName)) {
+            setModelName(testRes.settings.modelName);
+          }
+          onStatusChanged?.(testRes.settings);
+          setFeedback({
+            type: testRes.ok ? 'ok' : 'err',
+            text: testRes.ok
+              ? `API key saved securely. ${testRes.message}`
+              : `API key saved, but connection check failed: ${testRes.message}`,
+          });
+        } catch (testErr) {
+          setFeedback({
+            type: 'err',
+            text:
+              testErr instanceof Error
+                ? `API key saved, but connection check failed: ${testErr.message}`
+                : 'API key saved, but connection test failed.',
+          });
+        } finally {
+          setTesting(false);
+        }
+      } else {
+        setFeedback({ type: 'ok', text: res.message });
+      }
     } catch (err) {
       setFeedback({
         type: 'err',
@@ -83,15 +145,26 @@ export const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({ onStatusChange
   };
 
   const handleTestConnection = async () => {
+    const candidate = sanitizeKeyInput(apiKeyInput);
+    if (!candidate && !settings?.configured) {
+      setFeedback({
+        type: 'err',
+        text: 'Enter a Gemini API key first before testing the connection.',
+      });
+      return;
+    }
+
     setTesting(true);
     setFeedback(null);
     try {
-      const candidate = apiKeyInput.trim();
       const res = await api.admin.ai.testConnection({
         ...(candidate ? { apiKey: candidate } : {}),
         modelName,
       });
       setSettings(res.settings);
+      if (isSupportedModelOption(res.settings.modelName)) {
+        setModelName(res.settings.modelName);
+      }
       onStatusChanged?.(res.settings);
       setFeedback({
         type: res.ok ? 'ok' : 'err',
@@ -272,7 +345,7 @@ export const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({ onStatusChange
                   placeholder={
                     settings?.maskedKey
                       ? `Current: ${settings.maskedKey} — paste new key to replace`
-                      : 'AIza...'
+                      : 'Paste Gemini API key (AIza... or AQ....)'
                   }
                   value={apiKeyInput}
                   onChange={(e) => setApiKeyInput(e.target.value)}
@@ -295,13 +368,14 @@ export const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({ onStatusChange
               </label>
               <select
                 value={modelName}
-                onChange={(e) =>
-                  setModelName(e.target.value as 'gemini-4-hydrogen' | 'gemini-4-neon')
-                }
+                onChange={(e) => setModelName(e.target.value as GeminiModelOption)}
                 className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2.5 text-sm font-semibold min-h-[42px]"
               >
-                <option value="gemini-4-hydrogen">gemini-4-hydrogen (Fast Default)</option>
-                <option value="gemini-4-neon">gemini-4-neon (High Reasoning)</option>
+                {GEMINI_MODEL_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -341,7 +415,9 @@ export const AiSettingsPanel: React.FC<AiSettingsPanelProps> = ({ onStatusChange
                 className="px-4 py-2 rounded-lg bg-[#0b337a] hover:bg-[#072459] text-white text-xs font-extrabold flex items-center gap-1.5 min-h-[40px] disabled:opacity-50"
               >
                 <Save className="w-3.5 h-3.5" />
-                <span>{saving ? 'Saving...' : 'Save API Key'}</span>
+                <span>
+                  {saving ? 'Saving...' : testing ? 'Verifying...' : 'Save & Test Key'}
+                </span>
               </button>
             </div>
           </div>
