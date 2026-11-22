@@ -153,6 +153,7 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
   const [payReference, setPayReference] = useState('');
   const [payAdminNote, setPayAdminNote] = useState('');
   const [confirmPaidOpen, setConfirmPaidOpen] = useState(false);
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
 
   const populateFormsFromChallenge = (ch: RewardChallengeSummary) => {
     setSetTitle(ch.title);
@@ -580,6 +581,26 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
     }
   };
 
+  const handleConfirmResetResults = async () => {
+    if (!activeChallenge) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await api.admin.rewardChallenges.resetResults(activeChallenge.id);
+      setConfirmResetOpen(false);
+      setFeedback({ type: 'ok', text: res.message });
+      await loadChallenges(activeChallenge.id);
+      await onUpdated?.();
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Unable to reset challenge results.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const subTabs: Array<{
     id: AdminSubSection;
     label: string;
@@ -770,6 +791,20 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
                     <RefreshCw className="w-3.5 h-3.5" />
                     <span>Run Automation Check</span>
                   </button>
+
+                  {(activeChallenge.submittedCount > 0 ||
+                    activeChallenge.hasWinner ||
+                    activeChallenge.settings.winnerAnnouncedAt !== null) && (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => setConfirmResetOpen(true)}
+                      className="px-3.5 py-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 hover:bg-amber-100 text-xs font-extrabold inline-flex items-center gap-1.5 min-h-[40px]"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Reset Attempts &amp; Winner (Reopen)</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1603,6 +1638,22 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
                   </div>
                 </div>
               )}
+
+              {(activeChallenge.submittedCount > 0 ||
+                activeChallenge.hasWinner ||
+                activeChallenge.settings.winnerAnnouncedAt !== null) && (
+                <div className="pt-2 flex justify-end">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => setConfirmResetOpen(true)}
+                    className="px-3.5 py-2 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 hover:bg-amber-100 text-xs font-extrabold inline-flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Reset Attempts &amp; Winner (Reopen Competition)</span>
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1946,6 +1997,41 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
                   className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold"
                 >
                   {busy ? 'Confirming...' : 'Yes, Mark as Paid'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Challenge Results & Reopen Confirmation Modal */}
+      {confirmResetOpen && activeChallenge && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/65">
+          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-800 shadow-2xl overflow-hidden">
+            <div className="bg-amber-600 text-white px-5 py-3.5 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-white" />
+              <span className="font-extrabold text-sm">Reset Attempts &amp; Winner?</span>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200 leading-relaxed">
+                This will clear all prior test/exam attempts, leaderboard rankings, winner announcement records, and bank payout requests for <strong>{activeChallenge.title}</strong>, keeping your uploaded question bank intact so students can sit the challenge on the scheduled window.
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setConfirmResetOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-slate-300 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handleConfirmResetResults()}
+                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-extrabold"
+                >
+                  {busy ? 'Resetting...' : 'Yes, Reset & Reopen'}
                 </button>
               </div>
             </div>

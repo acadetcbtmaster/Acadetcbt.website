@@ -119,6 +119,43 @@ async function run() {
     'Challenge Closed'
   );
 
+  // Rescheduled challenge with stale empty winnerAnnouncedAt must allow live exam
+  const rescheduledStaleEmpty = computeChallengeDisplayStatus({
+    challenge: makeChallenge({
+      winnerAnnouncedAt: new Date(ch.examStartAt.getTime() - 3600_000),
+      examFinalizedAt: new Date(ch.examStartAt.getTime() - 3600_000),
+      lifecycleStatus: 'closed',
+    }),
+    hasWinner: false,
+    uploadedQuestionCount: 20,
+    now: new Date(ch.examStartAt.getTime() + 60_000),
+  });
+  assert.equal(rescheduledStaleEmpty.displayStatus, 'Examination in Progress');
+  assert.equal(rescheduledStaleEmpty.canStartExam, true);
+
+  // Past-window empty finalization still reports Winner Announced
+  const pastWindowEmpty = computeChallengeDisplayStatus({
+    challenge: makeChallenge({
+      winnerAnnouncedAt: new Date(ch.winnerAnnouncementAt.getTime() + 1000),
+      examFinalizedAt: new Date(ch.winnerAnnouncementAt.getTime() + 1000),
+    }),
+    hasWinner: false,
+    uploadedQuestionCount: 20,
+    now: new Date(ch.winnerAnnouncementAt.getTime() + 60_000),
+  });
+  assert.equal(pastWindowEmpty.displayStatus, 'Winner Announced');
+  assert.equal(pastWindowEmpty.canStartExam, false);
+
+  // Real recorded winner always reports Winner Announced even inside exam window
+  const recordedWinnerInsideWindow = computeChallengeDisplayStatus({
+    challenge: makeChallenge({ winnerAnnouncedAt: new Date() }),
+    hasWinner: true,
+    uploadedQuestionCount: 20,
+    now: new Date(ch.examStartAt.getTime() + 60_000),
+  });
+  assert.equal(recordedWinnerInsideWindow.displayStatus, 'Winner Announced');
+  assert.equal(recordedWinnerInsideWindow.canStartExam, false);
+
   console.log('[Reward Challenge Verification] 2. Testing bulk file question parsing (JSON, CSV, TXT)...');
   const jsonQs = await parseBulkChallengeQuestionsFile({
     originalname: 'bank.json',

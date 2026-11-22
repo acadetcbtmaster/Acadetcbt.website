@@ -323,6 +323,76 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
     }
   }, [challenge, effectiveNow, selectedChallengeId, loadData, onChallengeStateUpdated]);
 
+  const liveChallengeMeta = (() => {
+    if (!challenge) {
+      return {
+        displayStatus: 'Upcoming' as const,
+        canStartExam: false,
+        canJoinWaitingRoom: false,
+        unavailableReason: null as string | null,
+        effectiveAnnounced: false,
+      };
+    }
+
+    const tOpen = new Date(challenge.settings.challengeOpenAt).getTime();
+    const tStart = new Date(challenge.settings.examStartAt).getTime();
+    const tEnd = new Date(challenge.settings.examEndAt).getTime();
+    const tAnnounce = new Date(challenge.settings.winnerAnnouncementAt).getTime();
+    const tClose = challenge.settings.challengeCloseAt
+      ? new Date(challenge.settings.challengeCloseAt).getTime()
+      : null;
+
+    const hasFutureOrLiveWindow = effectiveNow < tEnd || effectiveNow < tAnnounce;
+    const effectiveAnnounced =
+      challenge.hasWinner ||
+      (Boolean(challenge.settings.winnerAnnouncedAt) && !hasFutureOrLiveWindow);
+
+    let displayStatus = challenge.displayStatus;
+    let canStartExam = challenge.canStartExam;
+    let canJoinWaitingRoom = challenge.canJoinWaitingRoom;
+    let unavailableReason = challenge.unavailableReason;
+
+    if (
+      challenge.isActive &&
+      (challenge.lifecycleStatus === 'active' || challenge.lifecycleStatus === 'closed') &&
+      !effectiveAnnounced &&
+      (tClose === null || effectiveNow < tClose)
+    ) {
+      if (effectiveNow >= tStart && effectiveNow < tEnd) {
+        displayStatus = 'Examination in Progress';
+        canStartExam = challenge.publishedQuestionCount > 0;
+        canJoinWaitingRoom = true;
+        unavailableReason =
+          challenge.publishedQuestionCount > 0
+            ? null
+            : 'No published challenge questions are available yet.';
+      } else if (effectiveNow >= tOpen && effectiveNow < tStart) {
+        displayStatus = 'Active';
+        canStartExam = false;
+        canJoinWaitingRoom = true;
+        unavailableReason = `Examination begins ${formatWatDateTimeDisplay(challenge.settings.examStartAt)}. Please wait until the scheduled start time.`;
+      } else if (effectiveNow < tOpen) {
+        displayStatus = 'Upcoming';
+        canStartExam = false;
+        canJoinWaitingRoom = true;
+        unavailableReason = `Challenge portal opens ${formatWatDateTimeDisplay(challenge.settings.challengeOpenAt)}.`;
+      } else if (effectiveNow >= tEnd) {
+        displayStatus = 'Examination Completed';
+        canStartExam = false;
+        canJoinWaitingRoom = true;
+        unavailableReason = `Examination entry window closed ${formatWatDateTimeDisplay(challenge.settings.examEndAt)}. Results are being finalized.`;
+      }
+    }
+
+    return {
+      displayStatus,
+      canStartExam,
+      canJoinWaitingRoom,
+      unavailableReason,
+      effectiveAnnounced,
+    };
+  })();
+
   const getActiveCountdown = () => {
     if (!challenge) return null;
     const tOpen = new Date(challenge.settings.challengeOpenAt).getTime();
@@ -330,27 +400,27 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
     const tEnd = new Date(challenge.settings.examEndAt).getTime();
     const tAnnounce = new Date(challenge.settings.winnerAnnouncementAt).getTime();
 
-    if (challenge.displayStatus === 'Upcoming' && effectiveNow < tOpen) {
+    if (liveChallengeMeta.displayStatus === 'Upcoming' && effectiveNow < tOpen) {
       return {
         label: 'Portal Opens In',
         remaining: formatCountdownMs(tOpen - effectiveNow),
       };
     }
-    if (challenge.displayStatus === 'Active' && effectiveNow < tStart) {
+    if (liveChallengeMeta.displayStatus === 'Active' && effectiveNow < tStart) {
       return {
         label: 'Examination Starts In',
         remaining: formatCountdownMs(tStart - effectiveNow),
       };
     }
-    if (challenge.displayStatus === 'Examination in Progress' && effectiveNow < tEnd) {
+    if (liveChallengeMeta.displayStatus === 'Examination in Progress' && effectiveNow < tEnd) {
       return {
         label: 'Entry Window Closes In',
         remaining: formatCountdownMs(tEnd - effectiveNow),
       };
     }
     if (
-      challenge.displayStatus === 'Examination Completed' &&
-      !challenge.settings.winnerAnnouncedAt &&
+      liveChallengeMeta.displayStatus === 'Examination Completed' &&
+      !liveChallengeMeta.effectiveAnnounced &&
       effectiveNow < tAnnounce
     ) {
       return {
@@ -510,9 +580,9 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                       <div className="space-y-1.5 min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-md border text-xs font-extrabold ${getStatusStyles(challenge.displayStatus)}`}
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-md border text-xs font-extrabold ${getStatusStyles(liveChallengeMeta.displayStatus)}`}
                           >
-                            {challenge.displayStatus}
+                            {liveChallengeMeta.displayStatus}
                           </span>
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 text-xs font-extrabold tabular-nums">
                             <Award className="w-3.5 h-3.5" />
@@ -538,6 +608,57 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                             {countdown.remaining}
                           </div>
                         </div>
+                      )}
+                    </div>
+
+                    {/* Action Strip (positioned prominently above schedule metrics for mobile visibility) */}
+                    <div className="pt-1 flex flex-wrap items-center gap-3">
+                      {challenge.myParticipation.attempt?.status === 'in_progress' ? (
+                        <button
+                          type="button"
+                          disabled={busyAction}
+                          onClick={() => void handleStartExam()}
+                          className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-extrabold inline-flex items-center gap-2 min-h-[44px] shadow-sm"
+                        >
+                          <Play className="w-4 h-4" />
+                          <span>Resume Examination Now</span>
+                        </button>
+                      ) : challenge.myParticipation.attempt ? (
+                        <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 text-xs sm:text-sm font-extrabold">
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>You have completed this challenge examination</span>
+                        </div>
+                      ) : liveChallengeMeta.canStartExam ? (
+                        <button
+                          type="button"
+                          disabled={busyAction}
+                          onClick={() => void handleStartExam()}
+                          className="px-5 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-sm font-extrabold inline-flex items-center gap-2 min-h-[44px] shadow-sm"
+                        >
+                          <Play className="w-4 h-4" />
+                          <span>{busyAction ? 'Starting...' : 'START REWARD CBT CHALLENGE'}</span>
+                        </button>
+                      ) : liveChallengeMeta.canJoinWaitingRoom && !challenge.myParticipation.joined ? (
+                        <button
+                          type="button"
+                          disabled={busyAction}
+                          onClick={() => void handleJoinChallenge()}
+                          className="px-5 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-sm font-extrabold inline-flex items-center gap-2 min-h-[44px]"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>{busyAction ? 'Joining...' : 'Join Challenge Portal'}</span>
+                        </button>
+                      ) : challenge.myParticipation.joined ? (
+                        <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-100 dark:bg-blue-950/60 text-[#0b337a] dark:text-blue-200 text-xs sm:text-sm font-extrabold">
+                          <Clock className="w-4 h-4" />
+                          <span>Registered for this challenge — awaiting exam start</span>
+                        </div>
+                      ) : null}
+
+                      {liveChallengeMeta.unavailableReason && !challenge.myParticipation.attempt && (
+                        <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                          {liveChallengeMeta.unavailableReason}
+                        </span>
                       )}
                     </div>
 
@@ -582,64 +703,6 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                           {formatWatDateTimeDisplay(challenge.settings.winnerAnnouncementAt)}
                         </div>
                       </div>
-                    </div>
-
-                    {/* Action Strip */}
-                    <div className="pt-1 flex flex-wrap items-center gap-3">
-                      {challenge.myParticipation.attempt?.status === 'in_progress' ? (
-                        <button
-                          type="button"
-                          disabled={busyAction}
-                          onClick={() => void handleStartExam()}
-                          className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-extrabold inline-flex items-center gap-2 min-h-[44px]"
-                        >
-                          <Play className="w-4 h-4" />
-                          <span>Resume Examination Now</span>
-                        </button>
-                      ) : challenge.myParticipation.attempt ? (
-                        <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-100 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 text-xs sm:text-sm font-extrabold">
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>You have completed this challenge examination</span>
-                        </div>
-                      ) : challenge.canStartExam ||
-                        (challenge.isActive &&
-                          challenge.lifecycleStatus === 'active' &&
-                          challenge.publishedQuestionCount > 0 &&
-                          !challenge.hasWinner &&
-                          !challenge.settings.winnerAnnouncedAt &&
-                          effectiveNow >= new Date(challenge.settings.examStartAt).getTime() &&
-                          effectiveNow < new Date(challenge.settings.examEndAt).getTime()) ? (
-                        <button
-                          type="button"
-                          disabled={busyAction}
-                          onClick={() => void handleStartExam()}
-                          className="px-5 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-sm font-extrabold inline-flex items-center gap-2 min-h-[44px] shadow-sm"
-                        >
-                          <Play className="w-4 h-4" />
-                          <span>{busyAction ? 'Starting...' : 'START REWARD CBT CHALLENGE'}</span>
-                        </button>
-                      ) : challenge.canJoinWaitingRoom && !challenge.myParticipation.joined ? (
-                        <button
-                          type="button"
-                          disabled={busyAction}
-                          onClick={() => void handleJoinChallenge()}
-                          className="px-5 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-sm font-extrabold inline-flex items-center gap-2 min-h-[44px]"
-                        >
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>{busyAction ? 'Joining...' : 'Join Challenge Portal'}</span>
-                        </button>
-                      ) : challenge.myParticipation.joined ? (
-                        <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue-100 dark:bg-blue-950/60 text-[#0b337a] dark:text-blue-200 text-xs sm:text-sm font-extrabold">
-                          <Clock className="w-4 h-4" />
-                          <span>Registered for this challenge — awaiting exam start</span>
-                        </div>
-                      ) : null}
-
-                      {challenge.unavailableReason && !challenge.myParticipation.attempt && (
-                        <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                          {challenge.unavailableReason}
-                        </span>
-                      )}
                     </div>
                   </div>
 

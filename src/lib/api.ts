@@ -1361,6 +1361,16 @@ export const api = {
           { method: 'POST' }
         ),
 
+      resetResults: (challengeId: string) =>
+        request<{
+          challenge: RewardChallengeSummary;
+          deletedAttempts: number;
+          clearedWinners: number;
+          message: string;
+        }>(`/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/reset-results`, {
+          method: 'POST',
+        }),
+
       listQuestions: (challengeId: string) =>
         request<{ questions: RewardChallengeAdminQuestion[] }>(
           `/api/admin/reward-challenges/${encodeURIComponent(challengeId)}/questions`

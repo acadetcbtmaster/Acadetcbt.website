@@ -185,35 +185,51 @@ export const RewardChallengeDashboardCard: React.FC<RewardChallengeDashboardCard
   const tOpen = new Date(challenge.settings.challengeOpenAt).getTime();
   const tStart = new Date(challenge.settings.examStartAt).getTime();
   const tEnd = new Date(challenge.settings.examEndAt).getTime();
+  const tAnnounce = new Date(challenge.settings.winnerAnnouncementAt).getTime();
   const tClose = challenge.settings.challengeCloseAt
     ? new Date(challenge.settings.challengeCloseAt).getTime()
     : null;
 
+  const hasFutureOrLiveWindow = effectiveNow < tEnd || effectiveNow < tAnnounce;
+  const effectiveAnnounced =
+    challenge.hasWinner ||
+    (Boolean(challenge.settings.winnerAnnouncedAt) && !hasFutureOrLiveWindow);
+
   // Live-calibrated status evaluation so the card flips cleanly at the exact scheduled second
   let liveStatus: RewardChallengeDisplayStatus = challenge.displayStatus;
   let liveCanStartExam = challenge.canStartExam;
+  let liveUnavailableReason = challenge.unavailableReason;
 
   if (
     challenge.isActive &&
-    challenge.lifecycleStatus === 'active' &&
-    !challenge.hasWinner &&
-    !challenge.settings.winnerAnnouncedAt &&
+    (challenge.lifecycleStatus === 'active' || challenge.lifecycleStatus === 'closed') &&
+    !effectiveAnnounced &&
     (tClose === null || effectiveNow < tClose)
   ) {
     if (effectiveNow >= tStart && effectiveNow < tEnd) {
       liveStatus = 'Examination in Progress';
       liveCanStartExam = challenge.publishedQuestionCount > 0;
+      liveUnavailableReason =
+        challenge.publishedQuestionCount > 0
+          ? null
+          : 'No published challenge questions are available yet.';
     } else if (effectiveNow >= tOpen && effectiveNow < tStart) {
       liveStatus = 'Active';
       liveCanStartExam = false;
+      liveUnavailableReason = `Examination begins ${formatWatDateTimeDisplay(challenge.settings.examStartAt)}. Please wait until the scheduled start time.`;
+    } else if (effectiveNow < tOpen) {
+      liveStatus = 'Upcoming';
+      liveCanStartExam = false;
+      liveUnavailableReason = `Challenge portal opens ${formatWatDateTimeDisplay(challenge.settings.challengeOpenAt)}.`;
     } else if (effectiveNow >= tEnd) {
       liveStatus = 'Examination Completed';
       liveCanStartExam = false;
+      liveUnavailableReason = `Examination entry window closed ${formatWatDateTimeDisplay(challenge.settings.examEndAt)}. Results are being finalized.`;
     }
   }
 
   let liveCountdownBadge: string | null = null;
-  if (challenge.isActive && !challenge.hasWinner && !challenge.settings.winnerAnnouncedAt) {
+  if (challenge.isActive && !effectiveAnnounced) {
     if (liveStatus === 'Upcoming' && effectiveNow < tOpen) {
       liveCountdownBadge = `Opens in ${formatLiveCountdown(tOpen - effectiveNow)}`;
     } else if (liveStatus === 'Active' && effectiveNow < tStart) {
@@ -298,10 +314,10 @@ export const RewardChallengeDashboardCard: React.FC<RewardChallengeDashboardCard
             {!isSubmitted &&
               !isInProgress &&
               !liveCanStartExam &&
-              challenge.unavailableReason && (
+              liveUnavailableReason && (
                 <div className="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1.5 pt-0.5">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                  <span>{challenge.unavailableReason}</span>
+                  <span>{liveUnavailableReason}</span>
                 </div>
               )}
           </div>

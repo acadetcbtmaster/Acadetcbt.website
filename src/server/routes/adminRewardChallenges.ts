@@ -15,6 +15,7 @@ import {
   markRewardPaymentPaid,
   parseBulkChallengeQuestionsFile,
   parseScheduleTimestampInput,
+  resetChallengeResultsForRetest,
   syncChallengeAutomations,
 } from '../lib/rewardChallenge.js';
 import { handleApiError, requireAuth, requireRole } from '../middleware/auth.js';
@@ -417,6 +418,16 @@ router.patch('/:id/settings', async (req, res) => {
         ]);
       }
 
+      const winnerCheck = await client.query<{ exists: boolean }>(
+        `SELECT EXISTS(SELECT 1 FROM reward_challenge_winners WHERE challenge_id = $1) AS exists`,
+        [req.params.id]
+      );
+      const hasRecordedWinner = Boolean(winnerCheck.rows[0]?.exists);
+      const nowMs = Date.now();
+      const shouldResetStaleFinalization =
+        !hasRecordedWinner &&
+        (nextEndAt.getTime() > nowMs || nextAnnounceAt.getTime() > nowMs);
+
       await client.query(
         `UPDATE reward_challenges
          SET title = COALESCE($1, title),
@@ -424,6 +435,16 @@ router.patch('/:id/settings', async (req, res) => {
              reward_amount = COALESCE($3, reward_amount),
              reward_currency = COALESCE($4, reward_currency),
              is_featured = COALESCE($5, is_featured),
+             lifecycle_status = CASE
+               WHEN $7::boolean THEN
+                 CASE
+                   WHEN is_active THEN 'active'
+                   WHEN lifecycle_status = 'closed' THEN 'draft'
+                   ELSE lifecycle_status
+                 END
+               ELSE lifecycle_status
+             END,
+             closed_at = CASE WHEN $7::boolean THEN NULL ELSE closed_at END,
              updated_at = NOW()
          WHERE id = $6`,
         [
@@ -433,6 +454,7 @@ router.patch('/:id/settings', async (req, res) => {
           parsed.rewardCurrency ?? null,
           parsed.isFeatured ?? null,
           req.params.id,
+          shouldResetStaleFinalization,
         ]
       );
 
@@ -446,6 +468,8 @@ router.patch('/:id/settings', async (req, res) => {
              duration_minutes = COALESCE($6, duration_minutes),
              question_count = COALESCE($7, question_count),
              selection_mode = COALESCE($8, selection_mode),
+             exam_finalized_at = CASE WHEN $10::boolean THEN NULL ELSE exam_finalized_at END,
+             winner_announced_at = CASE WHEN $10::boolean THEN NULL ELSE winner_announced_at END,
              updated_at = NOW()
          WHERE challenge_id = $9`,
         [
@@ -458,6 +482,7 @@ router.patch('/:id/settings', async (req, res) => {
           parsed.questionCount ?? null,
           parsed.selectionMode ?? null,
           req.params.id,
+          shouldResetStaleFinalization,
         ]
       );
 
@@ -513,6 +538,15 @@ router.post('/:id/activate', async (req, res) => {
     }
 
     const pool = getPool();
+    const winnerCheck = await pool.query<{ exists: boolean }>(
+      `SELECT EXISTS(SELECT 1 FROM reward_challenge_winners WHERE challenge_id = $1) AS exists`,
+      [req.params.id]
+    );
+    const hasRecordedWinner = Boolean(winnerCheck.rows[0]?.exists);
+    const hasFutureWindow =
+      new Date(summary.settings.examEndAt).getTime() > Date.now() ||
+      new Date(summary.settings.winnerAnnouncementAt).getTime() > Date.now();
+
     await pool.query(`UPDATE reward_challenges SET is_featured = FALSE WHERE id <> $1`, [req.params.id]);
     await pool.query(
       `UPDATE reward_challenges
@@ -520,10 +554,22 @@ router.post('/:id/activate', async (req, res) => {
            is_featured = TRUE,
            lifecycle_status = 'active',
            activated_at = COALESCE(activated_at, NOW()),
+           closed_at = CASE WHEN $2::boolean THEN NULL ELSE closed_at END,
            updated_at = NOW()
        WHERE id = $1`,
-      [req.params.id]
+      [req.params.id, !hasRecordedWinner && hasFutureWindow]
     );
+
+    if (!hasRecordedWinner && hasFutureWindow) {
+      await pool.query(
+        `UPDATE reward_challenge_settings
+         SET exam_finalized_at = NULL,
+             winner_announced_at = NULL,
+             updated_at = NOW()
+         WHERE challenge_id = $1`,
+        [req.params.id]
+      );
+    }
 
     await writeAuditLog({
       actorUserId: req.user!.id,
@@ -595,6 +641,31 @@ router.post('/:id/sync', async (req, res) => {
     res.json({ challenge: updated, message: 'Challenge schedule & automation state synchronized.' });
   } catch (err) {
     handleRewardError(res, err, 'syncing reward challenge');
+  }
+});
+
+router.post('/:id/reset-results', async (req, res) => {
+  try {
+    const outcome = await resetChallengeResultsForRetest(req.params.id);
+    await writeAuditLog({
+      actorUserId: req.user!.id,
+      action: 'reward_challenge_results_reset',
+      entityType: 'reward_challenge',
+      entityId: req.params.id,
+      metadata: outcome,
+      ipAddress: req.ip,
+    });
+    const updated = await buildChallengeSummaryForUser({
+      challengeId: req.params.id,
+      userId: req.user!.id,
+    });
+    res.json({
+      challenge: updated,
+      ...outcome,
+      message: `Cleared ${outcome.deletedAttempts} attempt(s) and ${outcome.clearedWinners} winner record(s). The competition is ready to run on its schedule.`,
+    });
+  } catch (err) {
+    handleRewardError(res, err, 'resetting reward challenge results');
   }
 });
 

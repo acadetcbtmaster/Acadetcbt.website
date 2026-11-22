@@ -127,7 +127,14 @@ export function computeChallengeDisplayStatus(params: {
     };
   }
 
-  if (c.lifecycleStatus === 'closed' || (tClose !== null && tNow >= tClose)) {
+  const hasFutureOrLiveWindow = tNow < tEnd || tNow < tAnnounce;
+  const isStaleClosed =
+    !params.hasWinner &&
+    c.isActive &&
+    hasFutureOrLiveWindow &&
+    (tClose === null || tNow < tClose);
+
+  if ((c.lifecycleStatus === 'closed' && !isStaleClosed) || (tClose !== null && tNow >= tClose)) {
     return {
       displayStatus: 'Challenge Closed',
       canStartExam: false,
@@ -136,7 +143,10 @@ export function computeChallengeDisplayStatus(params: {
     };
   }
 
-  if (params.hasWinner || c.winnerAnnouncedAt !== null) {
+  const isStaleEmptyAnnouncement =
+    !params.hasWinner && c.winnerAnnouncedAt !== null && hasFutureOrLiveWindow;
+
+  if (params.hasWinner || (c.winnerAnnouncedAt !== null && !isStaleEmptyAnnouncement)) {
     return {
       displayStatus: 'Winner Announced',
       canStartExam: false,
@@ -1317,6 +1327,38 @@ export async function syncChallengeAutomations(challengeId?: string): Promise<vo
       continue;
     }
 
+    // Self-heal stale empty finalization / auto-close from a prior schedule after rescheduling
+    if (
+      (ch.winnerAnnouncedAt !== null || ch.examFinalizedAt !== null || ch.lifecycleStatus === 'closed') &&
+      (now < ch.examEndAt || now < ch.winnerAnnouncementAt)
+    ) {
+      const winnerCheckRes = await pool.query<{ exists: boolean }>(
+        `SELECT EXISTS(SELECT 1 FROM reward_challenge_winners WHERE challenge_id = $1) AS exists`,
+        [ch.id]
+      );
+      if (!winnerCheckRes.rows[0]?.exists) {
+        if (ch.winnerAnnouncedAt !== null || ch.examFinalizedAt !== null) {
+          await pool.query(
+            `UPDATE reward_challenge_settings
+             SET exam_finalized_at = NULL, winner_announced_at = NULL, updated_at = NOW()
+             WHERE challenge_id = $1`,
+            [ch.id]
+          );
+          ch.examFinalizedAt = null;
+          ch.winnerAnnouncedAt = null;
+        }
+        if (ch.lifecycleStatus === 'closed' && (!ch.challengeCloseAt || now < ch.challengeCloseAt)) {
+          await pool.query(
+            `UPDATE reward_challenges
+             SET lifecycle_status = 'active', closed_at = NULL, updated_at = NOW()
+             WHERE id = $1 AND is_active = TRUE AND lifecycle_status = 'closed'`,
+            [ch.id]
+          );
+          ch.lifecycleStatus = 'active';
+        }
+      }
+    }
+
     // 2. Notification milestones for active challenges (never block CBT loading/starting)
     try {
       if (now >= ch.challengeOpenAt && now < ch.examStartAt) {
@@ -1776,7 +1818,9 @@ async function formatChallengeSummary(ch: ChallengeRowJoined, userId?: string) {
           isCurrentUserWinner: userId ? winnerRow.studentId === userId : false,
         }
       : null,
-    noValidParticipants: Boolean(ch.winnerAnnouncedAt && !winnerRow),
+    noValidParticipants: Boolean(
+      ch.winnerAnnouncedAt && !winnerRow && statusMeta.displayStatus === 'Winner Announced'
+    ),
     serverNow: now.toISOString(),
     myParticipation,
   };
@@ -2544,4 +2588,84 @@ export async function markRewardPaymentPaid(params: {
     ...updated,
     paidAt: updated.paidAt.toISOString(),
   };
+}
+
+export async function resetChallengeResultsForRetest(challengeId: string): Promise<{
+  deletedAttempts: number;
+  clearedWinners: number;
+}> {
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const existsRes = await client.query<{ id: string }>(
+      `SELECT id FROM reward_challenges WHERE id = $1 FOR UPDATE`,
+      [challengeId]
+    );
+    if (existsRes.rows.length === 0) {
+      throw new RewardChallengeError('Reward challenge not found.', 404, 'CHALLENGE_NOT_FOUND');
+    }
+
+    const paidCheck = await client.query<{ id: string }>(
+      `SELECT id FROM reward_challenge_payments
+       WHERE challenge_id = $1 AND payment_status = 'payment_completed'
+       LIMIT 1`,
+      [challengeId]
+    );
+    if (paidCheck.rows.length > 0) {
+      throw new RewardChallengeError(
+        'Cannot reset a competition whose reward payout has already been marked completed.',
+        409,
+        'PAYMENT_ALREADY_COMPLETED'
+      );
+    }
+
+    await client.query(`DELETE FROM reward_challenge_payments WHERE challenge_id = $1`, [challengeId]);
+    await client.query(`DELETE FROM reward_challenge_bank_details WHERE challenge_id = $1`, [challengeId]);
+    const winDel = await client.query(
+      `DELETE FROM reward_challenge_winners WHERE challenge_id = $1`,
+      [challengeId]
+    );
+    await client.query(`DELETE FROM reward_challenge_leaderboards WHERE challenge_id = $1`, [challengeId]);
+    await client.query(`DELETE FROM reward_challenge_results WHERE challenge_id = $1`, [challengeId]);
+    await client.query(
+      `DELETE FROM reward_challenge_answers
+       WHERE attempt_id IN (SELECT id FROM reward_challenge_attempts WHERE challenge_id = $1)`,
+      [challengeId]
+    );
+    const attDel = await client.query(
+      `DELETE FROM reward_challenge_attempts WHERE challenge_id = $1`,
+      [challengeId]
+    );
+
+    await client.query(
+      `UPDATE reward_challenge_settings
+       SET exam_finalized_at = NULL,
+           winner_announced_at = NULL,
+           updated_at = NOW()
+       WHERE challenge_id = $1`,
+      [challengeId]
+    );
+
+    await client.query(
+      `UPDATE reward_challenges
+       SET lifecycle_status = CASE WHEN is_active THEN 'active' ELSE 'draft' END,
+           closed_at = NULL,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [challengeId]
+    );
+
+    await client.query('COMMIT');
+    return {
+      deletedAttempts: attDel.rowCount || 0,
+      clearedWinners: winDel.rowCount || 0,
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }
