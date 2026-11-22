@@ -25,17 +25,53 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   public componentDidCatch(error: Error, errorInfo: any) {
     console.error('[Acadet CBT Master] Uncaught UI render error:', error, errorInfo);
+    if (
+      typeof window !== 'undefined' &&
+      /Failed to fetch dynamically imported module|Importing a module script failed|Loading chunk|ChunkLoadError|Unable to preload CSS/i.test(
+        error?.message || ''
+      )
+    ) {
+      const marker = 'acadet_eb_reload:';
+      const prevTs = window.name.startsWith(marker)
+        ? Number(window.name.slice(marker.length))
+        : 0;
+      if (!prevTs || Date.now() - prevTs > 15_000) {
+        window.name = `${marker}${Date.now()}`;
+        void this.clearCachesAndReload(window.location.href);
+      }
+    }
   }
 
-  private handleReload = () => {
+  private async clearCachesAndReload(targetUrl: string) {
     try {
-      window.location.href = '/';
+      if (typeof window !== 'undefined' && 'caches' in window) {
+        const keys = await window.caches.keys();
+        await Promise.all(keys.map((k) => window.caches.delete(k)));
+      }
+    } catch {
+      // ignore cache errors
+    }
+    try {
+      window.location.assign(targetUrl);
     } catch {
       window.location.reload();
     }
+  }
+
+  private handleReload = () => {
+    void this.clearCachesAndReload('/');
   };
 
   private handleReset = () => {
+    if (
+      this.state.error &&
+      /Failed to fetch dynamically imported module|Importing a module script failed|Loading chunk|ChunkLoadError/i.test(
+        this.state.error.message || ''
+      )
+    ) {
+      void this.clearCachesAndReload(window.location.href);
+      return;
+    }
     this.setState({ hasError: false, error: null });
   };
 

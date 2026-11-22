@@ -42,8 +42,8 @@ export const RewardChallengeExamHall: React.FC<RewardChallengeExamHallProps> = (
   onExitToHub,
   onSubmitted,
 }) => {
-  const [questions, setQuestions] = useState<RewardChallengeExamQuestion[]>(
-    initialPayload.questions
+  const [questions, setQuestions] = useState<RewardChallengeExamQuestion[]>(() =>
+    Array.isArray(initialPayload?.questions) ? initialPayload.questions : []
   );
   const [currentIndex, setCurrentIndex] = useState(0);
   const [mobilePaletteOpen, setMobilePaletteOpen] = useState(false);
@@ -56,29 +56,36 @@ export const RewardChallengeExamHall: React.FC<RewardChallengeExamHallProps> = (
     Map<number, { selectedOption: OptionLetter | null; isMarkedForReview: boolean }>
   >(new Map());
 
+  const attemptId = initialPayload?.attempt?.id || '';
+  const attemptExpiresAt = initialPayload?.attempt?.expiresAt || '';
+  const attemptStatus = initialPayload?.attempt?.status || 'in_progress';
+  const serverNowIso = initialPayload?.serverNow || '';
+  const challengeId = initialPayload?.challenge?.id || '';
+  const challengeTitle = initialPayload?.challenge?.title || 'Acadet Reward CBT Challenge';
+
   useEffect(() => {
-    setQuestions(initialPayload.questions);
+    setQuestions(Array.isArray(initialPayload?.questions) ? initialPayload.questions : []);
     setCurrentIndex(0);
     autoSubmittedRef.current = false;
-  }, [initialPayload.attempt.id, initialPayload.questions]);
+  }, [attemptId, initialPayload?.questions]);
 
   useEffect(() => {
     if (questions.length === 0 || submitting || autoSubmittedRef.current) return;
     if (remainingSeconds > 0) return;
 
     // Verify wall-clock calibrated expiry so a transient 0 state never instant-submits a fresh exam
-    const expiresMs = new Date(initialPayload.attempt.expiresAt).getTime();
-    const serverMs = new Date(initialPayload.serverNow).getTime();
+    const expiresMs = new Date(attemptExpiresAt).getTime();
+    const serverMs = new Date(serverNowIso).getTime();
     const offset = Number.isNaN(serverMs) ? 0 : serverMs - Date.now();
     const actuallyExpired =
       Number.isNaN(expiresMs) || Date.now() + offset >= expiresMs;
 
-    if (actuallyExpired && initialPayload.attempt.status === 'in_progress') {
+    if (actuallyExpired && attemptStatus === 'in_progress') {
       autoSubmittedRef.current = true;
       void handleFinalSubmit('auto_timer');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remainingSeconds, questions.length, initialPayload.attempt.expiresAt, initialPayload.serverNow]);
+  }, [remainingSeconds, questions.length, attemptExpiresAt, serverNowIso, attemptStatus]);
 
   const currentQuestion = questions[currentIndex];
   const answeredCount = questions.filter((q) => q.selectedOption !== null).length;
@@ -90,9 +97,10 @@ export const RewardChallengeExamHall: React.FC<RewardChallengeExamHallProps> = (
     selectedOption: OptionLetter | null,
     isMarkedForReview: boolean
   ) => {
+    if (!challengeId) return;
     pendingSavesRef.current.set(order, { selectedOption, isMarkedForReview });
     try {
-      await api.rewardChallenges.saveAnswer(initialPayload.challenge.id, {
+      await api.rewardChallenges.saveAnswer(challengeId, {
         questionOrder: order,
         selectedOption,
         isMarkedForReview,
@@ -116,7 +124,7 @@ export const RewardChallengeExamHall: React.FC<RewardChallengeExamHallProps> = (
     }, 6000);
     return () => window.clearInterval(retryTimer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialPayload.challenge.id, submitting]);
+  }, [challengeId, submitting]);
 
   const handleSelectOption = (letter: OptionLetter) => {
     if (!currentQuestion || submitting) return;
@@ -138,11 +146,11 @@ export const RewardChallengeExamHall: React.FC<RewardChallengeExamHallProps> = (
   };
 
   const handleFinalSubmit = async (source: 'manual' | 'auto_timer') => {
-    if (submitting) return;
+    if (submitting || !challengeId) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
-      const result = await api.rewardChallenges.submitExam(initialPayload.challenge.id, {
+      const result = await api.rewardChallenges.submitExam(challengeId, {
         submissionSource: source,
         answers: questions.map((q) => ({
           questionOrder: q.order,
@@ -256,8 +264,9 @@ export const RewardChallengeExamHall: React.FC<RewardChallengeExamHallProps> = (
     </div>
   );
 
-  const mins = Math.floor(remainingSeconds / 60);
-  const secs = remainingSeconds % 60;
+  const safeRemaining = Number.isFinite(remainingSeconds) ? Math.max(0, remainingSeconds) : 0;
+  const mins = Math.floor(safeRemaining / 60);
+  const secs = safeRemaining % 60;
   const formattedClock = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 
   return (
@@ -266,12 +275,12 @@ export const RewardChallengeExamHall: React.FC<RewardChallengeExamHallProps> = (
       <div className="rounded-xl bg-white dark:bg-slate-900 border border-[#c6daf7] dark:border-slate-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs font-bold">
         <div className="flex items-center gap-2 text-[#082252] dark:text-white min-w-0">
           <Trophy className="w-4 h-4 text-amber-500 shrink-0" />
-          <span className="truncate">{initialPayload.challenge.title}</span>
+          <span className="truncate">{challengeTitle}</span>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-slate-600 dark:text-slate-300">
           <span className="inline-flex items-center gap-1.5">
             <User className="w-3.5 h-3.5 text-[#0a58ed]" />
-            <span>{studentName}</span>
+            <span>{studentName || 'Student'}</span>
           </span>
           <span
             className={`inline-flex items-center gap-1.5 tabular-nums font-extrabold ${

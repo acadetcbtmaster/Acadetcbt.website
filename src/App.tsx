@@ -21,100 +21,131 @@ import {
 import { PublicShell } from './components/public/PublicShell';
 import { api, ApiError, getClientAuthToken } from './lib/api';
 
-const AdminConsole = lazy(() =>
+import { ExamHall } from './components/cbt/ExamHall';
+import { RewardChallengeExamHall } from './components/cbt/RewardChallengeExamHall';
+import { TopHeader } from './components/cbt/TopHeader';
+
+function isDynamicImportError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return /Failed to fetch dynamically imported module|Importing a module script failed|Loading chunk|ChunkLoadError|Unable to preload CSS/i.test(
+    err.message
+  );
+}
+
+function lazyWithRetry<P extends object>(
+  factory: () => Promise<{ default: React.ComponentType<P> }>
+) {
+  return lazy(async () => {
+    try {
+      return await factory();
+    } catch (err) {
+      if (isDynamicImportError(err) && typeof window !== 'undefined') {
+        const marker = 'acadet_reloaded:';
+        const prevTs = window.name.startsWith(marker)
+          ? Number(window.name.slice(marker.length))
+          : 0;
+        if (!prevTs || Date.now() - prevTs > 15_000) {
+          window.name = `${marker}${Date.now()}`;
+          if ('caches' in window) {
+            try {
+              const keys = await window.caches.keys();
+              await Promise.all(keys.map((k) => window.caches.delete(k)));
+            } catch {
+              // ignore cache cleanup error
+            }
+          }
+          window.location.reload();
+          return new Promise<{ default: React.ComponentType<P> }>(() => {});
+        }
+      }
+      throw err;
+    }
+  });
+}
+
+const AdminConsole = lazyWithRetry(() =>
   import('./components/cbt/AdminConsole').then((m) => ({ default: m.AdminConsole }))
 );
-const AuthScreen = lazy(() =>
+const AuthScreen = lazyWithRetry(() =>
   import('./components/cbt/AuthScreen').then((m) => ({ default: m.AuthScreen }))
 );
-const CourseAccessRequiredModal = lazy(() =>
+const CourseAccessRequiredModal = lazyWithRetry(() =>
   import('./components/cbt/CourseAccessRequiredModal').then((m) => ({
     default: m.CourseAccessRequiredModal,
   }))
 );
-const CourseRegistrationView = lazy(() =>
+const CourseRegistrationView = lazyWithRetry(() =>
   import('./components/cbt/CourseRegistrationView').then((m) => ({
     default: m.CourseRegistrationView,
   }))
 );
-const ExamHall = lazy(() =>
-  import('./components/cbt/ExamHall').then((m) => ({ default: m.ExamHall }))
-);
-const FounderView = lazy(() =>
+const FounderView = lazyWithRetry(() =>
   import('./components/public/FounderView').then((m) => ({ default: m.FounderView }))
 );
-const HelpSupportView = lazy(() =>
+const HelpSupportView = lazyWithRetry(() =>
   import('./components/cbt/HelpSupportView').then((m) => ({ default: m.HelpSupportView }))
 );
-const HomeDashboard = lazy(() =>
+const HomeDashboard = lazyWithRetry(() =>
   import('./components/cbt/HomeDashboard').then((m) => ({ default: m.HomeDashboard }))
 );
-const MyRegisteredCoursesView = lazy(() =>
+const MyRegisteredCoursesView = lazyWithRetry(() =>
   import('./components/cbt/MyRegisteredCoursesView').then((m) => ({
     default: m.MyRegisteredCoursesView,
   }))
 );
-const NotificationsView = lazy(() =>
+const NotificationsView = lazyWithRetry(() =>
   import('./components/cbt/NotificationsView').then((m) => ({ default: m.NotificationsView }))
 );
-const PaymentHistoryView = lazy(() =>
+const PaymentHistoryView = lazyWithRetry(() =>
   import('./components/cbt/PaymentHistoryView').then((m) => ({
     default: m.PaymentHistoryView,
   }))
 );
-const PaymentVerificationBanner = lazy(() =>
+const PaymentVerificationBanner = lazyWithRetry(() =>
   import('./components/cbt/PaymentVerificationBanner').then((m) => ({
     default: m.PaymentVerificationBanner,
   }))
 );
-const PaymentVerificationView = lazy(() =>
+const PaymentVerificationView = lazyWithRetry(() =>
   import('./components/cbt/PaymentVerificationView').then((m) => ({
     default: m.PaymentVerificationView,
   }))
 );
-const PracticeExamsView = lazy(() =>
+const PracticeExamsView = lazyWithRetry(() =>
   import('./components/cbt/PracticeExamsView').then((m) => ({ default: m.PracticeExamsView }))
 );
-const ResetPasswordScreen = lazy(() =>
+const ResetPasswordScreen = lazyWithRetry(() =>
   import('./components/cbt/ResetPasswordScreen').then((m) => ({
     default: m.ResetPasswordScreen,
   }))
 );
-const ResultsView = lazy(() =>
+const ResultsView = lazyWithRetry(() =>
   import('./components/cbt/ResultsView').then((m) => ({ default: m.ResultsView }))
 );
-const RewardChallengeExamHall = lazy(() =>
-  import('./components/cbt/RewardChallengeExamHall').then((m) => ({
-    default: m.RewardChallengeExamHall,
-  }))
-);
-const RewardChallengeHub = lazy(() =>
+const RewardChallengeHub = lazyWithRetry(() =>
   import('./components/cbt/RewardChallengeHub').then((m) => ({
     default: m.RewardChallengeHub,
   }))
 );
-const SettingsDrawer = lazy(() =>
+const SettingsDrawer = lazyWithRetry(() =>
   import('./components/cbt/SettingsDrawer').then((m) => ({ default: m.SettingsDrawer }))
 );
-const StudyMaterialsView = lazy(() =>
+const StudyMaterialsView = lazyWithRetry(() =>
   import('./components/cbt/StudyMaterialsView').then((m) => ({
     default: m.StudyMaterialsView,
   }))
 );
-const StudentMaterialPurchasesView = lazy(() =>
+const StudentMaterialPurchasesView = lazyWithRetry(() =>
   import('./components/cbt/StudentMaterialPurchasesView').then((m) => ({
     default: m.StudentMaterialPurchasesView,
   }))
 );
-const TopHeader = lazy(() =>
-  import('./components/cbt/TopHeader').then((m) => ({ default: m.TopHeader }))
-);
-const VerifyEmailScreen = lazy(() =>
+const VerifyEmailScreen = lazyWithRetry(() =>
   import('./components/cbt/VerifyEmailScreen').then((m) => ({
     default: m.VerifyEmailScreen,
   }))
 );
-const WorkspaceSidebar = lazy(() =>
+const WorkspaceSidebar = lazyWithRetry(() =>
   import('./components/cbt/WorkspaceSidebar').then((m) => ({ default: m.WorkspaceSidebar }))
 );
 import type {
@@ -685,6 +716,15 @@ export default function App() {
     setRewardStartError(null);
     try {
       const started = await api.rewardChallenges.startExam(challengeId);
+      if (!started || !started.attempt || !started.challenge || !Array.isArray(started.questions)) {
+        setRewardStartError(
+          'Challenge examination data is temporarily unavailable. Please refresh and try again.'
+        );
+        setRewardHubInitialView('overview');
+        setActiveTab('reward-challenge');
+        await loadWorkspaceData(user);
+        return;
+      }
       if (started.attempt.status !== 'in_progress') {
         setRewardHubInitialView('overview');
         setActiveTab('reward-challenge');
@@ -693,7 +733,9 @@ export default function App() {
       }
       setRewardSubmissionNotice(null);
       setActiveRewardAttempt(started);
-      setRewardRemainingSeconds(started.remainingSeconds);
+      setRewardRemainingSeconds(
+        Number.isFinite(started.remainingSeconds) ? Math.max(0, started.remainingSeconds) : 0
+      );
       setEndRewardConfirmOpen(false);
     } catch (err) {
       setRewardStartError(
@@ -917,7 +959,7 @@ export default function App() {
             onLogout={handleLogout}
             examMode={{
               remainingSeconds: rewardRemainingSeconds,
-              courseLabel: `ACADET REWARD CBT CHALLENGE — ${activeRewardAttempt.challenge.title}`,
+              courseLabel: `ACADET REWARD CBT CHALLENGE — ${activeRewardAttempt.challenge?.title || 'Challenge Exam'}`,
               onRequestEndExam: () => setEndRewardConfirmOpen(true),
             }}
           />

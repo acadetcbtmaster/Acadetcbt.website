@@ -1,8 +1,6 @@
 // Service Worker for Acadet CBT MASTER Mobile Suite PWA
-const CACHE_NAME = 'acadet-cbt-suite-v1.5';
+const CACHE_NAME = 'acadet-cbt-suite-v2.0';
 const STATIC_ASSETS = [
-  '/',
-  '/index.html',
   '/manifest.json',
   '/favicon.ico',
   '/favicon.png',
@@ -16,7 +14,7 @@ const STATIC_ASSETS = [
   '/robots.txt'
 ];
 
-// Install Event: Cache Core Static Shell
+// Install Event: Pre-cache static brand icons & manifest
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -27,7 +25,7 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activate Event: Clean up outdated caches
+// Activate Event: Clean up all outdated caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -42,42 +40,51 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch Event: Network-first for dynamic API & cloud calls, cache-fallback for static assets
+// Fetch Event: Network-First for HTML/navigation (prevents stale JS chunk hashes), cached fallback offline
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Skip non-GET and API / Cloud Firestore / Supabase / WebSocket calls from caching
   if (
     event.request.method !== 'GET' ||
-    url.pathname.startsWith('/api/') ||
-    url.hostname.includes('firestore.googleapis.com') ||
-    url.hostname.includes('supabase.co') ||
-    url.hostname.includes('paystack.co')
+    url.origin !== self.location.origin ||
+    url.pathname.startsWith('/api/')
   ) {
+    return;
+  }
+
+  const isHtmlRequest =
+    event.request.mode === 'navigate' ||
+    url.pathname === '/' ||
+    url.pathname === '/index.html' ||
+    (event.request.headers.get('accept') || '').includes('text/html');
+
+  if (isHtmlRequest) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200 && response.type === 'basic') {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return response;
+        })
+        .catch(() => caches.match(event.request).then((m) => m || caches.match('/') || caches.match('/index.html')))
+    );
     return;
   }
 
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
-        // Fetch in background to update cache (Stale-While-Revalidate)
-        fetch(event.request)
-          .then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-              const responseToCache = networkResponse.clone();
-              caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, responseToCache);
-              });
-            }
-          })
-          .catch(() => {});
         return cachedResponse;
       }
-
-      // If not in cache, fetch from network and cache
       return fetch(event.request)
         .then((response) => {
           if (!response || response.status !== 200 || response.type !== 'basic') {
+            return response;
+          }
+          const ct = response.headers.get('content-type') || '';
+          if (url.pathname.startsWith('/assets/') && ct.includes('text/html')) {
             return response;
           }
           const responseToCache = response.clone();
@@ -87,11 +94,7 @@ self.addEventListener('fetch', (event) => {
           return response;
         })
         .catch(() => {
-          // If offline and requesting navigation, return index.html
-          if (event.request.mode === 'navigate') {
-            return caches.match('/index.html') || caches.match('/');
-          }
-          return new Response('Offline - Practice sessions cached in local database', {
+          return new Response('Offline', {
             status: 503,
             statusText: 'Service Unavailable (Offline)',
             headers: new Headers({ 'Content-Type': 'text/plain' })

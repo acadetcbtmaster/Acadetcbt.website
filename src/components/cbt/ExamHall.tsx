@@ -66,7 +66,9 @@ export const ExamHall: React.FC<ExamHallProps> = ({
   onOpenEndExamConfirm,
   onExamSubmitted,
 }) => {
-  const [questions, setQuestions] = useState<ActiveExamQuestion[]>(initialQuestions);
+  const [questions, setQuestions] = useState<ActiveExamQuestion[]>(() =>
+    Array.isArray(initialQuestions) ? initialQuestions : []
+  );
   const [currentIndex, setCurrentIndex] = useState(0);
   const [mobilePaletteOpen, setMobilePaletteOpen] = useState(false);
   const [calculatorOpen, setCalculatorOpen] = useState(false);
@@ -75,9 +77,9 @@ export const ExamHall: React.FC<ExamHallProps> = ({
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
-    setQuestions(initialQuestions);
+    setQuestions(Array.isArray(initialQuestions) ? initialQuestions : []);
     setCurrentIndex(0);
-  }, [session.id, initialQuestions]);
+  }, [session?.id, initialQuestions]);
 
   // Auto-submit when server timer reaches zero
   useEffect(() => {
@@ -160,7 +162,19 @@ export const ExamHall: React.FC<ExamHallProps> = ({
   };
 
   if (!currentQuestion) {
-    return null;
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="max-w-md w-full rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 p-6 text-center space-y-3 shadow-sm">
+          <AlertCircle className="w-10 h-10 text-amber-500 mx-auto" />
+          <h2 className="text-base font-extrabold text-[#082252] dark:text-white">
+            Examination Questions Unavailable
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300">
+            No published questions were loaded for this examination session. Use End Exam above to return to the dashboard.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   const difficultyBadgeClass =
