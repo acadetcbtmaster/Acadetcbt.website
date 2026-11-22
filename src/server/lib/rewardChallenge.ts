@@ -709,17 +709,29 @@ export async function broadcastNotificationToStudents(params: {
   actionLabel?: string;
 }): Promise<void> {
   const pool = getPool();
+  const keyPrefix = `${params.eventType}:${params.challengeId}:`;
   const studentRows = params.onlyParticipants
     ? await pool.query<{ studentId: string }>(
-        `SELECT student_id AS "studentId"
-         FROM reward_challenge_participants
-         WHERE challenge_id = $1`,
-        [params.challengeId]
+        `SELECT p.student_id AS "studentId"
+         FROM reward_challenge_participants p
+         WHERE p.challenge_id = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM reward_challenge_notifications n
+             WHERE n.idempotency_key = $2 || p.student_id::text
+           )`,
+        [params.challengeId, keyPrefix]
       )
     : await pool.query<{ studentId: string }>(
-        `SELECT id AS "studentId"
-         FROM users
-         WHERE role = 'student' AND is_active = TRUE AND account_status = 'active'`
+        `SELECT u.id AS "studentId"
+         FROM users u
+         WHERE u.role = 'student'
+           AND u.is_active = TRUE
+           AND u.account_status = 'active'
+           AND NOT EXISTS (
+             SELECT 1 FROM reward_challenge_notifications n
+             WHERE n.idempotency_key = $1 || u.id::text
+           )`,
+        [keyPrefix]
       );
 
   for (const row of studentRows.rows) {
@@ -729,7 +741,7 @@ export async function broadcastNotificationToStudents(params: {
       eventType: params.eventType,
       title: params.title,
       message: params.message,
-      idempotencyKey: `${params.eventType}:${params.challengeId}:${row.studentId}`,
+      idempotencyKey: `${keyPrefix}${row.studentId}`,
       actionLabel: params.actionLabel ?? 'Open Reward Challenge',
       actionUrl: '#reward-challenge',
     });
@@ -1305,23 +1317,30 @@ export async function syncChallengeAutomations(challengeId?: string): Promise<vo
       continue;
     }
 
-    // 2. Notification milestones for active challenges
-    if (now >= ch.challengeOpenAt && now < ch.examStartAt) {
-      await broadcastNotificationToStudents({
-        challengeId: ch.id,
-        eventType: 'challenge_upcoming',
-        title: `${ch.title}: Upcoming Challenge Open`,
-        message: `${ch.title} portal is now open! Examination starts ${formatWatDateTime(ch.examStartAt)} (${ch.questionCount} questions · ${ch.durationMinutes} mins). Prize: ₦${Math.round(ch.rewardAmount).toLocaleString('en-NG')}.`,
-      });
-    }
+    // 2. Notification milestones for active challenges (never block CBT loading/starting)
+    try {
+      if (now >= ch.challengeOpenAt && now < ch.examStartAt) {
+        await broadcastNotificationToStudents({
+          challengeId: ch.id,
+          eventType: 'challenge_upcoming',
+          title: `${ch.title}: Upcoming Challenge Open`,
+          message: `${ch.title} portal is now open! Examination starts ${formatWatDateTime(ch.examStartAt)} (${ch.questionCount} questions · ${ch.durationMinutes} mins). Prize: ₦${Math.round(ch.rewardAmount).toLocaleString('en-NG')}.`,
+        });
+      }
 
-    if (now >= ch.examStartAt && now < ch.examEndAt) {
-      await broadcastNotificationToStudents({
-        challengeId: ch.id,
-        eventType: 'exam_starting',
-        title: `${ch.title} Examination Is Live!`,
-        message: `The ${ch.title} examination is now open for participation until ${formatWatDateTime(ch.examEndAt)}. Sign in and click Start Challenge before entry closes.`,
-      });
+      if (now >= ch.examStartAt && now < ch.examEndAt) {
+        await broadcastNotificationToStudents({
+          challengeId: ch.id,
+          eventType: 'exam_starting',
+          title: `${ch.title} Examination Is Live!`,
+          message: `The ${ch.title} examination is now open for participation until ${formatWatDateTime(ch.examEndAt)}. Sign in and click Start Challenge before entry closes.`,
+        });
+      }
+    } catch (notifErr) {
+      console.error(
+        '[RewardChallenge] Non-fatal notification broadcast error:',
+        notifErr instanceof Error ? notifErr.message : notifErr
+      );
     }
 
     // 3. Examination Finalization & Automatic Winner Announcement
@@ -1414,7 +1433,12 @@ export async function buildChallengeSummaryForUser(params: {
          s.winner_announced_at AS "winnerAnnouncedAt"
        FROM reward_challenges c
        INNER JOIN reward_challenge_settings s ON s.challenge_id = c.id
-       ORDER BY c.is_active DESC, c.is_featured DESC, c.created_at DESC
+       ORDER BY
+         c.is_active DESC,
+         (c.lifecycle_status = 'active') DESC,
+         (c.lifecycle_status = 'draft') DESC,
+         c.is_featured DESC,
+         c.created_at DESC
        LIMIT 1`
     );
     row = res.rows[0];

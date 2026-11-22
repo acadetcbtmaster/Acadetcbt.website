@@ -26,6 +26,7 @@ interface RewardChallengeExamHallProps {
   endConfirmOpen: boolean;
   onCloseEndConfirm: () => void;
   onOpenEndConfirm: () => void;
+  onExitToHub?: () => void;
   onSubmitted: (
     result: RewardChallengeAttemptPayload & { confirmationMessage: string }
   ) => void;
@@ -38,6 +39,7 @@ export const RewardChallengeExamHall: React.FC<RewardChallengeExamHallProps> = (
   endConfirmOpen,
   onCloseEndConfirm,
   onOpenEndConfirm,
+  onExitToHub,
   onSubmitted,
 }) => {
   const [questions, setQuestions] = useState<RewardChallengeExamQuestion[]>(
@@ -61,12 +63,22 @@ export const RewardChallengeExamHall: React.FC<RewardChallengeExamHallProps> = (
   }, [initialPayload.attempt.id, initialPayload.questions]);
 
   useEffect(() => {
-    if (remainingSeconds <= 0 && !submitting && !autoSubmittedRef.current) {
+    if (questions.length === 0 || submitting || autoSubmittedRef.current) return;
+    if (remainingSeconds > 0) return;
+
+    // Verify wall-clock calibrated expiry so a transient 0 state never instant-submits a fresh exam
+    const expiresMs = new Date(initialPayload.attempt.expiresAt).getTime();
+    const serverMs = new Date(initialPayload.serverNow).getTime();
+    const offset = Number.isNaN(serverMs) ? 0 : serverMs - Date.now();
+    const actuallyExpired =
+      Number.isNaN(expiresMs) || Date.now() + offset >= expiresMs;
+
+    if (actuallyExpired && initialPayload.attempt.status === 'in_progress') {
       autoSubmittedRef.current = true;
       void handleFinalSubmit('auto_timer');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [remainingSeconds]);
+  }, [remainingSeconds, questions.length, initialPayload.attempt.expiresAt, initialPayload.serverNow]);
 
   const currentQuestion = questions[currentIndex];
   const answeredCount = questions.filter((q) => q.selectedOption !== null).length;
@@ -148,7 +160,30 @@ export const RewardChallengeExamHall: React.FC<RewardChallengeExamHallProps> = (
     }
   };
 
-  if (!currentQuestion) return null;
+  if (!currentQuestion) {
+    return (
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="max-w-md w-full rounded-2xl bg-white dark:bg-slate-900 border border-[#dce6f5] dark:border-slate-800 p-6 text-center space-y-3 shadow-sm">
+          <AlertCircle className="w-10 h-10 text-amber-500 mx-auto" />
+          <h2 className="text-base font-extrabold text-[#082252] dark:text-white">
+            Challenge Questions Could Not Be Loaded
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300">
+            No published questions were found for this active attempt. Return to the Challenge Hub to refresh or contact administration.
+          </p>
+          {onExitToHub && (
+            <button
+              type="button"
+              onClick={onExitToHub}
+              className="px-4 py-2.5 rounded-xl bg-[#0a58ed] hover:bg-[#0044b8] text-white text-xs sm:text-sm font-extrabold"
+            >
+              Return to Challenge Hub
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   const options: Array<{ letter: OptionLetter; text: string }> = [
     { letter: 'A', text: currentQuestion.optionA },

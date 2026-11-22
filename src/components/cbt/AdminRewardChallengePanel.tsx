@@ -1394,6 +1394,35 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
                 </div>
               </div>
 
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 p-3 text-xs space-y-1.5">
+                <div className="font-bold text-slate-700 dark:text-slate-200">
+                  Current Server Time (WAT):{' '}
+                  <span className="font-mono text-[#0b337a] dark:text-blue-300">
+                    {formatWatDateTimeDisplay(activeChallenge.serverNow)}
+                  </span>
+                </div>
+                {(!activeChallenge.isActive || activeChallenge.publishedQuestionCount === 0) && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-amber-800 dark:text-amber-300 font-semibold">
+                    <span>
+                      {activeChallenge.publishedQuestionCount === 0
+                        ? 'Action required: Publish at least 1 question in Question Management before activating, otherwise the CBT cannot display to students.'
+                        : 'Reminder: This challenge is currently INACTIVE. Save your schedule, then click Activate Challenge so students can start the CBT at the scheduled time.'}
+                    </span>
+                    {!activeChallenge.isActive && activeChallenge.publishedQuestionCount > 0 && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void handleActivateChallenge()}
+                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold inline-flex items-center gap-1"
+                      >
+                        <Power className="w-3.5 h-3.5" />
+                        <span>Activate Challenge Now</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <button
                 type="submit"
                 disabled={busy}

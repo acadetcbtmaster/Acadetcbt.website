@@ -230,6 +230,7 @@ export default function App() {
   const [rewardRemainingSeconds, setRewardRemainingSeconds] = useState(0);
   const [endRewardConfirmOpen, setEndRewardConfirmOpen] = useState(false);
   const [rewardSubmissionNotice, setRewardSubmissionNotice] = useState<string | null>(null);
+  const [rewardStartError, setRewardStartError] = useState<string | null>(null);
 
   // Course access lock & Paystack verification states
   const [courseRequiredModalCourse, setCourseRequiredModalCourse] =
@@ -681,6 +682,7 @@ export default function App() {
 
   const handleStartOrResumeRewardChallenge = async (challengeId: string) => {
     setStartingRewardChallenge(true);
+    setRewardStartError(null);
     try {
       const started = await api.rewardChallenges.startExam(challengeId);
       if (started.attempt.status !== 'in_progress') {
@@ -693,9 +695,15 @@ export default function App() {
       setActiveRewardAttempt(started);
       setRewardRemainingSeconds(started.remainingSeconds);
       setEndRewardConfirmOpen(false);
-    } catch {
+    } catch (err) {
+      setRewardStartError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to start the Reward CBT Challenge right now.'
+      );
       setRewardHubInitialView('overview');
       setActiveTab('reward-challenge');
+      await loadWorkspaceData(user);
     } finally {
       setStartingRewardChallenge(false);
     }
@@ -921,6 +929,12 @@ export default function App() {
               endConfirmOpen={endRewardConfirmOpen}
               onCloseEndConfirm={() => setEndRewardConfirmOpen(false)}
               onOpenEndConfirm={() => setEndRewardConfirmOpen(true)}
+              onExitToHub={() => {
+                setActiveRewardAttempt(null);
+                setEndRewardConfirmOpen(false);
+                setRewardHubInitialView('overview');
+                setActiveTab('reward-challenge');
+              }}
               onSubmitted={handleRewardChallengeSubmitted}
             />
           </main>
@@ -1080,8 +1094,10 @@ export default function App() {
                 rewardChallenge={rewardChallenge}
                 loadingRewardChallenge={loadingRewardChallenge}
                 startingRewardChallenge={startingRewardChallenge}
+                rewardChallengeErrorNotice={rewardStartError}
                 onStartRewardChallenge={(id) => void handleStartOrResumeRewardChallenge(id)}
                 onOpenRewardChallengeHub={handleOpenRewardChallengeHub}
+                onRewardScheduleBoundaryReached={() => void loadWorkspaceData(user)}
               />
             </main>
           </>
@@ -1159,6 +1175,8 @@ export default function App() {
                     initialSubView={rewardHubInitialView}
                     submissionConfirmationMessage={rewardSubmissionNotice}
                     onClearSubmissionConfirmation={() => setRewardSubmissionNotice(null)}
+                    startErrorNotice={rewardStartError}
+                    onClearStartErrorNotice={() => setRewardStartError(null)}
                     onStartOrResumeChallenge={handleStartOrResumeRewardChallenge}
                     onChallengeStateUpdated={() => loadWorkspaceData(user)}
                   />

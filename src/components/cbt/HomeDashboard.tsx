@@ -57,8 +57,10 @@ interface HomeDashboardProps {
   rewardChallenge: RewardChallengeSummary | null;
   loadingRewardChallenge?: boolean;
   startingRewardChallenge?: boolean;
+  rewardChallengeErrorNotice?: string | null;
   onStartRewardChallenge: (challengeId: string) => void;
   onOpenRewardChallengeHub: (initialView?: 'overview' | 'leaderboard' | 'winner') => void;
+  onRewardScheduleBoundaryReached?: () => void;
 }
 
 export const HomeDashboard: React.FC<HomeDashboardProps> = ({
@@ -82,8 +84,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
   rewardChallenge,
   loadingRewardChallenge = false,
   startingRewardChallenge = false,
+  rewardChallengeErrorNotice = null,
   onStartRewardChallenge,
   onOpenRewardChallengeHub,
+  onRewardScheduleBoundaryReached,
 }) => {
   const { branding } = useBranding();
   const [showStartModal, setShowStartModal] = useState(false);
@@ -291,8 +295,10 @@ export const HomeDashboard: React.FC<HomeDashboardProps> = ({
         challenge={rewardChallenge}
         loading={loadingRewardChallenge}
         starting={startingRewardChallenge}
+        errorNotice={rewardChallengeErrorNotice}
         onStartChallenge={onStartRewardChallenge}
         onOpenChallengeHub={onOpenRewardChallengeHub}
+        onScheduleBoundaryReached={onRewardScheduleBoundaryReached}
       />
 
       {/* 4 Horizontal Action Cards */}

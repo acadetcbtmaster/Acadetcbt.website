@@ -38,6 +38,8 @@ interface RewardChallengeHubProps {
   initialSubView?: 'overview' | 'leaderboard' | 'winner';
   submissionConfirmationMessage?: string | null;
   onClearSubmissionConfirmation?: () => void;
+  startErrorNotice?: string | null;
+  onClearStartErrorNotice?: () => void;
   onStartOrResumeChallenge: (challengeId: string) => Promise<void>;
   onChallengeStateUpdated?: () => Promise<void> | void;
 }
@@ -86,6 +88,8 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
   initialSubView = 'overview',
   submissionConfirmationMessage,
   onClearSubmissionConfirmation,
+  startErrorNotice,
+  onClearStartErrorNotice,
   onStartOrResumeChallenge,
   onChallengeStateUpdated,
 }) => {
@@ -282,6 +286,42 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
   };
 
   const effectiveNow = nowTickMs + serverOffsetMs;
+  const crossedBoundariesRef = React.useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    crossedBoundariesRef.current.clear();
+  }, [
+    challenge?.id,
+    challenge?.settings.challengeOpenAt,
+    challenge?.settings.examStartAt,
+    challenge?.settings.examEndAt,
+    challenge?.settings.winnerAnnouncementAt,
+  ]);
+
+  useEffect(() => {
+    if (!challenge || !challenge.isActive || !selectedChallengeId) return;
+    const transitions = [
+      { key: `open:${challenge.settings.challengeOpenAt}`, ms: new Date(challenge.settings.challengeOpenAt).getTime() },
+      { key: `start:${challenge.settings.examStartAt}`, ms: new Date(challenge.settings.examStartAt).getTime() },
+      { key: `end:${challenge.settings.examEndAt}`, ms: new Date(challenge.settings.examEndAt).getTime() },
+      {
+        key: `announce:${challenge.settings.winnerAnnouncementAt}`,
+        ms: new Date(challenge.settings.winnerAnnouncementAt).getTime(),
+      },
+    ];
+    for (const tr of transitions) {
+      if (Number.isNaN(tr.ms)) continue;
+      if (
+        effectiveNow >= tr.ms &&
+        effectiveNow - tr.ms < 60_000 &&
+        !crossedBoundariesRef.current.has(tr.key)
+      ) {
+        crossedBoundariesRef.current.add(tr.key);
+        void loadData(selectedChallengeId);
+        void onChallengeStateUpdated?.();
+      }
+    }
+  }, [challenge, effectiveNow, selectedChallengeId, loadData, onChallengeStateUpdated]);
 
   const getActiveCountdown = () => {
     if (!challenge) return null;
@@ -422,6 +462,21 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
             </div>
           )}
 
+          {startErrorNotice && (
+            <div className="rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 px-4 py-3 text-xs sm:text-sm font-semibold text-red-700 dark:text-red-300 flex items-center justify-between gap-3">
+              <span>{startErrorNotice}</span>
+              {onClearStartErrorNotice && (
+                <button
+                  type="button"
+                  onClick={onClearStartErrorNotice}
+                  className="text-xs font-extrabold underline shrink-0"
+                >
+                  Dismiss
+                </button>
+              )}
+            </div>
+          )}
+
           {feedback && (
             <div
               className={`rounded-xl px-4 py-3 text-xs sm:text-sm font-semibold border ${
@@ -546,7 +601,14 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                           <CheckCircle2 className="w-4 h-4" />
                           <span>You have completed this challenge examination</span>
                         </div>
-                      ) : challenge.canStartExam ? (
+                      ) : challenge.canStartExam ||
+                        (challenge.isActive &&
+                          challenge.lifecycleStatus === 'active' &&
+                          challenge.publishedQuestionCount > 0 &&
+                          !challenge.hasWinner &&
+                          !challenge.settings.winnerAnnouncedAt &&
+                          effectiveNow >= new Date(challenge.settings.examStartAt).getTime() &&
+                          effectiveNow < new Date(challenge.settings.examEndAt).getTime()) ? (
                         <button
                           type="button"
                           disabled={busyAction}
