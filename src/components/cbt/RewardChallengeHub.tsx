@@ -17,7 +17,7 @@ import {
   Trophy,
   Users,
 } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../lib/api';
 import type {
   RewardChallengeAttemptPayload,
@@ -83,6 +83,19 @@ function getPaymentStatusBadge(status: RewardChallengePaymentStatus) {
   }
 }
 
+function isActiveFormInputFocused(): boolean {
+  if (typeof document === 'undefined') return false;
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  return (
+    tag === 'INPUT' ||
+    tag === 'TEXTAREA' ||
+    tag === 'SELECT' ||
+    (el as HTMLElement).isContentEditable
+  );
+}
+
 export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
   featuredChallenge,
   initialSubView = 'overview',
@@ -121,6 +134,12 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
   const [correctionNote, setCorrectionNote] = useState('');
   const [editingBank, setEditingBank] = useState(false);
 
+  const bankFormDirtyRef = useRef(false);
+  const hydratedBankKeyRef = useRef<string | null>(null);
+  const isBankFormFocusedRef = useRef(false);
+  const editingBankRef = useRef(editingBank);
+  editingBankRef.current = editingBank;
+
   useEffect(() => {
     setSubView(initialSubView);
   }, [initialSubView]);
@@ -131,8 +150,13 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
   }, []);
 
   const loadData = useCallback(
-    async (targetId?: string) => {
-      setLoading(true);
+    async (
+      targetId?: string,
+      options?: { background?: boolean; forceSyncBankForm?: boolean }
+    ) => {
+      if (!options?.background) {
+        setLoading(true);
+      }
       try {
         const [histRes, myHistRes] = await Promise.all([
           api.rewardChallenges.listHistory(),
@@ -163,14 +187,32 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
             setServerOffsetMs(serverDate - Date.now());
           }
 
-          if (detailRes.challenge.myParticipation.myBankDetails) {
-            setBankName(detailRes.challenge.myParticipation.myBankDetails.bankName);
-            setAccountNumber(detailRes.challenge.myParticipation.myBankDetails.accountNumber);
-            setAccountName(detailRes.challenge.myParticipation.myBankDetails.accountName);
-          } else {
-            setBankName('');
-            setAccountNumber('');
-            setAccountName('');
+          const savedBank = detailRes.challenge.myParticipation.myBankDetails;
+          const nextBankKey = `${detailRes.challenge.id}:${savedBank?.updatedAt || 'none'}`;
+          const switchedChallenge =
+            hydratedBankKeyRef.current !== null &&
+            !hydratedBankKeyRef.current.startsWith(`${detailRes.challenge.id}:`);
+
+          const shouldHydrateBankForm =
+            Boolean(options?.forceSyncBankForm) ||
+            (!bankFormDirtyRef.current &&
+              !isBankFormFocusedRef.current &&
+              !editingBankRef.current &&
+              (hydratedBankKeyRef.current === null ||
+                switchedChallenge ||
+                hydratedBankKeyRef.current !== nextBankKey));
+
+          if (shouldHydrateBankForm) {
+            if (savedBank) {
+              setBankName(savedBank.bankName);
+              setAccountNumber(savedBank.accountNumber);
+              setAccountName(savedBank.accountName);
+            } else {
+              setBankName('');
+              setAccountNumber('');
+              setAccountName('');
+            }
+            hydratedBankKeyRef.current = nextBankKey;
           }
 
           if (
@@ -193,12 +235,16 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
           setReviewAttempt(null);
         }
       } catch (err) {
-        setFeedback({
-          type: 'err',
-          text: err instanceof Error ? err.message : 'Unable to load reward challenge details.',
-        });
+        if (!options?.background) {
+          setFeedback({
+            type: 'err',
+            text: err instanceof Error ? err.message : 'Unable to load reward challenge details.',
+          });
+        }
       } finally {
-        setLoading(false);
+        if (!options?.background) {
+          setLoading(false);
+        }
       }
     },
     [featuredChallenge?.id, selectedChallengeId]
@@ -209,11 +255,20 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [featuredChallenge?.id]);
 
-  // Periodic sync for live countdown / status transitions / leaderboard updates
+  // Periodic sync for live countdown / status transitions / leaderboard updates (never interrupts typing)
   useEffect(() => {
     if (!selectedChallengeId) return;
     const timer = window.setInterval(() => {
-      void loadData(selectedChallengeId);
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      if (
+        isBankFormFocusedRef.current ||
+        bankFormDirtyRef.current ||
+        editingBankRef.current ||
+        isActiveFormInputFocused()
+      ) {
+        return;
+      }
+      void loadData(selectedChallengeId, { background: true });
     }, 15_000);
     return () => window.clearInterval(timer);
   }, [selectedChallengeId, loadData]);
@@ -272,8 +327,10 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
       });
       setEditingBank(false);
       setCorrectionNote('');
+      bankFormDirtyRef.current = false;
+      hydratedBankKeyRef.current = null;
       setFeedback({ type: 'ok', text: res.message });
-      await loadData(challenge.id);
+      await loadData(challenge.id, { forceSyncBankForm: true });
       await onChallengeStateUpdated?.();
     } catch (err) {
       setFeedback({
@@ -317,8 +374,10 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
         !crossedBoundariesRef.current.has(tr.key)
       ) {
         crossedBoundariesRef.current.add(tr.key);
-        void loadData(selectedChallengeId);
-        void onChallengeStateUpdated?.();
+        void loadData(selectedChallengeId, { background: true });
+        if (!isBankFormFocusedRef.current && !isActiveFormInputFocused()) {
+          void onChallengeStateUpdated?.();
+        }
       }
     }
   }, [challenge, effectiveNow, selectedChallengeId, loadData, onChallengeStateUpdated]);
@@ -458,6 +517,9 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                 value={selectedChallengeId}
                 onChange={(e) => {
                   const id = e.target.value;
+                  bankFormDirtyRef.current = false;
+                  hydratedBankKeyRef.current = null;
+                  setEditingBank(false);
                   setSelectedChallengeId(id);
                   setShowAnswersReview(false);
                   void loadData(id);
@@ -1110,7 +1172,19 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                                 'payment_completed' && (
                                 <button
                                   type="button"
-                                  onClick={() => setEditingBank(true)}
+                                  onClick={() => {
+                                    if (challenge.myParticipation.myBankDetails) {
+                                      setBankName(challenge.myParticipation.myBankDetails.bankName);
+                                      setAccountNumber(
+                                        challenge.myParticipation.myBankDetails.accountNumber
+                                      );
+                                      setAccountName(
+                                        challenge.myParticipation.myBankDetails.accountName
+                                      );
+                                    }
+                                    bankFormDirtyRef.current = false;
+                                    setEditingBank(true);
+                                  }}
                                   className="px-3.5 py-2 rounded-xl border border-[#9dc0f5] text-[#0b337a] dark:text-blue-300 text-xs font-extrabold hover:bg-blue-50 dark:hover:bg-slate-800"
                                 >
                                   Request Controlled Bank Account Correction Before Payout
@@ -1118,7 +1192,19 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                               )}
                           </div>
                         ) : (
-                          <form onSubmit={handleSubmitBankDetails} className="space-y-3">
+                          <form
+                            onSubmit={handleSubmitBankDetails}
+                            onFocusCapture={() => {
+                              isBankFormFocusedRef.current = true;
+                            }}
+                            onBlurCapture={(e) => {
+                              const nextTarget = e.relatedTarget as Node | null;
+                              if (!nextTarget || !e.currentTarget.contains(nextTarget)) {
+                                isBankFormFocusedRef.current = false;
+                              }
+                            }}
+                            className="space-y-3"
+                          >
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                               <div>
                                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
@@ -1130,7 +1216,10 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                                     type="text"
                                     required
                                     value={bankName}
-                                    onChange={(e) => setBankName(e.target.value)}
+                                    onChange={(e) => {
+                                      bankFormDirtyRef.current = true;
+                                      setBankName(e.target.value);
+                                    }}
                                     placeholder="e.g. Access Bank / OPay"
                                     className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 pl-9 pr-3 py-2.5 text-sm font-semibold"
                                   />
@@ -1143,13 +1232,16 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                                 </label>
                                 <input
                                   type="text"
+                                  inputMode="numeric"
+                                  autoComplete="off"
                                   required
                                   maxLength={10}
                                   pattern="\d{10}"
                                   value={accountNumber}
-                                  onChange={(e) =>
-                                    setAccountNumber(e.target.value.replace(/\D/g, '').slice(0, 10))
-                                  }
+                                  onChange={(e) => {
+                                    bankFormDirtyRef.current = true;
+                                    setAccountNumber(e.target.value.replace(/\D/g, '').slice(0, 10));
+                                  }}
                                   placeholder="0123456789"
                                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2.5 text-sm font-mono font-bold"
                                 />
@@ -1163,7 +1255,10 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                                   type="text"
                                   required
                                   value={accountName}
-                                  onChange={(e) => setAccountName(e.target.value)}
+                                  onChange={(e) => {
+                                    bankFormDirtyRef.current = true;
+                                    setAccountName(e.target.value);
+                                  }}
                                   placeholder="Full name on account"
                                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2.5 text-sm font-semibold"
                                 />
@@ -1179,7 +1274,10 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                                   type="text"
                                   required
                                   value={correctionNote}
-                                  onChange={(e) => setCorrectionNote(e.target.value)}
+                                  onChange={(e) => {
+                                    bankFormDirtyRef.current = true;
+                                    setCorrectionNote(e.target.value);
+                                  }}
                                   placeholder="Explain why bank details are being corrected before payout"
                                   className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-sm"
                                 />
@@ -1197,7 +1295,20 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                               {editingBank && (
                                 <button
                                   type="button"
-                                  onClick={() => setEditingBank(false)}
+                                  onClick={() => {
+                                    bankFormDirtyRef.current = false;
+                                    setCorrectionNote('');
+                                    if (challenge.myParticipation.myBankDetails) {
+                                      setBankName(challenge.myParticipation.myBankDetails.bankName);
+                                      setAccountNumber(
+                                        challenge.myParticipation.myBankDetails.accountNumber
+                                      );
+                                      setAccountName(
+                                        challenge.myParticipation.myBankDetails.accountName
+                                      );
+                                    }
+                                    setEditingBank(false);
+                                  }}
                                   className="px-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 text-xs font-bold"
                                 >
                                   Cancel
@@ -1241,6 +1352,9 @@ export const RewardChallengeHub: React.FC<RewardChallengeHubProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => {
+                                    bankFormDirtyRef.current = false;
+                                    hydratedBankKeyRef.current = null;
+                                    setEditingBank(false);
                                     setSelectedChallengeId(h.challengeId);
                                     setSubView('overview');
                                     void loadData(h.challengeId);

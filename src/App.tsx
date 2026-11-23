@@ -329,10 +329,13 @@ export default function App() {
     docEl.classList.add(`font-scale-${fontSize}`);
   }, [user?.preferences.theme, user?.preferences.fontSize]);
 
-  const loadWorkspaceData = useCallback(async (authenticatedUser: SafeUser | null) => {
-    if (!authenticatedUser) return;
-    setLoadingRewardChallenge(true);
-    const [courseRes, annRes, actRes, notifRes, rewardRes] = await Promise.allSettled([
+  const loadWorkspaceData = useCallback(
+    async (authenticatedUser: SafeUser | null, options?: { background?: boolean }) => {
+      if (!authenticatedUser) return;
+      if (!options?.background) {
+        setLoadingRewardChallenge(true);
+      }
+      const [courseRes, annRes, actRes, notifRes, rewardRes] = await Promise.allSettled([
       api.catalog.getCourses(),
       api.catalog.getAnnouncements(),
       api.catalog.getActivity(),
@@ -370,7 +373,9 @@ export default function App() {
     if (rewardRes.status === 'fulfilled') {
       setRewardChallenge(rewardRes.value.challenge);
     }
-    setLoadingRewardChallenge(false);
+    if (!options?.background) {
+      setLoadingRewardChallenge(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -495,13 +500,28 @@ export default function App() {
   }, [activeRewardAttempt]);
 
   // Real-time subscription status synchronization across tabs/devices:
-  // Re-fetch authoritative DB state on tab switch, window focus, tab visibility, and every 15s.
+  // Re-fetch authoritative DB state on tab switch, window focus, tab visibility, and every 15s,
+  // while never interrupting active form typing or Admin Console editing.
   useEffect(() => {
-    if (!user || activeExam || activeRewardAttempt) return;
+    if (!user || activeExam || activeRewardAttempt || activeTab === 'admin') return;
+
+    const isFormInputFocused = () => {
+      if (typeof document === 'undefined') return false;
+      const el = document.activeElement;
+      if (!el) return false;
+      const tag = el.tagName;
+      return (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        tag === 'SELECT' ||
+        (el as HTMLElement).isContentEditable
+      );
+    };
 
     const syncNow = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
-      void loadWorkspaceData(user);
+      if (isFormInputFocused()) return;
+      void loadWorkspaceData(user, { background: true });
       setMyCoursesRefreshKey((k) => k + 1);
     };
 
@@ -520,7 +540,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', handleVisibility);
       window.clearInterval(interval);
     };
-  }, [user, activeExam, activeRewardAttempt, loadWorkspaceData]);
+  }, [user, activeExam, activeRewardAttempt, activeTab, loadWorkspaceData]);
 
   useEffect(() => {
     if (!user || activeExam || activeRewardAttempt) return;
@@ -1220,7 +1240,7 @@ export default function App() {
                     startErrorNotice={rewardStartError}
                     onClearStartErrorNotice={() => setRewardStartError(null)}
                     onStartOrResumeChallenge={handleStartOrResumeRewardChallenge}
-                    onChallengeStateUpdated={() => loadWorkspaceData(user)}
+                    onChallengeStateUpdated={() => loadWorkspaceData(user, { background: true })}
                   />
                 )}
 
