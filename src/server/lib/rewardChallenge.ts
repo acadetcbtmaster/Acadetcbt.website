@@ -491,20 +491,25 @@ export async function parseBulkChallengeQuestionsFile(file: {
 
   if (ext === 'pdf' || mime === 'application/pdf') {
     const creds = await getConfiguredGeminiCredentials();
+    let aiPdfError: unknown = null;
     if (creds.apiKey) {
-      const prepared = prepareUploadedDocumentForAi(file);
-      if (prepared.kind === 'pdf_inline') {
-        return extractQuestionsFromContentViaAi(
-          [
-            {
-              text: 'Extract all multiple-choice CBT questions found in this PDF document into JSON with questionText, optionA, optionB, optionC, optionD, correctOption (A|B|C|D), explanation, and subjectCategory.',
-            },
-            {
-              inlineData: { mimeType: 'application/pdf', data: prepared.base64 },
-            },
-          ],
-          creds
-        );
+      try {
+        const prepared = prepareUploadedDocumentForAi(file);
+        if (prepared.kind === 'pdf_inline') {
+          return await extractQuestionsFromContentViaAi(
+            [
+              {
+                text: 'Extract all multiple-choice CBT questions found in this PDF document into JSON with questionText, optionA, optionB, optionC, optionD, correctOption (A|B|C|D), explanation, and subjectCategory.',
+              },
+              {
+                inlineData: { mimeType: 'application/pdf', data: prepared.base64 },
+              },
+            ],
+            creds
+          );
+        }
+      } catch (err) {
+        aiPdfError = err;
       }
     }
     // Lightweight plain-text fallback scan inside uncompressed PDF streams
@@ -512,6 +517,10 @@ export async function parseBulkChallengeQuestionsFile(file: {
     const textRuns = Array.from(rawLatin.matchAll(/\(([^()]{4,})\)/g)).map((m) => m[1]);
     const extracted = parseStructuredTextQuestions(textRuns.join('\n'));
     if (extracted.length > 0) return extracted;
+
+    if (aiPdfError) {
+      throw aiPdfError;
+    }
 
     throw new RewardChallengeError(
       'PDF bulk extraction requires a configured Gemini API key (in AI API Settings) or structured CSV/JSON/TXT/DOCX format.',
@@ -546,6 +555,27 @@ export async function parseBulkChallengeQuestionsFile(file: {
   );
 }
 
+function parseAiJsonArrayPayload(rawText: string | undefined | null): unknown {
+  let cleaned = (rawText || '[]').trim();
+  if (cleaned.startsWith('```')) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  }
+  try {
+    return JSON.parse(cleaned || '[]');
+  } catch {
+    const firstBracket = cleaned.indexOf('[');
+    const lastBracket = cleaned.lastIndexOf(']');
+    if (firstBracket !== -1 && lastBracket > firstBracket) {
+      return JSON.parse(cleaned.slice(firstBracket, lastBracket + 1));
+    }
+    throw new RewardChallengeError(
+      'AI returned an unreadable question payload. Please try again.',
+      502,
+      'AI_PARSE_ERROR'
+    );
+  }
+}
+
 async function extractQuestionsFromContentViaAi(
   parts: Part[],
   creds: { apiKey: string | null; modelName: string }
@@ -563,7 +593,7 @@ async function extractQuestionsFromContentViaAi(
         responseSchema: BULK_EXTRACT_SCHEMA,
       },
     });
-    const arr = JSON.parse(response.text || '[]') as unknown;
+    const arr = parseAiJsonArrayPayload(response.text);
     if (!Array.isArray(arr) || arr.length === 0) {
       throw new RewardChallengeError('AI could not extract any questions from this file.', 422, 'NO_QUESTIONS_PARSED');
     }

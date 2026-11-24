@@ -1088,6 +1088,11 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
                     onChange={(e) => setBulkFile(e.target.files?.[0] || null)}
                     className="w-full text-xs file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:font-bold file:bg-[#eff5ff] file:text-[#0b337a]"
                   />
+                  {bulkFile && (
+                    <div className="text-[11px] font-semibold text-[#0b337a] dark:text-blue-300 truncate">
+                      Selected file: {bulkFile.name}
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center gap-2">
                     <select
                       value={bulkStatus}
@@ -1147,6 +1152,11 @@ export const AdminRewardChallengePanel: React.FC<AdminRewardChallengePanelProps>
                     onChange={(e) => setAiDocFile(e.target.files?.[0] || null)}
                     className="w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:font-bold file:bg-white file:text-[#0b337a]"
                   />
+                  {aiDocFile && (
+                    <div className="text-[11px] font-semibold text-[#0b337a] dark:text-blue-300 truncate">
+                      Attached document: {aiDocFile.name}
+                    </div>
+                  )}
                   <button
                     type="submit"
                     disabled={busy}

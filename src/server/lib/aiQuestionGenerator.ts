@@ -455,7 +455,11 @@ Requirements:
 
   let parsedPayload: unknown;
   try {
-    parsedPayload = JSON.parse(responseText || '[]');
+    let cleaned = (responseText || '[]').trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    }
+    parsedPayload = JSON.parse(cleaned || '[]');
   } catch {
     throw new AiGenerationError(
       'AI returned an unreadable response payload. Please retry generation.',
@@ -555,7 +559,11 @@ Return 1 complete JSON object with questionText, optionA, optionB, optionC, opti
 
   let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(responseText || '{}') as Record<string, unknown>;
+    let cleaned = (responseText || '{}').trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+    }
+    parsed = JSON.parse(cleaned || '{}') as Record<string, unknown>;
   } catch {
     throw new AiGenerationError('AI returned an invalid regeneration payload.', 502);
   }

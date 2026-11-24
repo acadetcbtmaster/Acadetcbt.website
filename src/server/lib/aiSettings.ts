@@ -157,6 +157,15 @@ export function formatGeminiErrorMessage(err: unknown): string {
     return `Gemini API quota or rate limit exceeded: ${sanitized}`;
   }
 
+  if (
+    lower.includes('high demand') ||
+    lower.includes('overloaded') ||
+    lower.includes('unavailable') ||
+    lower.includes('503')
+  ) {
+    return `${sanitized} All fallback Gemini models were temporarily busy; please retry in a few seconds (existing data was not changed).`;
+  }
+
   return sanitized || 'Gemini API request failed.';
 }
 
@@ -191,6 +200,33 @@ function isModelUnavailableError(err: unknown): boolean {
   );
 }
 
+function isTransientOverloadError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
+  return (
+    msg.includes('high demand') ||
+    msg.includes('experiencing high demand') ||
+    msg.includes('overloaded') ||
+    msg.includes('temporarily unavailable') ||
+    msg.includes('try again later') ||
+    msg.includes('unavailable') ||
+    msg.includes('503') ||
+    msg.includes('502') ||
+    msg.includes('504') ||
+    msg.includes('500') ||
+    msg.includes('internal') ||
+    msg.includes('resource_exhausted') ||
+    msg.includes('429') ||
+    msg.includes('rate limit') ||
+    msg.includes('too many requests') ||
+    msg.includes('deadline_exceeded') ||
+    msg.includes('timeout') ||
+    msg.includes('timed out') ||
+    msg.includes('econnreset') ||
+    msg.includes('etimedout') ||
+    msg.includes('fetch failed')
+  );
+}
+
 function isEndpointOrKeyAuthError(err: unknown): boolean {
   const msg = (err instanceof Error ? err.message : String(err || '')).toLowerCase();
   return (
@@ -206,12 +242,17 @@ function isEndpointOrKeyAuthError(err: unknown): boolean {
   );
 }
 
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Executes a Gemini `generateContent` call supporting:
  * 1) Standard Google AI Studio Gemini API keys (`generativelanguage.googleapis.com`)
  * 2) Google Cloud Vertex AI Express Mode keys (`AQ.*` with `vertexai: true`)
- * 3) Automatic fallback to GA Gemini models (`gemini-2.5-flash`, `gemini-3.1-flash-lite`)
- *    if a preview alias (like `gemini-4-hydrogen`) is not enabled on an external key.
+ * 3) Exponential backoff retries + automatic failover across healthy Gemini models
+ *    (`gemini-3.1-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-4-hydrogen`)
+ *    whenever a model hits 503 high demand, rate-limits, or is unavailable on an external key.
  */
 export async function executeGeminiGenerateContent(params: {
   apiKey: string;
@@ -226,47 +267,89 @@ export async function executeGeminiGenerateContent(params: {
   const cleanKey = params.apiKey.trim();
   const primaryModel = sanitizeModelName(params.modelName);
   const candidateModels = Array.from(
-    new Set([primaryModel, 'gemini-2.5-flash', 'gemini-3.1-flash-lite'])
+    new Set([
+      primaryModel,
+      'gemini-3.1-flash-lite',
+      'gemini-2.5-flash',
+      'gemini-2.5-pro',
+      'gemini-4-hydrogen',
+    ])
   );
 
-  // If the key uses the newer AQ. format, try standard Gemini API first and fall back to Vertex Express Mode on auth/key mismatch
+  // Try Vertex Express Mode first for AQ.* keys and standard Developer API first for AIza* keys
   const modes: Array<{ vertexai: boolean }> = cleanKey.startsWith('AQ.')
-    ? [{ vertexai: false }, { vertexai: true }]
+    ? [{ vertexai: true }, { vertexai: false }]
     : [{ vertexai: false }, { vertexai: true }];
 
   let lastErr: unknown = null;
+  let lastNonAuthErr: unknown = null;
 
   for (const mode of modes) {
     const ai = createGeminiClient(cleanKey, { vertexai: mode.vertexai });
+    let sawOnlyAuthErrorsInMode = true;
+
     for (let i = 0; i < candidateModels.length; i += 1) {
       const model = candidateModels[i];
-      try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: params.contents,
-          ...(params.config ? { config: params.config } : {}),
-        });
-        return {
-          response,
-          usedModel: model,
-          usedVertexExpress: mode.vertexai,
-        };
-      } catch (err) {
-        lastErr = err;
-        // If model isn't enabled on this key/endpoint, try next candidate model in same mode
-        if (isModelUnavailableError(err) && i < candidateModels.length - 1) {
-          continue;
+      // Retry primary model briefly before failing over; retry fallback model once if it's the last option
+      const maxAttemptsForModel = i === 0 || i === candidateModels.length - 1 ? 2 : 1;
+
+      for (let attempt = 0; attempt < maxAttemptsForModel; attempt += 1) {
+        try {
+          const response = await ai.models.generateContent({
+            model,
+            contents: params.contents,
+            ...(params.config ? { config: params.config } : {}),
+          });
+          return {
+            response,
+            usedModel: model,
+            usedVertexExpress: mode.vertexai,
+          };
+        } catch (err) {
+          lastErr = err;
+          if (!isEndpointOrKeyAuthError(err)) {
+            sawOnlyAuthErrorsInMode = false;
+            lastNonAuthErr = err;
+          }
+
+          if (isTransientOverloadError(err)) {
+            if (attempt + 1 < maxAttemptsForModel) {
+              await sleepMs(attempt === 0 ? 700 : 1400);
+              continue;
+            }
+            // Move immediately to the next fallback model on sustained high demand / 503 / 429
+            break;
+          }
+
+          // If model isn't enabled on this key/endpoint, try next candidate model in same mode
+          if (isModelUnavailableError(err)) {
+            break;
+          }
+
+          // If endpoint/key auth failed (e.g. Vertex Express AQ. key sent to Developer API), switch mode
+          if (isEndpointOrKeyAuthError(err)) {
+            break;
+          }
+
+          throw err;
         }
-        // If key/endpoint auth failed (e.g. Vertex Express AQ. key sent to Developer API), switch mode
-        if (isEndpointOrKeyAuthError(err) || isModelUnavailableError(err)) {
-          break;
-        }
-        throw err;
       }
+
+      // If endpoint/key auth failed on this mode, no need to test remaining models in this same mode
+      if (isEndpointOrKeyAuthError(lastErr) && sawOnlyAuthErrorsInMode) {
+        break;
+      }
+    }
+
+    // If this mode successfully authenticated (errors were 503/rate-limit, not auth),
+    // don't fall back to the incompatible auth endpoint where it would fail with 401/400.
+    if (!sawOnlyAuthErrorsInMode && !isModelUnavailableError(lastNonAuthErr)) {
+      break;
     }
   }
 
-  throw lastErr instanceof Error ? lastErr : new Error('Gemini API request failed.');
+  const finalErr = lastNonAuthErr ?? lastErr;
+  throw finalErr instanceof Error ? finalErr : new Error('Gemini API request failed.');
 }
 
 export async function getConfiguredGeminiCredentials(): Promise<{
